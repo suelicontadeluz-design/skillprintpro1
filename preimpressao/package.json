@@ -1,0 +1,6 @@
+{
+  "name": "preimpressao-dtf",
+  "private": true,
+  "type": "module",
+  "description": "Núcleo puro de pré-impressão DTF: motor determinístico de gang sheet, pré-flight independente, extrator de metadados e canonicalização/SHA-256. Sem dependências, sem rede, sem IA."
+}
