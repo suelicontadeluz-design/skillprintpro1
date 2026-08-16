@@ -151,6 +151,21 @@ export type CodigoChecagem =
   | 'C14_COMPRIMENTO'
   | 'C15_AREA_UTIL'
   | 'C16_FIDELIDADE_SHA256'
+  | 'C17_FIDELIDADE_PIXEL'
+
+/**
+ * Motivos estáveis de reprovação da C17. São contrato: podem ser persistidos e
+ * comparados. Nunca renomear sem versionar.
+ */
+export type MotivoC17 =
+  | 'ARTEFATO_ILEGIVEL'
+  | 'MESTRE_NAO_REGISTRADO'
+  | 'MESTRE_ILEGIVEL'
+  | 'MESTRE_SHA_DIVERGENTE'
+  | 'ROTACAO_INVALIDA'
+  | 'DIMENSAO_INCOMPATIVEL'
+  | 'REGIAO_FORA_DO_ARTEFATO'
+  | 'PIXEL_DIVERGENTE'
 
 export interface Checagem {
   codigo: CodigoChecagem

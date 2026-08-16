@@ -46,6 +46,11 @@ export interface OpcoesPng {
    * que a rotação de 90° é permutação exata e que nenhum pixel foi alterado.
    */
   padrao?: 'vazio' | 'gradiente'
+  /**
+   * Desloca o gradiente. Serve para gerar uma arte REGENERADA — mesma
+   * dimensão, mesmo DPI, mesmo tamanho de arquivo, pixels diferentes.
+   */
+  semente?: number
 }
 
 export function gerarPng(larguraPx: number, alturaPx: number, opcoes: OpcoesPng = {}): Uint8Array {
@@ -80,13 +85,14 @@ export function gerarPng(larguraPx: number, alturaPx: number, opcoes: OpcoesPng 
   const cru = new Uint8Array(bytesPorLinha * alturaPx)
 
   if ((opcoes.padrao ?? 'vazio') === 'gradiente') {
+    const s = opcoes.semente ?? 0
     for (let y = 0; y < alturaPx; y++) {
       const linha = y * bytesPorLinha + 1
       for (let x = 0; x < larguraPx; x++) {
         const p = linha + x * canais
-        cru[p] = x % 256
-        cru[p + 1] = y % 256
-        cru[p + 2] = (x + y) % 256
+        cru[p] = (x + s) % 256
+        cru[p + 1] = (y + s) % 256
+        cru[p + 2] = (x + y + s) % 256
         if (canais === 4) cru[p + 3] = 255
       }
     }

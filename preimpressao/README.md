@@ -26,10 +26,10 @@ e — no testkit — `node:zlib`.
 | `src/codificar-png.ts` | Codificador PNG RGBA + pHYs |
 | `src/motor-gang-sheet.ts` | Motor determinístico de montagem |
 | `src/renderizador.ts` | Materializa o PNG físico a partir do plano |
-| `src/preflight.ts` | Validador independente — 16 checagens |
+| `src/preflight.ts` | Validador independente — 17 checagens |
 | `testkit/png-sintetico.ts` | Gerador de PNG real para os testes |
 | `tests/harness.ts` | Micro-harness |
-| `tests/run.ts` + `tests/casos-render.ts` | 82 testes |
+| `tests/run.ts` + `casos-render.ts` + `casos-c17.ts` | 102 testes |
 
 ---
 
@@ -205,8 +205,38 @@ esticando a arte.
 | 14 | `C14_COMPRIMENTO` | ≤ máximo, e coerente com o declarado |
 | 15 | `C15_AREA_UTIL` | aproveitamento re-derivado × declarado |
 | 16 | `C16_FIDELIDADE_SHA256` | SHA-256 dos mestres **recalculado agora** |
+| 17 | `C17_FIDELIDADE_PIXEL` | pixels do artefato × pixels do mestre, **byte a byte** |
 
 Cada uma tem um teste que a faz reprovar isoladamente.
+
+### C17 — fidelidade pixel a pixel
+
+C16 prova que os **bytes do mestre** são os aprovados. C17 prova que o
+**artefato realmente contém esses pixels**, nas coordenadas do plano. São
+coisas diferentes, e a diferença importa: um artefato materializado a partir de
+uma arte **regenerada** — mesma dimensão, mesmo DPI, mesmo colorType — passa em
+C16 se o registro tiver sido atualizado de forma coerente. Só C17 pega. Há
+teste exatamente para esse caso.
+
+Para cada instância da página de referência, o pré-flight:
+
+1. decodifica o raster do artefato;
+2. reconfere o SHA-256 do mestre **por conta própria** (não delega a C16);
+3. decodifica o raster do mestre;
+4. calcula a região a partir de `x_um`/`y_um` do plano;
+5. aplica **somente** a rotação registrada, por índice, sem alocar buffer e sem
+   reamostrar;
+6. compara **byte a byte**, com **zero tolerância**, e reporta o primeiro ponto
+   de divergência com canal e coordenada.
+
+Nenhum hash produzido pelo renderizador é aceito como substituto da comparação
+— há teste que falha se `preflight.ts` sequer mencionar `sha256_raster`,
+`sha256_arquivo` ou `manifesto_hash`.
+
+**Motivos estáveis** (`MotivoC17`, contrato — não renomear sem versionar):
+`ARTEFATO_ILEGIVEL` · `MESTRE_NAO_REGISTRADO` · `MESTRE_ILEGIVEL` ·
+`MESTRE_SHA_DIVERGENTE` · `ROTACAO_INVALIDA` · `DIMENSAO_INCOMPATIVEL` ·
+`REGIAO_FORA_DO_ARTEFATO` · `PIXEL_DIVERGENTE`
 
 ### C16 é a prova de fidelidade
 
@@ -286,8 +316,13 @@ O `manifesto_hash` amarra geometria + raster + `parametros_hash` +
    multi-página, essa checagem compara o total do plano, não o da página.
 5. **Bounding box retangular.** Nesting por contorno real fora do escopo.
 6. **FFDH não é ótimo.** É determinístico e auditável, que era o requisito.
-7. **O pré-flight ainda não compara pixels contra o plano.** Ele valida
-   metadados, geometria e hashes. A prova pixel-a-pixel de que cada cópia é o
-   mestre existe hoje nos **testes** do renderizador, não como checagem do
-   validador. Elevá-la a C17 é candidato natural.
-8. **Nada disto está ligado ao ERP.** Não há schema, RPC ou tela envolvidos.
+7. **C17 cobre a página de referência.** Instâncias de outras páginas não são
+   comparadas nessa execução — cada página exige o seu próprio artefato.
+8. **C17 não inspeciona o espaço vazio.** Ela prova que cada região *contém* o
+   mestre; não prova que o restante do canvas está limpo. Conteúdo espúrio fora
+   das regiões passaria despercebido.
+9. **A convenção de rotação é compartilhada.** Renderizador e pré-flight
+   implementam a permutação de 90° de forma independente, mas seguem a mesma
+   convenção documentada (horário). Um teste em `casos-render.ts` a verifica
+   contra uma terceira implementação.
+10. **Nada disto está ligado ao ERP.** Não há schema, RPC ou tela envolvidos.

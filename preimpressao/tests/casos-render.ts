@@ -219,7 +219,7 @@ teste('itens do manifesto carregam o SHA-256 do mestre aprovado', () => {
 // ══════════════════════════════════════════════════════════════════════════
 grupo('Pré-flight sobre o ARTEFATO RENDERIZADO')
 
-teste('artefato renderizado passa nas 16 checagens', () => {
+teste('artefato renderizado passa nas 17 checagens', () => {
   const art = renderizarGangSheet(entradaRender())
   const e: EntradaPreflight = {
     arquivo_producao: art.png,
@@ -233,9 +233,9 @@ teste('artefato renderizado passa nas 16 checagens', () => {
     pagina_referencia: 1,
   }
   const r = executarPreflight(e)
-  ok(r.checagens.length === 16, `${r.checagens.length} checagens`)
+  ok(r.checagens.length === 17, `${r.checagens.length} checagens`)
   ok(r.aprovado, `reprovado: ${r.motivos.join(' | ')}`)
-  return `16/16 · 3 artes · 6 cópias · 1 rotação · ${art.largura_px}×${art.altura_px} px`
+  return `17/17 · 3 artes · 6 cópias · 1 rotação · ${art.largura_px}×${art.altura_px} px`
 })
 
 teste('artefato renderizado corrompido é reprovado pelo pré-flight', () => {

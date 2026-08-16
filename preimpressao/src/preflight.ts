@@ -15,6 +15,7 @@
 
 import { sha256Hex } from './canonico.ts'
 import { lerMetadadosPng } from './metadados-png.ts'
+import { decodificarPngRgba } from './decodificar-png.ts'
 import {
   TOL_PROPORCAO,
   TOL_PX,
@@ -31,6 +32,7 @@ import type {
   EntradaPreflight,
   ItemGangSheet,
   MestreRegistrado,
+  MotivoC17,
   ResultadoPreflight,
 } from './tipos.ts'
 
@@ -379,8 +381,178 @@ export function executarPreflight(entrada: EntradaPreflight): ResultadoPreflight
       ruins.length === 0, { divergencias: ruins })
   }
 
+  // ── C17 — fidelidade PIXEL A PIXEL ──────────────────────────────────────
+  //
+  // C16 prova que os BYTES do mestre são os aprovados. C17 prova que o
+  // ARTEFATO realmente contém esses pixels, nas coordenadas do plano.
+  //
+  // São coisas diferentes: um artefato renderizado a partir de uma arte
+  // regenerada — mesma dimensão, mesmo DPI, mesmo tamanho de arquivo — passa
+  // em C16 se o registro tiver sido atualizado, e só C17 pega.
+  //
+  // Comparação EXATA, byte a byte, zero tolerância. Nenhum hash produzido pelo
+  // renderizador é aceito como substituto: os pixels são lidos e comparados
+  // aqui. A única transformação admitida é a rotação registrada no plano, e ela
+  // é aplicada por índice, sem alocar buffer intermediário e sem reamostrar.
+  {
+    const divergencias: Record<string, unknown>[] = []
+    const LIMITE_RELATO = 8
+    let verificados = 0
+    let itensDivergentes = 0
+
+    const divergir = (m: MotivoC17, extra: Record<string, unknown>): void => {
+      itensDivergentes++
+      if (divergencias.length < LIMITE_RELATO) divergencias.push({ motivo: m, ...extra })
+    }
+
+    const leitura = decodificarPngRgba(entrada.arquivo_producao)
+    if (!leitura.ok || !leitura.raster) {
+      divergir('ARTEFATO_ILEGIVEL', { erro: leitura.erro })
+    } else {
+      const art = leitura.raster
+
+      // Mestres decodificados uma única vez, com o SHA-256 reconferido aqui —
+      // C17 não delega essa verificação a C16.
+      interface MestrePixels { largura_px: number; altura_px: number; dados: Uint8Array }
+      const prontos = new Map<string, MestrePixels | null>()
+
+      for (const m of mestres ?? []) {
+        const chave = `${m.arte_mestre_id}|${m.versao}`
+        if (prontos.has(chave)) continue
+        const shaAtual = sha256Hex(m.bytes)
+        if (shaAtual !== m.sha256_registrado) {
+          prontos.set(chave, null)
+          divergir('MESTRE_SHA_DIVERGENTE', {
+            chave, sha256_registrado: m.sha256_registrado, sha256_atual: shaAtual,
+          })
+          continue
+        }
+        const lm = decodificarPngRgba(m.bytes)
+        if (!lm.ok || !lm.raster) {
+          prontos.set(chave, null)
+          divergir('MESTRE_ILEGIVEL', { chave, erro: lm.erro })
+          continue
+        }
+        prontos.set(chave, {
+          largura_px: lm.raster.largura_px,
+          altura_px: lm.raster.altura_px,
+          dados: lm.raster.dados,
+        })
+      }
+
+      for (const item of itensRef) {
+        const chave = `${item.arte_mestre_id}|${item.versao}`
+        if (!prontos.has(chave)) {
+          divergir('MESTRE_NAO_REGISTRADO', { chave, sequencia: item.sequencia })
+          continue
+        }
+        const mestre = prontos.get(chave)
+        if (!mestre) continue // erro do mestre já relatado
+
+        if (item.rotacao_graus !== 0 && item.rotacao_graus !== 90) {
+          divergir('ROTACAO_INVALIDA', { sequencia: item.sequencia, rotacao: item.rotacao_graus })
+          continue
+        }
+
+        const girado = item.rotacao_graus === 90
+        const larguraRegiao = girado ? mestre.altura_px : mestre.largura_px
+        const alturaRegiao = girado ? mestre.largura_px : mestre.altura_px
+
+        // A região tem de bater com a medida que o próprio plano declara.
+        const larguraPlano = umParaPx(item.largura_final_um, midia.dpi)
+        const alturaPlano = umParaPx(item.altura_final_um, midia.dpi)
+        if (Math.abs(larguraRegiao - larguraPlano) > TOL_PX ||
+            Math.abs(alturaRegiao - alturaPlano) > TOL_PX) {
+          divergir('DIMENSAO_INCOMPATIVEL', {
+            sequencia: item.sequencia,
+            px_mestre: [larguraRegiao, alturaRegiao],
+            px_plano: [larguraPlano, alturaPlano],
+          })
+          continue
+        }
+
+        const x0 = umParaPx(item.x_um, midia.dpi)
+        const y0 = umParaPx(item.y_um, midia.dpi)
+        if (x0 < 0 || y0 < 0 ||
+            x0 + larguraRegiao > art.largura_px ||
+            y0 + alturaRegiao > art.altura_px) {
+          divergir('REGIAO_FORA_DO_ARTEFATO', {
+            sequencia: item.sequencia,
+            regiao: [x0, y0, larguraRegiao, alturaRegiao],
+            artefato: [art.largura_px, art.altura_px],
+          })
+          continue
+        }
+
+        const falha = compararRegiaoExata(
+          art.dados, art.largura_px, x0, y0,
+          mestre.dados, mestre.largura_px, mestre.altura_px,
+          larguraRegiao, alturaRegiao, girado,
+        )
+        verificados++
+        if (falha) {
+          divergir('PIXEL_DIVERGENTE', { sequencia: item.sequencia, ...falha })
+        }
+      }
+    }
+
+    add('C17_FIDELIDADE_PIXEL',
+      'Pixels do artefato conferem exatamente com os do mestre aprovado (comparação byte a byte)',
+      itensDivergentes === 0,
+      {
+        pagina: paginaRef,
+        itens_verificados: verificados,
+        itens_divergentes: itensDivergentes,
+        divergencias,
+        relato_truncado: itensDivergentes > divergencias.length,
+      })
+  }
+
   const motivos = checagens.filter(c => !c.ok).map(c => `${c.codigo}: ${c.descricao}`)
   return { aprovado: motivos.length === 0, checagens, motivos }
+}
+
+const CANAIS_NOME = ['R', 'G', 'B', 'A'] as const
+
+/**
+ * Comparação exata da região do artefato contra o raster do mestre.
+ *
+ * `girado = true` aplica a rotação de 90° no sentido horário POR ÍNDICE — sem
+ * alocar buffer intermediário e, principalmente, sem reamostrar. Convenção
+ * (idêntica à do renderizador, porém implementada de forma independente aqui):
+ *   destino(dx, dy) ← origem(xs = dy, ys = alturaMestre − 1 − dx)
+ *
+ * Retorna `null` quando todos os bytes conferem, ou o primeiro ponto de
+ * divergência. Zero tolerância: um único byte diferente reprova.
+ */
+function compararRegiaoExata(
+  artefato: Uint8Array, artefatoLargura: number, x0: number, y0: number,
+  mestre: Uint8Array, mestreLargura: number, mestreAltura: number,
+  larguraRegiao: number, alturaRegiao: number, girado: boolean,
+): Record<string, unknown> | null {
+  for (let dy = 0; dy < alturaRegiao; dy++) {
+    for (let dx = 0; dx < larguraRegiao; dx++) {
+      const origem = girado
+        ? ((mestreAltura - 1 - dx) * mestreLargura + dy) * 4
+        : (dy * mestreLargura + dx) * 4
+      const destino = ((y0 + dy) * artefatoLargura + (x0 + dx)) * 4
+
+      for (let c = 0; c < 4; c++) {
+        if (artefato[destino + c] !== mestre[origem + c]) {
+          return {
+            canal: CANAIS_NOME[c],
+            x_px: x0 + dx,
+            y_px: y0 + dy,
+            x_local: dx,
+            y_local: dy,
+            esperado: mestre[origem + c],
+            recebido: artefato[destino + c],
+          }
+        }
+      }
+    }
+  }
+  return null
 }
 
 function agruparPorPagina(itens: ItemGangSheet[]): Map<number, ItemGangSheet[]> {

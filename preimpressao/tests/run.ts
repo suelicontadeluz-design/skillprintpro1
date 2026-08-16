@@ -484,11 +484,11 @@ teste('rejeita entrada que não é PNG', () => {
 // ══════════════════════════════════════════════════════════════════════════
 grupo('Pré-flight — caso feliz')
 
-teste('plano íntegro é aprovado nas 16 checagens', () => {
+teste('plano íntegro é aprovado nas 17 checagens', () => {
   const r = executarPreflight(preflightPadrao())
-  ok(r.checagens.length === 16, `esperava 16 checagens, veio ${r.checagens.length}`)
+  ok(r.checagens.length === 17, `esperava 17 checagens, veio ${r.checagens.length}`)
   ok(r.aprovado, `reprovado: ${r.motivos.join(' | ')}`)
-  return `16/16 aprovadas · área útil ${PLANO_PADRAO.area_util_pct.toFixed(2)}%`
+  return `17/17 aprovadas · área útil ${PLANO_PADRAO.area_util_pct.toFixed(2)}%`
 })
 
 teste('pré-flight não importa o motor (independência estrutural)', () => {
@@ -499,7 +499,7 @@ teste('pré-flight não importa o motor (independência estrutural)', () => {
 })
 
 // ══════════════════════════════════════════════════════════════════════════
-grupo('Pré-flight — cada uma das 16 checagens reprova quando deve')
+grupo('Pré-flight — cada uma das 17 checagens reprova quando deve')
 
 teste('C01 arquivo inválido', () => {
   const e = preflightPadrao()
@@ -661,5 +661,6 @@ teste('área útil é coerente com a soma das peças', () => {
 // Casos do renderizador — importados dinamicamente para preservar a ordem de
 // execução (imports estáticos seriam avaliados antes do corpo deste módulo).
 await import('./casos-render.ts')
+await import('./casos-c17.ts')
 
 resumo()
