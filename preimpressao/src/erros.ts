@@ -21,6 +21,18 @@ export type CodigoErro =
   // Montagem
   | 'ARTE_NAO_CABE_NA_LARGURA'
   | 'ARTE_NAO_CABE_NO_COMPRIMENTO'
+  // Renderização (todas fail-closed)
+  | 'RENDER_PAGINA_INEXISTENTE'
+  | 'RENDER_MESTRE_AUSENTE'
+  | 'RENDER_MESTRE_ILEGIVEL'
+  | 'RENDER_MESTRE_SHA_DIVERGENTE'
+  | 'RENDER_MESTRE_SEM_ALPHA'
+  | 'RENDER_MESTRE_PX_INCOMPATIVEL'
+  | 'RENDER_ROTACAO_INVALIDA'
+  | 'RENDER_ESCALA_INVALIDA'
+  | 'RENDER_FORA_DA_MIDIA'
+  | 'RENDER_SOBREPOSICAO'
+  | 'RENDER_CANVAS_INCOERENTE'
 
 export class ErroPreImpressao extends Error {
   readonly codigo: CodigoErro

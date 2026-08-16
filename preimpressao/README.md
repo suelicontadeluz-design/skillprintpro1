@@ -22,10 +22,14 @@ e — no testkit — `node:zlib`.
 | `src/erros.ts` | Códigos de falha explícitos |
 | `src/tipos.ts` | Contratos (somente tipos) |
 | `src/metadados-png.ts` | Extrator de metadados PNG com validação de CRC-32 |
+| `src/decodificar-png.ts` | Decodificador PNG → raster RGBA |
+| `src/codificar-png.ts` | Codificador PNG RGBA + pHYs |
 | `src/motor-gang-sheet.ts` | Motor determinístico de montagem |
+| `src/renderizador.ts` | Materializa o PNG físico a partir do plano |
 | `src/preflight.ts` | Validador independente — 16 checagens |
 | `testkit/png-sintetico.ts` | Gerador de PNG real para os testes |
-| `tests/run.ts` | 56 testes |
+| `tests/harness.ts` | Micro-harness |
+| `tests/run.ts` + `tests/casos-render.ts` | 82 testes |
 
 ---
 
@@ -42,7 +46,15 @@ e — no testkit — `node:zlib`.
         │   • empacota em faixas        │
         │   • paginação por comprimento │
         └───────────────┬───────────────┘
-                        │ plano (ALEGAÇÃO)
+                        │ plano
+                        ▼
+        ┌───────────────────────────────┐
+        │   renderizador                │   cópia de pixels byte-a-byte
+        │   • confere SHA do mestre     │   sem reamostragem, sem blending
+        │   • decodifica uma vez cada   │   rotação 90° = permutação exata
+        │   • compõe e codifica o PNG   │   fail-closed em tudo
+        └───────────────┬───────────────┘
+                        │ PNG físico (ALEGAÇÃO)
                         ▼
         ┌───────────────────────────────┐
         │   preflight                   │   NÃO importa o motor
@@ -211,20 +223,71 @@ Trocar o arquivo no storage depois de aprovado é detectado. Há teste.
 
 ---
 
-## Limitações conhecidas (assumidas neste patch)
+---
+
+## Renderizador
+
+Materializa o PNG de produção a partir do plano. **Não decide nada:** posição,
+rotação e página vêm do plano; ele obedece ou recusa.
+
+```ts
+renderizarGangSheet({ plano, midia, layout, mestres, pagina })
+  → { pagina, largura_px, altura_px, dpi, png,
+      sha256_arquivo, sha256_raster, itens, manifesto_hash }
+```
+
+**O que ele não tem código para fazer:**
+
+- **Não redimensiona.** Não existe interpolação, reamostragem ou filtro neste
+  arquivo. Se os pixels do mestre não correspondem à medida física no DPI
+  contratado (tolerância `TOL_PX`), ele **falha** com
+  `RENDER_MESTRE_PX_INCOMPATIVEL`.
+- **Não regenera.** Os pixels colocados são cópia byte-a-byte do mestre. Como o
+  motor garante ausência de sobreposição — e o renderizador reconfere em pixels
+  antes de escrever — a cópia é direta, sem blending. Nenhum canal é misturado.
+- **Rotação 90° é permutação exata** (sentido horário): nenhum pixel é criado,
+  perdido ou interpolado. Provado por teste comparando o recorte renderizado
+  com a rotação calculada independentemente.
+- **Verifica fidelidade antes de tocar nos pixels:** o SHA-256 de cada mestre é
+  recalculado dos bytes e comparado com o registrado; cada instância precisa
+  apontar para esse mesmo SHA.
+
+**Fail-closed** — toda inconsistência lança:
+`RENDER_PAGINA_INEXISTENTE` · `RENDER_MESTRE_AUSENTE` · `RENDER_MESTRE_ILEGIVEL`
+· `RENDER_MESTRE_SHA_DIVERGENTE` · `RENDER_MESTRE_SEM_ALPHA` ·
+`RENDER_MESTRE_PX_INCOMPATIVEL` · `RENDER_ROTACAO_INVALIDA` ·
+`RENDER_ESCALA_INVALIDA` · `RENDER_FORA_DA_MIDIA` · `RENDER_SOBREPOSICAO` ·
+`RENDER_CANVAS_INCOERENTE`
+
+### Dois hashes, dois propósitos
+
+| Hash | O que prova |
+|---|---|
+| `sha256_raster` | determinismo do **conteúdo**, independente da versão do zlib |
+| `sha256_arquivo` | identidade do **artefato entregue** à produção |
+
+O `manifesto_hash` amarra geometria + raster + `parametros_hash` +
+`resultado_hash` do plano, permitindo verificar o artefato sem transportá-lo.
+
+---
+
+## Limitações conhecidas
 
 1. **Só PNG.** PDF/SVG vetorial não têm DPI intrínseco; exigirão um passo de
-   rasterização declarado antes de entrar no pré-flight.
-2. **Metadados, não pixels.** O pré-flight não decodifica o raster: não
-   verifica se a arte foi *desenhada* na posição calculada, apenas que o plano é
-   geometricamente válido e que os mestres são os aprovados. O renderizador que
-   materializa o PNG ainda não existe — é o elo seguinte.
-3. **Uma página por arquivo.** `pagina_referencia` (padrão 1) define qual página
-   o arquivo representa. Multi-página exige um arquivo por página.
-4. **Bounding box retangular.** Nesting por contorno real não está no escopo;
-   o aproveitamento de área é o de um empacotamento retangular.
-5. **FFDH não é ótimo.** É determinístico e auditável, que é o requisito. Um
-   empacotador melhor pode ser trocado depois, desde que preserve as provas.
-6. **Alfa é estrutural.** C05 confirma que existe canal alfa; não confirma que o
-   fundo está de fato transparente pixel a pixel — isso depende do item 2.
-7. **Nada disto está ligado ao ERP.** Não há schema, RPC ou tela envolvidos.
+   rasterização declarado. O decodificador aceita 8 bits, não entrelaçado,
+   colorType 0/2/4/6 — **paleta e 16 bits falham explicitamente**.
+2. **Alfa é estrutural.** C05 e o renderizador confirmam que existe canal alfa;
+   não confirmam que o fundo está transparente pixel a pixel. O teste do
+   artefato renderizado mostra que os pixels opacos correspondem exatamente à
+   área das artes, mas isso vale para os mestres usados nos testes.
+3. **Uma página por arquivo.** `pagina` no renderizador e `pagina_referencia` no
+   pré-flight. Multi-página = um arquivo por página.
+4. **`C06_QUANTIDADE` é global.** Ao validar uma página isolada de um plano
+   multi-página, essa checagem compara o total do plano, não o da página.
+5. **Bounding box retangular.** Nesting por contorno real fora do escopo.
+6. **FFDH não é ótimo.** É determinístico e auditável, que era o requisito.
+7. **O pré-flight ainda não compara pixels contra o plano.** Ele valida
+   metadados, geometria e hashes. A prova pixel-a-pixel de que cada cópia é o
+   mestre existe hoje nos **testes** do renderizador, não como checagem do
+   validador. Elevá-la a C17 é candidato natural.
+8. **Nada disto está ligado ao ERP.** Não há schema, RPC ou tela envolvidos.

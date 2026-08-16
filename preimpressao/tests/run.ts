@@ -8,7 +8,6 @@ import { fileURLToPath } from 'node:url'
 
 import { montarGangSheet } from '../src/motor-gang-sheet.ts'
 import { executarPreflight } from '../src/preflight.ts'
-import { ErroPreImpressao } from '../src/erros.ts'
 import { canonicalizar, hashCanonico, sha256Hex } from '../src/canonico.ts'
 import {
   TOL_PX, TOL_UM,
@@ -18,51 +17,7 @@ import { lerMetadadosPng } from '../src/metadados-png.ts'
 import { gerarPng, corromper } from '../testkit/png-sintetico.ts'
 import type { EntradaMontagem, EntradaPreflight, ItemGangSheet } from '../src/tipos.ts'
 
-// ── Micro-harness ─────────────────────────────────────────────────────────
-
-interface Resultado { nome: string; ok: boolean; erro?: string; nota?: string }
-const resultados: Resultado[] = []
-let grupoAtual = ''
-
-function grupo(nome: string): void {
-  grupoAtual = nome
-  console.log(`\n── ${nome} ${'─'.repeat(Math.max(0, 68 - nome.length))}`)
-}
-
-function teste(nome: string, fn: () => string | void): void {
-  try {
-    const nota = fn()
-    resultados.push({ nome: `${grupoAtual} :: ${nome}`, ok: true, nota: nota ?? undefined })
-    console.log(`  ✓ ${nome}${nota ? `  — ${nota}` : ''}`)
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e)
-    resultados.push({ nome: `${grupoAtual} :: ${nome}`, ok: false, erro: msg })
-    console.log(`  ✗ ${nome}\n      ${msg}`)
-  }
-}
-
-function ok(cond: boolean, msg: string): void {
-  if (!cond) throw new Error(msg)
-}
-
-function igual(a: unknown, b: unknown, msg: string): void {
-  if (canonicalizar(a) !== canonicalizar(b)) {
-    throw new Error(`${msg}\n      esperado: ${canonicalizar(b)}\n      recebido: ${canonicalizar(a)}`)
-  }
-}
-
-function lancaCodigo(codigo: string, fn: () => unknown): ErroPreImpressao {
-  try {
-    fn()
-  } catch (e) {
-    if (e instanceof ErroPreImpressao) {
-      if (e.codigo !== codigo) throw new Error(`esperava código ${codigo}, veio ${e.codigo} (${e.message})`)
-      return e
-    }
-    throw new Error(`esperava ErroPreImpressao(${codigo}), veio ${String(e)}`)
-  }
-  throw new Error(`esperava ErroPreImpressao(${codigo}), mas nada foi lançado`)
-}
+import { grupo, igual, lancaCodigo, ok, resumo, teste } from './harness.ts'
 
 // ── Cenário padrão ────────────────────────────────────────────────────────
 //
@@ -270,7 +225,9 @@ grupo('Zero IA na montagem')
 teste('grafo de imports do código de produção só contém locais + node:crypto', () => {
   const aqui = dirname(fileURLToPath(import.meta.url))
   const src = join(aqui, '..', 'src')
-  const permitidos = new Set(['node:crypto'])
+  // node:zlib entra pelo codificador/decodificador PNG (deflate/inflate).
+  // Ambos são builtins de compressão: nenhum acesso a rede.
+  const permitidos = new Set(['node:crypto', 'node:zlib'])
   const violacoes: string[] = []
   for (const f of readdirSync(src)) {
     if (!f.endsWith('.ts')) continue
@@ -282,7 +239,7 @@ teste('grafo de imports do código de produção só contém locais + node:crypt
     }
   }
   ok(violacoes.length === 0, `imports não permitidos: ${violacoes.join(', ')}`)
-  return 'apenas módulos locais + node:crypto'
+  return 'apenas módulos locais + node:crypto + node:zlib'
 })
 
 teste('nenhum vestígio de rede ou SDK de modelo no código de produção', () => {
@@ -701,12 +658,8 @@ teste('área útil é coerente com a soma das peças', () => {
 
 // ══════════════════════════════════════════════════════════════════════════
 
-const falhas = resultados.filter(r => !r.ok)
-console.log(`\n${'═'.repeat(72)}`)
-console.log(`TOTAL: ${resultados.length}   PASSARAM: ${resultados.length - falhas.length}   FALHARAM: ${falhas.length}`)
-if (falhas.length > 0) {
-  console.log('\nFALHAS:')
-  for (const f of falhas) console.log(`  ✗ ${f.nome}\n      ${f.erro}`)
-  process.exit(1)
-}
-console.log('Todos os testes passaram.')
+// Casos do renderizador — importados dinamicamente para preservar a ordem de
+// execução (imports estáticos seriam avaliados antes do corpo deste módulo).
+await import('./casos-render.ts')
+
+resumo()

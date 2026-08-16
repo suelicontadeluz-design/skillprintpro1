@@ -40,6 +40,12 @@ export interface OpcoesPng {
   tipo_cor?: 6 | 2
   /** Quando null, o chunk pHYs não é gravado. */
   dpi?: number | null
+  /**
+   * 'vazio' (padrão) = todos os pixels (0,0,0,0).
+   * 'gradiente' = conteúdo direcional e determinístico, necessário para provar
+   * que a rotação de 90° é permutação exata e que nenhum pixel foi alterado.
+   */
+  padrao?: 'vazio' | 'gradiente'
 }
 
 export function gerarPng(larguraPx: number, alturaPx: number, opcoes: OpcoesPng = {}): Uint8Array {
@@ -69,10 +75,22 @@ export function gerarPng(larguraPx: number, alturaPx: number, opcoes: OpcoesPng 
   }
 
   // Scanlines cruas: 1 byte de filtro (0 = None) + largura*canais bytes.
-  // Conteúdo totalmente transparente quando RGBA — é o fundo esperado do DTF.
+  // Zeros representam filtro None + pixels (0,0,0,0) — o fundo esperado do DTF.
   const bytesPorLinha = 1 + larguraPx * canais
   const cru = new Uint8Array(bytesPorLinha * alturaPx)
-  // Zeros já representam filtro None + pixels (0,0,0,0). Nada mais a escrever.
+
+  if ((opcoes.padrao ?? 'vazio') === 'gradiente') {
+    for (let y = 0; y < alturaPx; y++) {
+      const linha = y * bytesPorLinha + 1
+      for (let x = 0; x < larguraPx; x++) {
+        const p = linha + x * canais
+        cru[p] = x % 256
+        cru[p + 1] = y % 256
+        cru[p + 2] = (x + y) % 256
+        if (canais === 4) cru[p + 3] = 255
+      }
+    }
+  }
 
   partes.push(chunk('IDAT', new Uint8Array(deflateSync(cru))))
   partes.push(chunk('IEND', new Uint8Array(0)))
