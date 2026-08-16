@@ -15,12 +15,47 @@ Edge alvo: `zapi-ingest`
 
 > `zapi-ingest` **nao possui fonte versionada em nenhum repositorio acessivel**
 > (`skillprintpro1` e um admin Next.js; `skillprint-erp` so versiona spedy-*,
-> agente-noturno e migrations do ERP). O baseline aqui e registrado por
-> versao + hash, que sao verificaveis, em vez de uma copia transcrita a mao —
-> publicar um fonte que talvez nao corresponda ao vigente violaria o item 3 do
-> `AGENTS.md`. Antes do deploy, recuperar o fonte exato com
-> `mcp__Supabase__get_edge_function(project_id, 'zapi-ingest')` e commitar como
-> `index.ts` na mesma branch.
+> agente-noturno e migrations do ERP).
+
+## BLOQUEIO DE DEPLOY — fonte byte-a-byte indisponivel nesta sessao
+
+Condicao dada no GO: recuperar o fonte exato do ACTIVE e versiona-lo antes do
+deploy, **sem reconstruir/transcrever manualmente**; nao sendo possivel
+byte-a-byte, parar antes do deploy. Nao foi possivel. Caminhos verificados:
+
+| caminho | resultado |
+|---|---|
+| Supabase CLI (`supabase functions download`) | nao instalado no container |
+| `SUPABASE_ACCESS_TOKEN` em env | ausente |
+| token em `~/.supabase`, `~/.claude.json`, configs | ausente |
+| Management API via `curl` | sem credencial; o MCP e HTTP remoto e a credencial fica do lado do servidor |
+| persistencia automatica do resultado da tool | so ocorre em resultado grande demais para o contexto; o de `get_edge_function` coube e nunca foi a disco |
+
+O unico mecanismo disponivel, `mcp__Supabase__get_edge_function`, entrega o
+fonte **para dentro do contexto do modelo**. Grava-lo em disco significaria
+re-emitir ~40 KB pelo proprio modelo — que e exatamente a transcricao manual
+vetada. Pior: **nao ha verificador independente**, porque `ezbr_sha256` e o hash
+do bundle eszip, nao do `index.ts`, entao a igualdade byte-a-byte nem poderia ser
+provada depois.
+
+O mesmo limite atinge o deploy em si: `mcp__Supabase__deploy_edge_function`
+exige `files[].content`, ou seja, o arquivo inteiro re-emitido pelo modelo. **Nao
+existe aplicacao de patch no lado do servidor.** Logo o deploy v122 por esta
+sessao teria a mesma fragilidade que a condicao 5 quis evitar.
+
+**Desbloqueio** (qualquer um dos tres, fora desta sessao):
+
+1. `supabase functions download zapi-ingest --project-ref ldrdtaibazplvrbwyrvx`
+   numa maquina com CLI + `SUPABASE_ACCESS_TOKEN`, commitar o `index.ts` cru,
+   e entao aplicar os 2 blocos deste documento por diff de verdade;
+2. baixar o fonte pelo painel do Supabase (Edge Functions -> zapi-ingest ->
+   Code) e commitar;
+3. dar a esta sessao um `SUPABASE_ACCESS_TOKEN` de leitura, permitindo o
+   download direto para disco sem passar pelo modelo.
+
+Feito o passo 1/2/3, o restante do pipeline ja esta pronto: migration
+**aplicada e validada em 16/08/2026**, patch com ancoras exatas abaixo, canario
+de 10 provas e rollback escritos.
 
 ## Diff — 2 blocos, nenhuma linha existente alterada
 

@@ -248,7 +248,31 @@ CTWA dentro do horario comercial** (~11/dia pela media de 312/30d).
 
 ---
 
-## 9. Gate
+## 9. Estado apos o GO (16/08/2026)
+
+GO dado nos 5 pontos, com a condicao de que o baseline v121 seja recuperado
+byte-a-byte, sem transcricao manual, parando antes do deploy caso nao fosse
+possivel.
+
+| # | passo da ordem acordada | estado |
+|---|---|---|
+| 1 | capturar legitimamente | **feito** — claim `ok=true`, trilha `midia` |
+| 2 | recuperar/versionar v121 byte-a-byte | **BLOQUEADO** — ver `supabase/functions/zapi-ingest/PATCH.md` |
+| 3 | aplicar migration | **feito** — `marketing_touches_source_system_zapi_ingest` |
+| 4 | validar constraint/RPC | **feito** — `zapi_ingest` aceito, baseline preservado, RPC presente, tabela ainda com 0 linhas |
+| 5 | deploy v122 | **nao executado** — parado na condicao do ponto 2 |
+| 6..10 | canario -> ocorrencia organica -> prova -> medicao -> fechamento | nao iniciados, dependem do deploy |
+
+A validacao do passo 4 foi feita **sem inserir linha de teste**: a tabela e
+append-only por trigger e o `criterio_aceite` exige prova em ocorrencia
+organica. Uma linha sintetica nao poderia ser apagada depois e contaminaria a
+evidencia permanentemente.
+
+Estado de producao agora: dominio do CHECK ampliado e **inerte** — nenhum
+escritor existe, entao o comportamento observavel do sistema e identico ao de
+antes da migration.
+
+## 10. Gate
 
 Chegamos exatamente no gate registrado na frente. **Precisa da sua decisao:**
 
