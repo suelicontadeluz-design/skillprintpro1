@@ -43,17 +43,22 @@ exige `files[].content`, ou seja, o arquivo inteiro re-emitido pelo modelo. **Na
 existe aplicacao de patch no lado do servidor.** Logo o deploy v122 por esta
 sessao teria a mesma fragilidade que a condicao 5 quis evitar.
 
-**Desbloqueio** (qualquer um dos tres, fora desta sessao):
+### Desbloqueio — decidido em 16/08/2026
 
-1. `supabase functions download zapi-ingest --project-ref ldrdtaibazplvrbwyrvx`
-   numa maquina com CLI + `SUPABASE_ACCESS_TOKEN`, commitar o `index.ts` cru,
-   e entao aplicar os 2 blocos deste documento por diff de verdade;
-2. baixar o fonte pelo painel do Supabase (Edge Functions -> zapi-ingest ->
-   Code) e commitar;
-3. dar a esta sessao um `SUPABASE_ACCESS_TOKEN` de leitura, permitindo o
-   download direto para disco sem passar pelo modelo.
+**Acao manual unica, escolhida pelo Alessandro:** baixar o fonte da v121 pelo
+painel do Supabase (**Edge Functions -> zapi-ingest -> Code**) e commitar como
+`supabase/functions/zapi-ingest/index.ts` nesta branch.
 
-Feito o passo 1/2/3, o restante do pipeline ja esta pronto: migration
+**Recusado explicitamente:** fornecer `SUPABASE_ACCESS_TOKEN` a uma sessao —
+aumenta a superficie de credenciais sem necessidade, ja que o painel resolve.
+**Nao repropor.**
+
+Tambem valido, se um dia houver CLI numa maquina de trabalho:
+`supabase functions download zapi-ingest --project-ref ldrdtaibazplvrbwyrvx`.
+
+Em nenhuma hipotese o fonte deve ser transcrito pelo modelo.
+
+Com o arquivo no repositorio, o restante do pipeline ja esta pronto: migration
 **aplicada e validada em 16/08/2026**, patch com ancoras exatas abaixo, canario
 de 10 provas e rollback escritos.
 
