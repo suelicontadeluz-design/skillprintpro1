@@ -72,6 +72,29 @@ Espera sem predicado continua **válida, aberta, não interpretada** e responde 
 
 Migração é incremental: registrar predicado é um `INSERT` numa tabela satélite, espera por espera.
 
+## 6b. Matriz de prova (executada em 17/08/2026)
+
+| # | Caso | Resultado | Evidência |
+|---|---|---|---|
+| 1 | **Bruno** real | `NAO_SATISFEITA` | `mensagem_envio`, `autor_id=agente-conversacao`, desde a abertura da espera, observado `0` |
+| 2 | **Vera GATE 1** real | `NAO_SATISFEITA` | `vera_retencao_ciclos`, ciclo `fb03305e`, `estado_atual=mensagem_enviada` = `estado_base`, `encerrado_em` nulo |
+| 3 | **Temporal controlada** | `NAO_SATISFEITA` → `SATISFEITA` | T0 03:49:26 (faltavam 290s) → passagem **natural** do relógio → T1 03:54:40 (24s após o alvo) |
+| 4 | **`decisao_humana`** | `NAO_AVALIAVEL` | motivo `decisao_humana_nao_e_observavel_por_maquina` |
+| 5 | **Legada sem predicado** | `NAO_AVALIAVEL` | motivo `sem_predicado_estruturado`; continua aberta e válida |
+
+**Determinismo:** duas chamadas seguidas → resultado idêntico, evidência decisória idêntica, `md5` de `frentes_espera` inalterado. Só `observado_em` difere — é carimbo de observação, não critério.
+
+**Ciclo de reativação, na ordem observada:**
+
+1. espera aberta + condição falsa → `acionavel=false`
+2. condição verdadeira → encerramento → `evidencia_encerramento` com o JSON da evidência
+3. `esperas_abertas=0`, mas `acionavel` **ainda false** por `frente_ocupada` — o claim era meu. Reportado sem manipular estado
+4. claim liberado → `vw_frentes_elegiveis` recalculou → `elegivel=true`, `acionavel=true`, `motivo_nao_acionavel=null`
+
+**Trava de encerramento**, as duas ramificações: `p_automatico=true` numa espera travada → recusa `encerramento_automatico_nao_autorizado`; `p_automatico=false` → encerra. E encerrar antes do instante-alvo → recusado por `condicao_nao_satisfeita`.
+
+**Aditividade:** `vw_frentes_elegiveis`, `vw_esperas_abertas`, `fn_gps_proxima` e `fn_frente_claim` com sha256 idêntico ao backup, conferido no início **e** no fim.
+
 ## 7. Riscos
 
 | Risco | Situação |
