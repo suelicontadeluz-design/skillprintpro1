@@ -417,3 +417,81 @@ Baseline em `backup_ml23_baseline_canario` (184 pontos), comparado após a rodad
 As duas frentes criadas na rodada anterior nasceram com **prioridade 2** numa trilha cuja melhor
 prioridade é 1 — estruturalmente inalcançáveis mesmo sem ambiguidade. **Frente portadora criada
 com prioridade dominada nasce morta.**
+
+---
+
+# ADENDO 4 — Desbloqueio da seleção GPS (17/08/2026)
+
+`total_selecionaveis`: **0 → 1**, sem registrar uma única rota humana e sem alterar política global.
+
+## Diagnóstico por trilha
+
+### `conversao_joao` — `MODELAGEM_INCORRETA` (espera não registrada)
+
+Os 5 candidatos empatavam em prioridade 1, mas **quatro declaravam espera no próprio
+`proximo_passo`**:
+
+| Frente | Texto que declara a espera | Tipo |
+|---|---|---|
+| `guarda-preco-contrato-por-produto` | *"Reavaliar em 22/08"*, janela de 7 dias correndo | `data_agendada` |
+| `joao-continuidade-orcamento-fechamento` | *"Remedir organicamente 2 casos reais SEM PROVOCAR MENSAGEM"* | `evento_organico` |
+| `joao-correcao-contexto-intencao` | *"Deixar o trafego organico alimentar joao_slots_observacao e SO ENTAO medir"* | `evento_organico` |
+| `joao-preco-guarda-cega-produto` | *"aguardar … AUTORIZACAO NOVA para editar agente-noturno … NAO empilhar sobre o v163"* | `decisao_humana` |
+
+Registradas as 4 esperas → trilha virou **`UNICA`** em `joao-contexto-comercial-canonico`.
+**Não houve desempate: houve remoção de falso trabalho.**
+
+### `aprendizado` — `ROTA_HUMANA_REAL`
+
+Os dois candidatos P1 também aguardavam e foram registrados: `aprendizados-teto-descarte-total`
+exige publicar v153 pelo CLI com `SUPABASE_ACCESS_TOKEN` (capacidade ausente, já provada — o proxy
+nega `api.supabase.com`) → `decisao_humana`; `renata-loop-memoria-resultado` aguarda a primeira
+linha orgânica de `memoria_contexto_uso` → `evento_organico` com predicado.
+
+Sobraram exatamente **duas** candidatas, sem precedência objetiva entre si. **Não escolhi.**
+
+### `atribuicao` — `ROTA_HUMANA_REAL`, reduzida por prova (10 → 7)
+
+Só usando precedência **já declarada em prosa**:
+
+- `atribuicao-vendas-v2`: *"recorte ENCERRADO em implementacao; o que resta é OBSERVAÇÃO, coletar alguns dias de baseline"* → espera
+- `atrib-ledger-shadow`: *"BLOQUEIO DELIBERADO: seguranca-funcoes-anon vem antes de qualquer aplicação (decisão dele, reafirmada 10/08)"* → `depende_de`
+- `atrib-backfill-promocao`: *"Depois das filhas anteriores"* → `depende_de` das 5 irmãs
+
+As 7 restantes não têm precedência declarada entre si.
+
+## Prioridade ≠ ordem
+
+**Não mexi em nenhuma prioridade.** Promover as duas frentes P2 de `aprendizado` a P1 não
+desbloquearia nada — apenas aumentaria o empate de 2 para 4 — e seria fabricar sequência com o
+campo errado.
+
+## Impacto nas 18 trilhas
+
+| Trilha | Antes | Depois | Causa |
+|---|---|---|---|
+| `conversao_joao` | AMBIGUA (5) | **UNICA (1)** | efeito pretendido |
+| `atribuicao` | AMBIGUA (10) | AMBIGUA (7) | redução por prova |
+| `governanca` | UNICA | NENHUMA | artefato do meu claim; reverte no release |
+| `seguranca` | UNICA | NENHUMA | **não fui eu** — claim concorrente de outra sessão (`claude-code-20260817-erp-item1-v0xhal`), respeitado |
+
+Nenhuma AMBIGUA silenciosamente desempatada, nenhuma espera ignorada.
+
+## Preservação
+
+| Verificação | Resultado |
+|---|---|
+| Regressões de `COMPROVADO` | **0** |
+| Ledger (antes → depois) | 190 → **190** |
+| Comprovados | 75 → **75** |
+| Rotas vigentes | 1 → **1** (a mesma do Alessandro) — registrei **zero** |
+
+## Frente que nasce morta — validação criada
+
+`vw_microloops_23_portadora_saude` classifica cada portadora em `OK_SELECIONAVEL`,
+`PRIORIDADE_DOMINADA`, `DEPENDENCIA_BLOQUEIA`, `EM_ESPERA`, `TRILHA_AMBIGUA_SEM_ROTA` ou
+`SEM_CAMINHO_PARA_SELECIONAVEL`. Consultar **antes** de declarar uma frente como portadora.
+
+## Próximo ponto legítimo (não capturado)
+
+`agente-noturno` / `etapa_crm` → `joao-contexto-comercial-canonico` → `conversao_joao` → GPS `UNICA`.
