@@ -1,0 +1,569 @@
+<title>Auditoria do Executor GPS</title>
+<style>
+  :root {
+    --bg: #F4F6F8;
+    --surface: #FFFFFF;
+    --surface-2: #EDF1F4;
+    --line: #D5DEE5;
+    --line-soft: #E4EAEF;
+    --ink: #14202B;
+    --ink-2: #3C4C5B;
+    --muted: #64757F;
+    --accent: #0E6B87;
+    --accent-soft: #E2EFF4;
+    --ok: #1C7048;
+    --warn: #8A5A00;
+    --crit: #A62F2F;
+    --code-bg: #EAEFF3;
+
+    --serif: ui-serif, "Iowan Old Style", "Source Serif 4", Palatino, Georgia, serif;
+    --sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", "Cascadia Mono", "Roboto Mono", Menlo, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0E141A;
+      --surface: #161E26;
+      --surface-2: #1C262F;
+      --line: #2C3945;
+      --line-soft: #232E38;
+      --ink: #DEE6ED;
+      --ink-2: #B3C1CD;
+      --muted: #8496A3;
+      --accent: #57B4D2;
+      --accent-soft: #16323D;
+      --ok: #56B98A;
+      --warn: #D4A24A;
+      --crit: #E08585;
+      --code-bg: #1B252E;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #0E141A;
+    --surface: #161E26;
+    --surface-2: #1C262F;
+    --line: #2C3945;
+    --line-soft: #232E38;
+    --ink: #DEE6ED;
+    --ink-2: #B3C1CD;
+    --muted: #8496A3;
+    --accent: #57B4D2;
+    --accent-soft: #16323D;
+    --ok: #56B98A;
+    --warn: #D4A24A;
+    --crit: #E08585;
+    --code-bg: #1B252E;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 16.5px;
+    line-height: 1.62;
+    margin: 0;
+    padding: 0 1.25rem 6rem;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .wrap { max-width: 47rem; margin: 0 auto; }
+
+  /* ---- masthead ---- */
+  header.masthead {
+    padding: 3.5rem 0 1.75rem;
+    border-bottom: 2px solid var(--ink);
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+  }
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: .72rem;
+    letter-spacing: .13em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+  h1 {
+    font-family: var(--serif);
+    font-weight: 600;
+    font-size: clamp(2rem, 5.4vw, 2.9rem);
+    line-height: 1.12;
+    letter-spacing: -.015em;
+    text-wrap: balance;
+    margin: 0;
+  }
+  .standfirst {
+    font-size: 1.05rem;
+    color: var(--ink-2);
+    max-width: 38rem;
+    margin: 0;
+  }
+  .meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: .5rem 1.4rem;
+    font-family: var(--mono);
+    font-size: .76rem;
+    color: var(--muted);
+  }
+
+  /* ---- verdict ---- */
+  .verdict {
+    margin: 2rem 0 0;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-left: 4px solid var(--accent);
+    border-radius: 3px;
+    padding: 1.25rem 1.4rem;
+    display: flex;
+    flex-direction: column;
+    gap: .55rem;
+  }
+  .verdict .label {
+    font-family: var(--mono);
+    font-size: .7rem;
+    letter-spacing: .13em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+  .verdict .value {
+    font-family: var(--mono);
+    font-size: 1.3rem;
+    font-weight: 600;
+    color: var(--accent);
+    letter-spacing: -.01em;
+  }
+  .verdict p { margin: 0; color: var(--ink-2); font-size: .95rem; }
+
+  /* ---- sections ---- */
+  section {
+    padding-top: 3rem;
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+  }
+  h2 {
+    font-family: var(--serif);
+    font-size: 1.45rem;
+    font-weight: 600;
+    line-height: 1.25;
+    letter-spacing: -.01em;
+    text-wrap: balance;
+    margin: 0;
+    padding-bottom: .5rem;
+    border-bottom: 1px solid var(--line);
+    display: flex;
+    align-items: baseline;
+    gap: .75rem;
+  }
+  h2 .num {
+    font-family: var(--mono);
+    font-size: .8rem;
+    font-weight: 500;
+    color: var(--accent);
+    letter-spacing: .04em;
+    flex: none;
+  }
+  h3 {
+    font-family: var(--sans);
+    font-size: .95rem;
+    font-weight: 650;
+    letter-spacing: .005em;
+    margin: .5rem 0 0;
+    color: var(--ink);
+  }
+  p { margin: 0; }
+  section > p, section > ul, section > ol { color: var(--ink-2); }
+
+  ul, ol { margin: 0; padding-left: 1.3rem; display: flex; flex-direction: column; gap: .45rem; }
+  li { padding-left: .15rem; }
+
+  strong { color: var(--ink); font-weight: 650; }
+  code {
+    font-family: var(--mono);
+    font-size: .855em;
+    background: var(--code-bg);
+    padding: .1em .36em;
+    border-radius: 3px;
+    color: var(--ink);
+  }
+  a { color: var(--accent); }
+
+  /* ---- tables ---- */
+  .scroll { overflow-x: auto; border: 1px solid var(--line); border-radius: 3px; background: var(--surface); }
+  table { border-collapse: collapse; width: 100%; font-size: .875rem; }
+  th, td { text-align: left; padding: .62rem .8rem; border-bottom: 1px solid var(--line-soft); vertical-align: top; }
+  thead th {
+    font-family: var(--mono);
+    font-size: .68rem;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--muted);
+    font-weight: 500;
+    background: var(--surface-2);
+    border-bottom: 1px solid var(--line);
+    white-space: nowrap;
+  }
+  tbody tr:last-child td { border-bottom: none; }
+  td.num, th.num { font-variant-numeric: tabular-nums; font-family: var(--mono); white-space: nowrap; }
+  .rec td { background: var(--accent-soft); }
+
+  /* ---- figures / callouts ---- */
+  .flow {
+    font-family: var(--mono);
+    font-size: .78rem;
+    line-height: 1.75;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 3px;
+    padding: 1rem 1.1rem;
+    overflow-x: auto;
+    white-space: pre;
+    color: var(--ink-2);
+    margin: 0;
+  }
+  .note {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-left: 3px solid var(--warn);
+    border-radius: 3px;
+    padding: .95rem 1.1rem;
+    display: flex;
+    flex-direction: column;
+    gap: .5rem;
+    font-size: .93rem;
+    color: var(--ink-2);
+  }
+  .note.crit { border-left-color: var(--crit); }
+  .note .tag {
+    font-family: var(--mono);
+    font-size: .68rem;
+    letter-spacing: .12em;
+    text-transform: uppercase;
+    color: var(--warn);
+  }
+  .note.crit .tag { color: var(--crit); }
+
+  /* ---- stat row ---- */
+  .stats {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
+    gap: 1px;
+    background: var(--line);
+    border: 1px solid var(--line);
+    border-radius: 3px;
+    overflow: hidden;
+  }
+  .stat { background: var(--surface); padding: .85rem 1rem; display: flex; flex-direction: column; gap: .2rem; }
+  .stat .n { font-family: var(--mono); font-size: 1.5rem; font-weight: 600; color: var(--ink); font-variant-numeric: tabular-nums; line-height: 1.1; }
+  .stat .n.hot { color: var(--crit); }
+  .stat .k { font-size: .76rem; color: var(--muted); line-height: 1.35; }
+
+  footer {
+    margin-top: 4rem;
+    padding-top: 1.5rem;
+    border-top: 1px solid var(--line);
+    font-size: .9rem;
+    color: var(--muted);
+    display: flex;
+    flex-direction: column;
+    gap: .6rem;
+  }
+  footer strong { color: var(--ink); }
+</style>
+
+<div class="wrap">
+
+<header class="masthead">
+  <div class="eyebrow">Camada executor / autonomia · Rodada 1 · Read-only</div>
+  <h1>Automatizar a execução das frentes guiada pelo GPS</h1>
+  <p class="standfirst">Auditoria da arquitetura real antes de escrever qualquer linha. O que já existe, o que falta de verdade, e qual é o menor mecanismo seguro que tira o Alessandro do loop operacional sem manter um LLM aceso por nada.</p>
+  <div class="meta">
+    <span>17/08/2026</span>
+    <span>Zero implementação</span>
+    <span>GPS não alterado</span>
+    <span>Projeto <code>ldrdtaibazplvrbwyrvx</code></span>
+  </div>
+</header>
+
+<div class="verdict">
+  <div class="label">Veredito final</div>
+  <div class="value">PATCH_PEQUENO</div>
+  <p>Os trilhos já existem. Falta a ponte entre o GPS e o claim — duas tabelas, uma função SQL, uma edge function, um cron nascendo desligado. Um item de contrato vai para a sessão do GPS (custódia do <code>claim_token</code>) e <strong>não bloqueia o canário</strong>.</p>
+</div>
+
+<section>
+  <h2><span class="num">00</span> Onde as coisas realmente estão</h2>
+  <p>O repositório <code>skillprintpro1</code> está praticamente vazio: um commit, app Next.js, sem <code>AGENTS.md</code>. <strong>O GPS e toda a arquitetura de agentes vivem no projeto Supabase <code>ldrdtaibazplvrbwyrvx</code></strong>, não no projeto citado no README.</p>
+  <div class="note">
+    <span class="tag">Pendência de contexto</span>
+    <p><code>AGENTS.md</code> não existe em disco nem no histórico git. O que existe é o protocolo canônico devolvido por <code>fn_contexto_codex_frentes()</code> — 10 regras: PRE-FLIGHT, CLAIM, EXCLUSIVIDADE, HEARTBEAT, RECONCILIAR, POST-FLIGHT, BAIXA, ESCOPO, TRILHA, ONDA. Auditei o executor contra esse protocolo. Se existe um <code>AGENTS.md</code> em outro lugar, ele precisa ser apontado antes da implementação.</p>
+  </div>
+</section>
+
+<section>
+  <h2><span class="num">01</span> Arquitetura atual encontrada</h2>
+  <div class="scroll"><table>
+    <thead><tr><th>Camada</th><th>Objetos</th><th>Estado</th></tr></thead>
+    <tbody>
+      <tr><td>GPS (decisão)</td><td><code>fn_gps_proxima</code>, <code>fn_gps_panorama</code>, <code>vw_frentes_elegiveis</code>, <code>vw_esperas_abertas</code>, <code>vw_gps_rota_vigente</code>, <code>gps_rota_decisao</code></td><td>Completo e coerente</td></tr>
+      <tr><td>Governança (execução)</td><td><code>fn_frente_claim</code>, <code>fn_frente_heartbeat</code>, <code>fn_frente_finalizar_chat</code>, <code>frentes_claims_segredo</code></td><td>Completo, token sha256</td></tr>
+      <tr><td>Estado</td><td><code>frentes</code>, <code>frentes_espera</code>, <code>frentes_historico</code>, <code>frentes_trilhas</code></td><td>Completo</td></tr>
+      <tr><td>Agendamento</td><td><code>pg_cron</code> (~100 jobs) + <code>pg_net</code> → 267 edge functions</td><td>Padrão maduro</td></tr>
+      <tr><td>Runner de IA p/ dev</td><td><code>go_ai_dev_*</code>, <code>go_ai_provider_circuit</code>, <code>go_ai_claim_run()</code></td><td>Protótipo dormente</td></tr>
+      <tr><td>Autonomia</td><td><code>autonomia_niveis</code> (0–5), <code>org_autonomia_*</code></td><td>Existe, fora de escopo</td></tr>
+    </tbody>
+  </table></div>
+  <h3>Estado vivo do GPS agora</h3>
+  <div class="stats">
+    <div class="stat"><span class="n">18</span><span class="k">trilhas ativas</span></div>
+    <div class="stat"><span class="n">3</span><span class="k">UNICA</span></div>
+    <div class="stat"><span class="n hot">9</span><span class="k">AMBIGUA</span></div>
+    <div class="stat"><span class="n">4</span><span class="k">TODAS_AGUARDANDO</span></div>
+    <div class="stat"><span class="n">10</span><span class="k">esperas abertas<br>(7 = decisão humana)</span></div>
+  </div>
+  <p><strong>Descoberta central:</strong> nenhum dos ~100 jobs de cron toca o GPS. Existem trilhos completos e um motor de decisão completo — falta exatamente a ponte entre os dois.</p>
+</section>
+
+<section>
+  <h2><span class="num">02</span> Mecanismos existentes reutilizáveis</h2>
+  <ol>
+    <li><strong>cron + pg_net + edge function.</strong> Padrão provado em ~100 jobs. É o "worker barato" que a missão pede; já existe.</li>
+    <li><strong><code>fn_gps_proxima</code> / <code>fn_gps_panorama</code>.</strong> Decisão determinística, <code>STABLE</code>, <strong>186 ms</strong> medidos para varrer as 18 trilhas. É o "consultar GPS" da iteração, sem LLM.</li>
+    <li><strong>Ciclo de claim completo.</strong> Claim → token → heartbeat → finalizar, com expiração de lease, exclusividade por trilha e log. O executor não precisa de governança nova; precisa obedecer a existente.</li>
+    <li><strong><code>go_ai_dev_*</code> — a peça mais subestimada.</strong> Já traz orçamento mensal com reserva antes de rodar, ledger de custo por token, limite de rodadas e tool calls, kill switch (<code>enabled</code>), dry-run (<code>mode='observe'</code>), política de efeito externo (<code>allow_*</code>), circuit breaker e propostas com <code>rollback_plan</code>.</li>
+    <li><strong>Sinal de progresso já existe.</strong> <code>frentes_historico</code> grava <code>{"proximo_passo_alterado": true}</code> por trigger. É a base verificável do anti-loop.</li>
+  </ol>
+  <div class="note">
+    <span class="tag">Refutação tentada</span>
+    <p>Tentei matar a necessidade de executor novo. <code>go_ai_dev_*</code> chega perto — é literalmente um executor de dev com orçamento. Mas: 7 runs, todos <code>manual</code>, todos de 25/07, 0 iterações, <code>mode='observe'</code>, <code>require_human_approval=true</code>, e <strong>nenhuma coluna liga um run a uma frente ou a um claim</strong>. É chassi sem transmissão: reutilizável, não aproveitável como está.</p>
+  </div>
+</section>
+
+<section>
+  <h2><span class="num">03</span> Autoridade e autonomia já existentes</h2>
+  <p>Existe escala madura (<code>autonomia_niveis</code> 0–5, de "Observador" a "Autônomo"), 61 regras em <code>org_autonomia_regras</code> e um agente dedicado a avaliar promoções (André, nível 0 — só propõe).</p>
+  <p><strong>Mas ela não cobre o executor.</strong> A escala é chaveada por <code>agente_slug</code> e todos os 23 agentes são de runtime comercial, marketing ou infra. E o próprio protocolo do GPS declara o escopo: <em>"governanca de chats de desenvolvimento, nao agentes comerciais em runtime"</em>.</p>
+  <p>A política de autonomia do executor <strong>não existe</strong> e precisa ser escrita. Não deve ser enxertada em <code>autonomia_niveis</code> — misturar governança de agente comercial com governança de execução de frentes confunde dois domínios que o sistema separou de propósito.</p>
+</section>
+
+<section>
+  <h2><span class="num">04</span> O que realmente falta</h2>
+  <ol>
+    <li><strong>A ponte GPS → claim.</strong> Nada chama <code>fn_gps_proxima</code> automaticamente.</li>
+    <li><strong>Custódia do <code>claim_token</code>.</strong> Devolvido uma única vez; a tabela guarda só o hash. Um executor que morre entre invocações perde o token e trava a frente até a lease expirar. → item de contrato.</li>
+    <li><strong>Vocabulário de parada.</strong> Não existe enum nem tabela com os 8 motivos canônicos.</li>
+    <li><strong>Anti-loop.</strong> Não existe contador de tentativas sem progresso.</li>
+  </ol>
+  <p>Tudo o mais — agendamento, orçamento, kill switch, dry-run, circuit breaker, evidência, log — já existe.</p>
+</section>
+
+<section>
+  <h2><span class="num">05</span> Desenho mínimo do executor</h2>
+  <pre class="flow">pg_cron (1×/15min)                 ← barato, determinístico
+  └─ fn_executor_tick()            ← SQL puro, ~200ms, SEM LLM
+       ├─ lê fn_gps_panorama()
+       ├─ aplica política + anti-loop
+       ├─ nada acionável? → grava SEM_TRABALHO e RETORNA
+       │                     custo de LLM: zero
+       └─ há trabalho? → pg_net → edge fn `executor-frente`
+                          1. fn_frente_claim → token em memória
+                          2. heartbeat durante o trabalho
+                          3. executa SÓ o proximo_passo autorizado
+                          4. evidência + PASS / FAIL / AGUARDANDO
+                          5. fn_frente_finalizar_chat (libera)
+                          6. motivo de parada estruturado</pre>
+  <p><strong>Tabelas novas: duas.</strong> <code>executor_ticks</code> (um registro por tick: situação do GPS, motivo de parada, se invocou LLM, custo) e <code>executor_tentativas</code> (frente, hash de checkpoint, tentativas, último progresso).</p>
+  <p><strong>Reuso:</strong> <code>go_ai_dev_runs</code> e <code>go_ai_dev_cost_ledger</code> recebem uma coluna <code>frente_slug</code> e passam a ser o ledger do executor. Não se cria orçamento, ledger nem circuit breaker novos.</p>
+</section>
+
+<section>
+  <h2><span class="num">06</span> Política de parada</h2>
+  <div class="scroll"><table>
+    <thead><tr><th>Motivo</th><th>Condição objetiva</th></tr></thead>
+    <tbody>
+      <tr><td><code>SEM_TRABALHO</code></td><td>Panorama sem UNICA / ROTA_ESCOLHIDA em nenhuma trilha</td></tr>
+      <tr><td><code>AGUARDA_EXTERNO</code></td><td>Trilha em TODAS_AGUARDANDO (espera aberta registrada)</td></tr>
+      <tr><td><code>AMBIGUIDADE</code></td><td>AMBIGUA sem rota vigente — estaciona a trilha, tenta a próxima</td></tr>
+      <tr><td><code>RISCO</code></td><td>Ação fora de <code>allow_*</code> em <code>go_ai_dev_config</code></td></tr>
+      <tr><td><code>SEM_PROGRESSO</code></td><td>Anti-loop disparou</td></tr>
+      <tr><td><code>ERRO_TECNICO</code></td><td>Exceção, timeout, circuit breaker aberto</td></tr>
+      <tr><td><code>CONTRATO_GPS_INSUFICIENTE</code></td><td>Falta fato estruturado; não altera o GPS, emite relatório</td></tr>
+      <tr><td><code>DECISAO_PROPRIETARIO</code></td><td>Último recurso</td></tr>
+    </tbody>
+  </table></div>
+  <p><strong>Regra dura:</strong> <code>DECISAO_PROPRIETARIO</code> só é gravável se nenhum dos outros sete explicar a parada. Sugiro impor por <code>CHECK</code>/trigger, não por convenção — senão vira o balde de incerteza que a missão proíbe.</p>
+  <p><strong>Bloqueio local nunca para o desenvolvimento:</strong> o tick itera as 18 trilhas. Ambiguidade ou espera estaciona <em>aquela</em> trilha e continua. Só quando as 18 estacionam o tick devolve <code>SEM_TRABALHO</code>.</p>
+</section>
+
+<section>
+  <h2><span class="num">07</span> Política de autonomia</h2>
+  <p>Age sozinho quando <strong>todas</strong> valem: rota determinada · <code>elegivel</code> · <code>acionavel</code> · claim legítimo · ação coberta abaixo · evidência objetiva disponível.</p>
+  <div class="scroll"><table>
+    <thead><tr><th>Classe de ação</th><th>Autonomia</th><th>Fundamento</th></tr></thead>
+    <tbody>
+      <tr><td>Leitura, consulta, auditoria, medição</td><td>Total</td><td>Reversível, sem efeito externo</td></tr>
+      <tr><td>Reconferir critério de aceite com evidência</td><td>Total</td><td>É verificação, não mudança</td></tr>
+      <tr><td>Registrar evidência e post-flight</td><td>Total</td><td>Já é o protocolo</td></tr>
+      <tr><td>Fechar frente com critério comprovado</td><td>Total</td><td>Gate já imposto por <code>fn_frente_finalizar_chat</code></td></tr>
+      <tr><td>Migration reversível com rollback</td><td>Se <code>allow_schema_patch</code></td><td>Config, não pessoa</td></tr>
+      <tr><td>Deploy de edge function</td><td>Se <code>allow_edge_function_patch</code></td><td>Config, não pessoa</td></tr>
+      <tr><td>Escrita em produção / irreversível</td><td>Bloqueado → <code>RISCO</code></td><td><code>allow_production_write=false</code></td></tr>
+      <tr><td>Objetivo, escopo, dinheiro, risco excepcional, credencial</td><td><code>DECISAO_PROPRIETARIO</code></td><td>Exige autoridade de dono</td></tr>
+    </tbody>
+  </table></div>
+  <p>O ponto essencial: <strong>a política é dado em <code>go_ai_dev_config</code>, não julgamento do executor.</strong> Insegurança resolve-se por classificação e parada, nunca por pergunta ao Alessandro.</p>
+</section>
+
+<section>
+  <h2><span class="num">08</span> Anti-loop</h2>
+  <div class="note crit">
+    <span class="tag">Risco medido, não teórico</span>
+    <p>Nos últimos ~10 dias: <strong>550 claims para 48 baixas</strong> — 77% terminaram em <code>postflight_em_andamento</code>. A frente <code>microloops-23-agentes</code> acumula <strong>68 claims de 68 chats distintos</strong> e continua <code>em_andamento</code>. Um executor automático reproduz esse padrão em velocidade de máquina. Sem anti-loop isto não é risco, é certeza.</p>
+  </div>
+  <div class="scroll"><table>
+    <thead><tr><th>Frente</th><th class="num">Claims</th><th class="num">Chats</th><th>Estado</th></tr></thead>
+    <tbody>
+      <tr><td><code>microloops-23-agentes</code></td><td class="num">68</td><td class="num">68</td><td>em_andamento</td></tr>
+      <tr><td><code>mapeamento-funil-cerebro</code></td><td class="num">24</td><td class="num">24</td><td>em_andamento</td></tr>
+      <tr><td><code>criterios-midia-inconsistentes</code></td><td class="num">20</td><td class="num">20</td><td>em_andamento</td></tr>
+    </tbody>
+  </table></div>
+  <h3>Progresso verificável (definição proposta)</h3>
+  <p>Houve progresso desde o último claim se qualquer destes mudou: <code>frentes.estado</code>; novo evento <code>atualizada</code> com <code>proximo_passo_alterado</code>; <code>frentes.evidencia</code>; espera aberta ou encerrada.</p>
+  <p><strong>Checkpoint</strong> = <code>sha256(estado ‖ proximo_passo ‖ criterio_aceite ‖ evidencia)</code>. Mesma frente + mesmo checkpoint por 2 tentativas → <code>SEM_PROGRESSO</code> e quarentena de 24 h em <code>executor_tentativas</code> — a frente <strong>não</strong> é bloqueada no GPS.</p>
+  <p>Reexecução sem nova evidência é proibida por construção: o tick compara o hash <em>antes</em> de gastar um claim. Isso cobre os sete casos pedidos, inclusive polling inútil — o tick que não acha trabalho não invoca LLM.</p>
+</section>
+
+<section>
+  <h2><span class="num">09</span> Manter Alessandro fora do loop</h2>
+  <div class="scroll"><table>
+    <thead><tr><th>Hoje viraria pergunta</th><th>Resolução automática</th></tr></thead>
+    <tbody>
+      <tr><td>"Qual a próxima frente?"</td><td><code>fn_gps_proxima</code> — determinístico</td></tr>
+      <tr><td>"Posso fechar?"</td><td>Critério de aceite + evidência; gate é o próprio banco</td></tr>
+      <tr><td>"Posso liberar o claim?"</td><td>Post-flight é obrigatório pelo protocolo</td></tr>
+      <tr><td>"Posso continuar?"</td><td>Coberto pela tabela de autonomia</td></tr>
+      <tr><td>"Qual implementação escolher?"</td><td>Escopo da frente; se indeterminado → estaciona a trilha</td></tr>
+      <tr><td>"Aprova teste / correção rotineira?"</td><td>Classe Total</td></tr>
+      <tr><td>Executor inseguro</td><td>Classifica e para. Nunca pergunta.</td></tr>
+    </tbody>
+  </table></div>
+  <div class="note">
+    <span class="tag">Ponto de atenção honesto</span>
+    <p><strong>9 das 18 trilhas estão AMBIGUA e <code>gps_rota_decisao</code> está vazia.</strong> O único desempate previsto é decisão humana explícita. Se o executor pedir rota para as 9, ele troca <em>"Alessandro, manda a próxima"</em> por <em>"Alessandro, escolhe a rota"</em> — exatamente o que a missão proíbe.</p>
+    <p><strong>Recomendação:</strong> o executor ignora trilhas AMBIGUA e opera só UNICA e ROTA_ESCOLHIDA. Registra <code>AMBIGUIDADE</code> e segue. Reduzir ambiguidade é evolução do GPS — outra sessão, outro dono.</p>
+  </div>
+</section>
+
+<section>
+  <h2><span class="num">10</span> Canário proposto</h2>
+  <p><strong>Frente <code>diego-timeout-fn-contexto-midia-ouro</code></strong> · trilha <code>midia</code> · prioridade 1 · UNICA · <code>precisa_deploy=false</code>.</p>
+  <ul>
+    <li>O próximo passo é <strong>reconferência read-only</strong>: verificar 4 critérios sobre execuções orgânicas dos crons 131 e 80.</li>
+    <li><strong>A evidência já existe e é objetiva.</strong> Verifiquei <code>cron.job_run_details</code>: ambos rodaram <code>succeeded</code> em 14, 15 e 16/08. O critério exige execução natural sem timeout — conferível por SQL, sem interpretar prosa.</li>
+    <li>A data-gatilho do próximo passo já passou: o trabalho está maduro, não é espera disfarçada.</li>
+    <li>Nada a implantar, nada a escrever em produção, totalmente reversível.</li>
+  </ul>
+  <p>Descartei as outras duas UNICA: <code>erp-seguranca-autorizacao-go-live</code> aguarda evento orgânico futuro, e <code>isabela-rodada-incompleta-time-guard</code> declara bloqueio lógico e exige deploy.</p>
+  <p><strong>Escopo — uma iteração e para:</strong> consulta ao GPS → claim real → heartbeat real → conferir os 4 critérios → evidência real com veredito → finalização real → nova consulta ao GPS → encerra. Sem recorrência global. <strong>O canário não vira daemon</strong> — o cron só é criado depois da iteração provada, e já nasce com <code>active=false</code>.</p>
+</section>
+
+<section>
+  <h2><span class="num">11</span> Riscos e rollback</h2>
+  <div class="scroll"><table>
+    <thead><tr><th>Risco</th><th>Mitigação</th><th>Rollback</th></tr></thead>
+    <tbody>
+      <tr><td>Captura em loop</td><td>Anti-loop + <code>executor_tentativas</code></td><td><code>enabled=false</code></td></tr>
+      <tr><td>Claim órfão</td><td>TTL 15 min no canário</td><td>Lease expira e loga sozinha</td></tr>
+      <tr><td>Token perdido</td><td>TTL curto</td><td>Esperar expiração</td></tr>
+      <tr><td>Fechar sem prova</td><td>Banco já exige critério + evidência</td><td>Reabrir; histórico é append-only</td></tr>
+      <tr><td>Custo descontrolado</td><td>Orçamento reservado antes de rodar</td><td><code>enabled=false</code></td></tr>
+      <tr><td>Inconsistência GPS × claim</td><td>Parada segura obrigatória, sem escrita</td><td>—</td></tr>
+      <tr><td>Concorrência com humanos</td><td>Índice único parcial por trilha</td><td>—</td></tr>
+      <tr><td>Executor "conserta" o GPS</td><td>Proibido; só emite relatório de contrato</td><td>—</td></tr>
+    </tbody>
+  </table></div>
+  <p><strong>Kill switch em dois níveis independentes:</strong> <code>go_ai_dev_config.enabled=false</code> e <code>cron.alter_job(active=false)</code>. <strong>Dry-run</strong> via <code>mode='observe'</code>, que já existe.</p>
+</section>
+
+<section>
+  <h2><span class="num">12</span> Custo operacional das alternativas</h2>
+  <p>Preços Anthropic por milhão de tokens: Opus 5 <strong>US$ 5 / 25</strong> · Sonnet 5 <strong>US$ 3 / 15</strong> · Haiku 4.5 <strong>US$ 1 / 5</strong>. Cache: escrita 1,25× (5 min) ou 2× (1 h), leitura <strong>0,1×</strong>. Baseline: tick a cada 15 min ≈ 2.880/mês.</p>
+  <div class="scroll"><table>
+    <thead><tr><th>Arquitetura</th><th>Como decide "há trabalho?"</th><th class="num">US$/mês</th></tr></thead>
+    <tbody>
+      <tr><td>A1 — LLM no loop, contexto ingênuo</td><td>Carrega <code>fn_contexto_codex_frentes()</code>: <strong>600 mil caracteres ≈ 150k tokens</strong></td><td class="num">≈ 2.000+</td></tr>
+      <tr><td>A2 — LLM no loop, contexto enxuto</td><td>Panorama (~2k) + system/tools (~10k)</td><td class="num">≈ 245</td></tr>
+      <tr><td>A3 — A2 com prompt caching</td><td>Prefixo estável a 0,1×</td><td class="num">≈ 90</td></tr>
+      <tr class="rec"><td><strong>B — cron + SQL decide, LLM sob demanda</strong></td><td><code>fn_gps_panorama()</code> em SQL, 186 ms</td><td class="num"><strong>≈ 0 ocioso</strong></td></tr>
+      <tr><td>C — Haiku como triador</td><td>Haiku classifica o panorama</td><td class="num">≈ 9 + trabalho</td></tr>
+    </tbody>
+  </table></div>
+  <p><strong>Sobre C — rejeito.</strong> <code>fn_gps_proxima</code> já devolve UNICA / AMBIGUA / NENHUMA / TODAS_AGUARDANDO de forma determinística em 186 ms. Pôr um LLM para reclassificar o que o SQL já classificou adiciona custo, latência e um modo de falha novo — o modelo discordar do GPS — sem adicionar informação. <em>Modelo menor não é a resposta; nenhum modelo é a resposta nesta etapa.</em></p>
+  <p><strong>Sobre A1 — é o cenário provável</strong> se alguém implementar o jeito óbvio, porque <code>fn_contexto_codex_frentes()</code> é a função de contexto natural e devolve 594 mil caracteres só no array <code>fila</code>. Registrar explicitamente: o executor nunca deve carregar essa função para decidir se há trabalho.</p>
+</section>
+
+<section>
+  <h2><span class="num">13</span> Estimativa de consumo de LLM</h2>
+  <p><strong>Ocioso (arquitetura B):</strong> 2.880 ticks/mês × 186 ms ≈ <strong>9 minutos de CPU Postgres por mês</strong>, incluídos no compute do Supabase. <strong>Zero token.</strong> <code>SEM_TRABALHO</code>, <code>TODAS_AGUARDANDO</code> e esperas longas custam literalmente nada.</p>
+  <p><strong>Trabalhando:</strong> por iteração real com Opus 5 e cache no prefixo estável — ~60k tokens de entrada, majoritariamente cacheados, + ~15k de saída ≈ <strong>US$ 0,40–0,70</strong>.</p>
+  <div class="scroll"><table>
+    <thead><tr><th>Volume real</th><th class="num">US$/mês</th></tr></thead>
+    <tbody>
+      <tr><td>2 iterações/dia</td><td class="num">25 – 42</td></tr>
+      <tr><td>6 iterações/dia</td><td class="num">72 – 126</td></tr>
+      <tr><td>12 iterações/dia</td><td class="num">144 – 252</td></tr>
+    </tbody>
+  </table></div>
+  <p>A propriedade que importa: <strong>o custo é proporcional ao trabalho entregue, não ao tempo decorrido.</strong> Em A2 e A3 o custo é o mesmo num dia em que 18 trilhas estão paradas e num dia em que 6 frentes fecham.</p>
+  <p>O teto já é enforçado — <code>monthly_budget_brl</code> (hoje R$ 20,00) é reservado antes de cada run. Esse valor precisa ser revisto pelo Alessandro conforme o volume desejado: <strong>é decisão de dono, não do executor.</strong></p>
+</section>
+
+<section>
+  <h2><span class="num">14</span> Recomendação</h2>
+  <p><strong>Arquitetura B</strong> — cron barato dispara SQL determinístico, que só invoca LLM quando existe trabalho acionável de verdade. Três razões, nesta ordem:</p>
+  <ol>
+    <li><strong>Custo.</strong> Elimina de US$ 90 a US$ 2.000/mês gastos apenas para descobrir que não há trabalho. O executor dorme de graça.</li>
+    <li><strong>Segurança.</strong> O gate continua sendo <code>fn_frente_claim</code>. O tick em SQL não pode contornar governança porque não tem como — ele só lê e decide se chama alguém.</li>
+    <li><strong>Reuso.</strong> É o mesmo padrão que já roda ~100 vezes no sistema. Não é arquitetura paralela; é o 101º job.</li>
+  </ol>
+</section>
+
+<section>
+  <h2><span class="num">15</span> Contrato necessário do GPS</h2>
+  <p>Não alterei nada. Reporto para quem é dono do GPS.</p>
+
+  <h3>Item 1 — Custódia do <code>claim_token</code> para agente não-conversacional</h3>
+  <div class="note crit">
+    <span class="tag">Bloqueia o executor durável · não bloqueia o canário</span>
+    <ul>
+      <li><strong>Fato faltante:</strong> não há forma prevista de um agente sem memória de conversa reter o token entre invocações.</li>
+      <li><strong>Por que precisa:</strong> o token é devolvido uma única vez e é exigido em heartbeat e finalização. Uma edge function que morre perde o token e não renova nem finaliza.</li>
+      <li><strong>Caso concreto:</strong> executor captura a frente às 10:00, a invocação atinge timeout às 10:02. Às 10:15 o próximo tick vê a frente ocupada por ele mesmo, sem poder agir, até a lease expirar.</li>
+      <li><strong>Tensão real:</strong> guardar o token puro numa tabela contradiz <code>frentes_claims_segredo</code> — <em>"O token puro NUNCA e gravado"</em>. Não faço isso por conta própria.</li>
+      <li><strong>Menor alteração (sugestão):</strong> permitir que <code>fn_frente_claim</code> reemita ou revalide o token para o <em>mesmo</em> <code>chat_id</code> estável de executor, mantendo o hash como fonte de verdade. Alternativa: Vault do Supabase como custódia.</li>
+      <li><strong>Contorno no canário:</strong> uma única invocação, token em memória, TTL 15 min. Não depende desta decisão.</li>
+    </ul>
+  </div>
+
+  <h3>Item 2 — Frentes acionáveis cujo próximo passo é, de fato, esperar</h3>
+  <div class="note">
+    <span class="tag">Contrato suficiente · falta registro</span>
+    <ul>
+      <li><strong>Fato:</strong> <code>erp-seguranca-autorizacao-go-live</code> está UNICA e acionável, mas o próximo passo diz <em>"aguardar a próxima execução real de edge posterior a 16/08"</em>. Não há espera registrada.</li>
+      <li><strong>Por que importa:</strong> o executor capturaria a frente, não teria o que fazer e a liberaria — o churn exato medido na seção 08. E ele <strong>não pode</strong> inferir a espera lendo prosa: <code>frentes_espera</code> proíbe backfill <em>"por prosa, regex ou LLM"</em>.</li>
+      <li><strong>Diagnóstico:</strong> o contrato é suficiente — <code>tipo='evento_organico'</code> já modela isso. Falta <strong>registro</strong>, não mecanismo.</li>
+      <li><strong>Menor alteração:</strong> o dono da frente registra a espera. Nenhuma mudança de schema. Enquanto isso, o anti-loop coloca a frente em quarentena após 2 tentativas — degradação segura, mas desperdiça 2 claims.</li>
+    </ul>
+  </div>
+</section>
+
+<footer>
+  <p><strong>Regra final observada.</strong> Nada foi implementado. O GPS não foi redesenhado. Nenhuma autoridade nova foi criada. Alessandro não está no caminho feliz — aparece uma vez, para revisar o teto de orçamento mensal, que é decisão de dono por definição.</p>
+  <p><strong>Aguardo autorização para executar o canário da seção 10.</strong></p>
+</footer>
+
+</div>
