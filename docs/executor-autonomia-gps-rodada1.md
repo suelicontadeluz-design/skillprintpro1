@@ -180,7 +180,11 @@ Portanto **espera estruturada não teria evitado a maior parte deste churn**. `m
 
 1. `frentes.estado`; 2. novo evento `atualizada` com `{"proximo_passo_alterado": true}` em `frentes_historico`; 3. `frentes.evidencia` mudou; 4. espera aberta ou encerrada em `frentes_espera`.
 
-**Checkpoint** = `sha256(estado ‖ proximo_passo ‖ criterio_aceite ‖ evidencia)`.
+> **CORREÇÃO 2 (rodada 2) — falha no desenho abaixo.** O checkpoint proposto inclui `proximo_passo` e `evidencia`, que são exatamente os campos que `fn_frente_finalizar_chat` escreve no post-flight. Ou seja, o executor mediria progresso por um campo **auto-escrito**: captura → sobrescreve evidência → hash muda → anti-loop conclui "houve progresso" → libera nova captura. O loop se cega sozinho e nunca dispara `SEM_PROGRESSO`, destruindo histórico a cada volta (ver frente `fn-frente-finalizar-chat-overwrite-destrutivo`, aberta desde 10/08 com duas perdas reais registradas).
+>
+> **O sinal de progresso precisa ser algo que o executor não produz** — estado terminal, evidência de terceiro, ou histórico versionado do qual ele não seja autor. Redesenhar antes de implementar. Condição de liberação do canário, junto com a mitigação do overwrite.
+
+**Checkpoint (desenho original, a corrigir)** = `sha256(estado ‖ proximo_passo ‖ criterio_aceite ‖ evidencia)`.
 
 **Regra:** mesma frente + mesmo checkpoint por **2 tentativas** → `SEM_PROGRESSO` e **quarentena da frente por 24 h** (o tick pula a frente; a frente **não** é bloqueada no GPS — a quarentena vive em `executor_tentativas`, não em `frentes`). Reexecução sem nova evidência é proibida por construção: o tick compara o hash antes de gastar um claim.
 
