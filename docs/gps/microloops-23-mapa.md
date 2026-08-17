@@ -274,3 +274,86 @@ recalcula sozinho para `resultado_comercial` e `ajuste_proxima`, ambos via
    e `ajuste_proxima` usam o mesmo observável para os 23. Para `go`, `orquestrador` e
    `agente-autonomia` talvez caiba `NAO_APLICAVEL` com fundamento — decisão do proprietário.
 3. **Auto-release de espera orgânica** continua sem verificador em `fn_espera_avaliar_um`.
+
+---
+
+# ADENDO 2 — Aplicabilidade e roteamento dos gaps (17/08/2026)
+
+## O modelo dos 8 pontos foi testado contra refutação — e 2 não sobreviveram
+
+| Ponto | Achado | Consequência |
+|---|---|---|
+| `ajuste_proxima` | `origem_decision_id` é NULL em **89.052/89.052** linhas da tabela inteira; `times_prevented`=0 nos 178 aprendizados ativos | INDETERMINADO para os 23 |
+| `resultado_comercial` | `source_conversion_id` e `regra_atribuicao` NULL em **89.052/89.052** | INDETERMINADO para os 23 |
+
+Não são 23 agentes falhando — são **instrumentos que ninguém construiu**. As frentes
+`joao-loop-desfecho-avaliacao-aprendizado` e `atribuicao-vendas-v2` existem para criá-los.
+
+## NAO_APLICAVEL só com base estrutural
+
+`etapa_crm` → NAO_APLICAVEL para 12 agentes cujo `lead_id` é nulo em **toda** a história e cujo
+objeto de decisão, lido nas chaves de contexto, é campanha / outro agente / alerta / lote — não um
+lead ou deal. Etapa de pipeline CRM é propriedade de um lead; exigir o ponto criaria um gap que
+nenhum trabalho pode fechar.
+
+INDETERMINADO onde faltou fundamento: `agente-comentario` e `agente-direct` (funil social sem
+identidade de lead) e **GO** nos 8 pontos (0 decisões em toda a história; contrato de loop próprio
+nas frentes `go-02`…`go-07`).
+
+## Placar
+
+**184 catalogados → 118 aplicáveis · 12 N/A · 54 indeterminados**
+**75 comprovados · 40 pendentes · 1 aguardando · 2 refutados · 0/23 agentes fechados**
+
+O gap real caiu de **103 → 43**.
+
+| Agente | Progresso | | Agente | Progresso |
+|---|---|---|---|---|
+| Julia Bitencourt | 5/6 | | Camila Ferreira | 3/5 |
+| Marcos Vieira | 5/6 | | Diego Alves | 3/5 |
+| Fábio Mendes | 4/5 | | Dora Campos | 3/5 |
+| Gustavo Leal | 4/5 | | Henrique Ferraz | 3/5 |
+| Luciana Ramos | 4/5 | | Ricardo Neves | 3/5 |
+| Renata Souza | 4/5 | | André Castro | 2/5 |
+| Bruno Fonseca | 4/6 | | Felipe Aragão | 2/5 |
+| Caio Drummond | 4/6 | | Larissa Coelho | 2/5 |
+| Isabela Torres | 4/6 | | Patrícia Lima | 2/5 |
+| **João Barros** | **4/6** | | Tiago Nogueira | 2/5 |
+| Rafael Cunha | 4/6 | | GO | 0/0 (8 indeterminados) |
+| Vera Antunes | 4/6 | | | |
+
+## Roteamento: 43 de 43, zero órfãos
+
+| | Antes | Depois |
+|---|---|---|
+| Gaps sem frente portadora | 103 | **0** |
+| Frentes existentes reutilizadas | — | 5 |
+| Frentes novas criadas | — | 2 |
+
+Reutilizadas **por critério, não por nome**: `mapeamento-funil-cerebro` (critério literal: *"a etapa
+CRM atual aparece nos contextos canonicos"*) para os 8 pontos `etapa_crm`;
+`instrumentar-envio-agentes-conversacionais`, `crons-sucesso-sem-efeito`,
+`tiago-campanha-nao-pede-aprovacao` e `resultado-executada-prova-intencao` para os 19 de
+`prova_externa`, roteados por natureza do canal.
+
+Novas, pequenas e verificáveis por consulta: `agentes-sem-meta-ativa` e `agentes-sem-aprendizado-ativo`.
+
+## Watcher genérico (`linhas_apos`)
+
+Whitelist em tabela (`espera_observavel_whitelist`), **sem SQL arbitrário em JSON**: identificadores
+vêm da whitelist via `format`/`%I`, o filtro vai como **parâmetro ligado**.
+
+Provado: chave fora da whitelist recusada; injeção `x'; drop table frentes; --` virou valor literal
+com 0 linhas e `frentes` intacta; caso real retornou 16 observações. Patch em `fn_espera_avaliar_um`
+é só um branch novo antes do fallback. `decisao_humana` continua `NAO_AVALIAVEL`.
+
+3 esperas orgânicas ganharam predicado — a de `julia-instrucao-tecnica` já avalia **SATISFEITA**.
+
+## Navegador não fica preso
+
+De *"João → João → para"* para **23 pontos acionáveis em 13 agentes e 3 trilhas**.
+
+Simulação em transação abortada: com a trilha `aprendizado` ocupada por claim, cai para **7
+acionáveis em 7 agentes** nas trilhas `atribuicao` e `conversao_joao` — **sem** devolver
+`NENHUM_PONTO_ACIONAVEL`. Provando `prova_externa` da mídia: global 75→76, Gustavo 5/5, **João
+preservado em 4/6**.
