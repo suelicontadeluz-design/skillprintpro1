@@ -1,0 +1,130 @@
+--- bruno_v72.ts	2026-08-17 12:11:04.130823842 +0000
++++ bruno_v73_prop.ts	2026-08-17 12:31:41.518894999 +0000
+@@ -80,6 +80,7 @@
+   duracao_ms: number;
+   confirmado_por: 'http_2xx' | null;
+   finalizado_em: string | null;
++  provider_diag: { origem: string | null; chaves: string[]; forma: string } | null;
+ };
+ 
+ type OutboundPersistido = {
+@@ -275,7 +276,11 @@
+       const { data } = await sb.rpc('fn_registrar_decisao_agente_v2', {
+         p_agente_slug: 'agente-conversacao', p_acao_executada: params.acao,
+         p_resultado: params.resultado, p_nivel_autonomia: NIVEL_FIXO,
+-        p_lead_id: params.lead_id, p_contexto: params.contexto, p_decisao: params.decisao,
++        p_lead_id: params.lead_id,
++        p_contexto: e?.provider_diag
++          ? { ...(params.contexto ?? {}), envio_diag: { ...e.provider_diag, http_status: e.http_status } }
++          : params.contexto,
++        p_decisao: params.decisao,
+         p_impacto_financeiro: null, p_agent_version: AGENT_VERSION, p_dry_run: false,
+         p_turn_id: params.turn_id ?? null,
+         p_envio_provider_id: e?.provider_id ?? null,
+@@ -304,12 +309,89 @@
+   } catch { return false; }
+ }
+ 
++type ProviderIdExtraido = {
++  id: string | null;
++  origem: string | null;      // caminho de onde o id saiu, ex.: "data.id"
++  chaves: string[];           // chaves de topo observadas, para diagnóstico
++  forma: 'objeto' | 'array' | 'escalar' | 'vazio' | 'nao_json';
++};
++
++const CAMINHOS_CANDIDATOS = [
++  'id',
++  'message_id',
++  'messageId',
++  'msg_id',
++  'uuid',
++  'data.id',
++  'data.message_id',
++  'data.uuid',
++  'result.id',
++  'result.message_id',
++  'message.id',
++];
++
++function buscarCaminho(raiz: unknown, caminho: string): unknown {
++  let atual: unknown = raiz;
++  for (const parte of caminho.split('.')) {
++    if (atual === null || typeof atual !== 'object') return undefined;
++    atual = (atual as Record<string, unknown>)[parte];
++  }
++  return atual;
++}
++
++// Aceita string ou número como id. Rejeita boolean, objeto, array, null, vazio
++// e a string "null"/"undefined", que alguns provedores serializam por engano.
++function normalizarId(valor: unknown): string | null {
++  if (typeof valor === 'number' && Number.isFinite(valor)) return String(valor);
++  if (typeof valor !== 'string') return null;
++  const limpo = valor.trim();
++  if (!limpo || limpo === 'null' || limpo === 'undefined') return null;
++  return limpo.slice(0, 200);
++}
++
++function extrairProviderId(corpo: string | null | undefined): ProviderIdExtraido {
++  const vazio: ProviderIdExtraido = { id: null, origem: null, chaves: [], forma: 'vazio' };
++  if (corpo == null) return vazio;
++  const bruto = corpo.trim();
++  if (!bruto) return vazio;
++
++  let parsed: unknown;
++  try {
++    parsed = JSON.parse(bruto);
++  } catch {
++    return { id: null, origem: null, chaves: [], forma: 'nao_json' };
++  }
++
++  if (parsed === null) return vazio;
++
++  if (typeof parsed !== 'object') {
++    // Alguns endpoints devolvem só o id cru, com ou sem aspas.
++    const id = normalizarId(parsed);
++    return { id, origem: id ? 'raiz_escalar' : null, chaves: [], forma: 'escalar' };
++  }
++
++  const ehArray = Array.isArray(parsed);
++  // Em resposta de lista, o elemento relevante é o primeiro.
++  const alvo = ehArray ? (parsed as unknown[])[0] : parsed;
++  const chaves =
++    alvo !== null && typeof alvo === 'object' && !Array.isArray(alvo)
++      ? Object.keys(alvo as Record<string, unknown>).slice(0, 20)
++      : [];
++
++  for (const caminho of CAMINHOS_CANDIDATOS) {
++    const id = normalizarId(buscarCaminho(alvo, caminho));
++    if (id) return { id, origem: caminho, chaves, forma: ehArray ? 'array' : 'objeto' };
++  }
++
++  return { id: null, origem: null, chaves, forma: ehArray ? 'array' : 'objeto' };
++}
++
+ async function enviar(subscriberId: string, txt: string): Promise<ResultadoEnvio> {
+   const t0 = Date.now();
+   const base: ResultadoEnvio = {
+     ok: false, estado: 'incerto', http_status: null, provider_id: null,
+     corpo: null, erro: null, categoria_erro: null, duracao_ms: 0,
+-    confirmado_por: null, finalizado_em: null,
++    confirmado_por: null, finalizado_em: null, provider_diag: null,
+   };
+   try {
+     const opcoes: RequestInit = {
+@@ -323,11 +405,15 @@
+     const corpo = BRUNO_ENVIO_OBSERVAVEL_ENABLED
+       ? (await res.text().catch(() => '')).slice(0, ENVIO_CORPO_MAX)
+       : null;
++    const pid = extrairProviderId(corpo);
++    const diag = { origem: pid.origem, chaves: pid.chaves, forma: pid.forma };
+     if (res.ok) {
+       return { ...base, ok: true, estado: 'aceito', http_status: res.status, corpo,
++               provider_id: pid.id, provider_diag: diag,
+                confirmado_por: 'http_2xx', duracao_ms: Date.now() - t0, finalizado_em: finalizadoEm };
+     }
+     return { ...base, ok: false, estado: 'rejeitado', http_status: res.status, corpo,
++             provider_id: pid.id, provider_diag: diag,
+              categoria_erro: 'http_nao_2xx', duracao_ms: Date.now() - t0, finalizado_em: finalizadoEm };
+   } catch (e: any) {
+     const msg = String(e?.message || e);
