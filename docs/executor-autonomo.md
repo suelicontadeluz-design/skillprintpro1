@@ -122,6 +122,45 @@ sobrevivente; `frentes.validada_por` de `kpis-decisivos-midia` inalterado):
 
 O verificador recusa auto-declaração. Era esse o requisito.
 
+## Primeira execução produtiva — comprovada
+
+Rodada `46024b6f-bcb8-40a4-9b64-6a27878b6eb8`, chat `cowork-auto-20260817-1300-2e8518`,
+`origem = sessao_agendada`, 493 segundos (13:00:08Z → 13:08:21Z).
+Disparada por Routine, sem humano no circuito. **Veredito: `PASS`, 15/15 elos.**
+
+- **Seleção**: o GPS escolheu `joao-contexto-comercial-canonico` (trilha
+  `conversao_joao`, autoridade UNICA, prioridade 1, `esperas_abertas: 0`) via
+  `fn_executor_proxima_tarefa()->escolhida`. Nenhuma frente foi indicada por
+  humano nem pelo texto do disparo.
+- **Claim real**: `e50b73e3-c6c1-4554-9944-34a1495c10be`, capturado 13:01:54,
+  liberado 13:07:54, desfecho `postflight_em_andamento`.
+- **Reconciliação**: achou divergência real — a evidência afirmava
+  `joao_tts_ativo = true` e intocado; medido `false`, alterado em 16/08 23:30 por
+  outro chat, posterior ao checkpoint. Anotação antiga não era prova.
+- **Trabalho**: read-only, 8 itens medidos sobre dado orgânico. Zero migration,
+  zero deploy, zero cron, zero flag, zero dado operacional.
+- **Prova independente**: 16 execuções do cron 132 desde 16/08 21:42, 0 falhas,
+  222 deals, 0 HTTP 429, 13 lotes fora da janela antiga e 3 em domingo à noite —
+  contra 43 execuções anteriores com 0 fora da janela e 0 em fim de semana. Os
+  lotes de 11:42 e 12:42 bateram o teto de 50, sinal de saturação; a rodada
+  **não** alterou frequência nem limite, porque o `proximo_passo` proíbe.
+  Registrou também uma ressalva honesta: a coorte do baseline de frescor não é
+  reproduzível pelo texto registrado, logo 15,6% vs 7,0% não é comparação
+  like-for-like.
+- **Desfecho**: espera `288cd90c-2a83-4e4a-b811-face61b3c31c`, tipo
+  `decisao_humana` — o contrato de ativação do Gate 2 não está especificado e
+  inventar era proibido. Sem predicado, como manda a regra.
+- **Release**: claim liberado, zero claim ativo.
+- **GPS novamente**: indicou `gps-microloops-23-membresia-fechamento`
+  (governança, UNICA, prioridade 1) e **parou**, porque
+  `executor_config.max_frentes_por_rodada = 1` já havia sido consumido — o limite
+  do banco prevaleceu sobre os ~50 minutos sugeridos no texto do disparo. É a
+  precedência correta: a autoridade é o banco.
+
+Preservação conferida depois da rodada: ledger `microloops_23_ponto_evento` em
+192 eventos e 76 pontos COMPROVADOS — ambos **inalterados**; kill switch ligado;
+91 crons ativos; 18 trilhas; 3 rotas vigentes; zero claims ativos.
+
 ## Como auditar
 
 ```sql
