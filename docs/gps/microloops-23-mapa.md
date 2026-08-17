@@ -118,9 +118,42 @@ Estado atual: 0 comprovados, 4 em aberto, 19 não inventariados, `macro_fechavel
 Microloops de agentes diferentes vivem em **trilhas diferentes**, e a regra `TRILHA` do protocolo
 já permite trilhas distintas em paralelo. Por isso `fn_microloops_23_proxima()` devolve
 `MULTIPLAS_ACIONAVEIS` — não `AMBIGUA` — quando há mais de um acionável.
-Dentro de um mesmo agente, quem ordena é `ordem_execucao` / `depende_de` já declarados.
 
-Hoje o retorno é `UNICA → joao-contexto-comercial-canonico`.
+Quem ordena é **`depende_de`**, já aplicado por `vw_frentes_elegiveis`. `ordem_execucao` é
+informativo, **não** gate.
+
+> **Correção feita nesta mesma rodada, em auto-revisão.** A primeira versão de
+> `fn_microloops_23_proxima` gateava pela menor `ordem_execucao` pendente do agente. Era
+> heurística inventada — justamente o que a rodada proibia — e tinha erro demonstrável: ao fechar
+> `joao-contexto-comercial-canonico` (ordem 1), a vez passaria para
+> `joao-desistencia-lost-canonico` (ordem 2), que está em espera de evento orgânico, e
+> `joao-loop-desfecho-avaliacao-aprendizado` (ordem 3) — cuja única dependência declarada é a
+> ordem 1 — ficaria escondido. Uma espera externa bloquearia trabalho realmente disponível.
+
+## 6.1 Simulação determinística até o fechamento
+
+Executada em transação abortada (`begin … rollback`), não é projeção de prosa.
+
+| Passo | Estado do navegador | Próxima frente | O que destrava |
+|---|---|---|---|
+| **1 — agora** | `UNICA` | `joao-contexto-comercial-canonico` (trilha `conversao_joao`) | Trabalho de engenharia disponível: cron 132 rodou 14/14 com sucesso desde 16/08 21:42, então a remedição orgânica read-only é executável |
+| **2 — após fechar o passo 1** | `UNICA` | `joao-loop-desfecho-avaliacao-aprendizado` (ordem 3) | Dependência declarada satisfeita. A ordem 2 continua corretamente em `aguardando:evento_organico` e **não** bloqueia a 3 |
+| **3+** | `NENHUMA_ACIONAVEL` até um release | — | Tudo o mais depende de evento externo ou decisão humana (ver tabela abaixo) |
+
+### O que cada microloop restante espera
+
+| Agente | Frente | Depende de | Natureza |
+|---|---|---|---|
+| `agente-noturno` | `joao-desistencia-lost-canonico` | primeira desistência orgânica pós-v162 | **evento orgânico** |
+| `agente-noturno` | `joao-arquivo-lead-canva-producao` | 4 pré-requisitos Canva (client id/secret, plano, design de teste) | **decisão humana** |
+| `agente-exploracao` | `julia-instrucao-tecnica-e-mensagem-concorrente` | primeira mensagem orgânica sobre ferro/prensa/DTF UV | **evento orgânico** |
+| `agente-supervisor` | `ricardo-livro-recomendacoes-inerte` | Alessandro exercitar 1 recomendação real | **evento orgânico** |
+| `agente-supervisor` | `ricardo-encerramento-semantica` | fechar `ricardo-livro-recomendacoes-inerte` (DAG) + canal de deploy seguro da edge v5.8.2 | **DAG + engenharia bloqueada** |
+| `agente-retencao` | `vera-loop-retencao-observavel` | desfecho do ciclo do Jean + escolha de quem escreve o aprendizado | **evento orgânico + decisão humana** |
+| 19 agentes | — | classificação do loop (`completo`/`parcial`/`quebrado`/`inexistente`) | **engenharia — é o próximo grande lote de trabalho da iniciativa** |
+
+O inventário dos 19 é trabalho técnico normal e não depende de ninguém: é o que o
+`criterio_aceite` registrado exige e o que mais aproxima a macro do fechamento.
 
 ---
 
