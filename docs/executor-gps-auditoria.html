@@ -419,18 +419,29 @@
 
 <section>
   <h2><span class="num">08</span> Anti-loop</h2>
-  <div class="note crit">
-    <span class="tag">Risco medido, não teórico</span>
-    <p>Nos últimos ~10 dias: <strong>550 claims para 48 baixas</strong> — 77% terminaram em <code>postflight_em_andamento</code>. A frente <code>microloops-23-agentes</code> acumula <strong>68 claims de 68 chats distintos</strong> e continua <code>em_andamento</code>. Um executor automático reproduz esse padrão em velocidade de máquina. Sem anti-loop isto não é risco, é certeza.</p>
+  <div class="note warn">
+    <span class="tag">Correção — rodada 2</span>
+    <p>A primeira versão desta seção dizia <em>"550 claims para 48 baixas, 77% em <code>postflight_em_andamento</code>"</em>. Esse número media <strong>fechamento</strong>, não <strong>progresso</strong>, e convidava à leitura errada de que 77% era churn. Frente longa avança dezenas de vezes antes de fechar — isso é trabalho legítimo. Medição correta abaixo.</p>
   </div>
+  <p>Para cada claim dos últimos 14 dias: houve entre captura e liberação um <code>estado_alterado</code> ou um <code>atualizada</code> com <code>proximo_passo_alterado</code>?</p>
+  <div class="stats">
+    <div class="stat"><span class="n">555</span><span class="k">claims em 14 dias</span></div>
+    <div class="stat"><span class="n">466</span><span class="k">com progresso real<br>(84%)</span></div>
+    <div class="stat"><span class="n hot">89</span><span class="k">sem progresso<br>(16%)</span></div>
+  </div>
+  <p><strong>O churn é 16%, não 77%.</strong> Ressalva do próprio indicador: sessão que investiga e confirma "continua quebrado" faz trabalho real sem alterar campo — 16% é <strong>teto</strong>, não prova.</p>
+  <h3>E a causa não é espera não registrada</h3>
   <div class="scroll"><table>
-    <thead><tr><th>Frente</th><th class="num">Claims</th><th class="num">Chats</th><th>Estado</th></tr></thead>
+    <thead><tr><th>Frente</th><th class="num">Claims</th><th class="num">Sem progresso</th><th>Já teve espera?</th></tr></thead>
     <tbody>
-      <tr><td><code>microloops-23-agentes</code></td><td class="num">68</td><td class="num">68</td><td>em_andamento</td></tr>
-      <tr><td><code>mapeamento-funil-cerebro</code></td><td class="num">24</td><td class="num">24</td><td>em_andamento</td></tr>
-      <tr><td><code>criterios-midia-inconsistentes</code></td><td class="num">20</td><td class="num">20</td><td>em_andamento</td></tr>
+      <tr><td><code>microloops-23-agentes</code></td><td class="num">68</td><td class="num">30</td><td><strong>não</strong></td></tr>
+      <tr><td><code>joao-contexto-comercial-canonico</code></td><td class="num">20</td><td class="num">15</td><td><strong>não</strong></td></tr>
+      <tr><td><code>isabela-classificacao-posvenda-regex</code></td><td class="num">19</td><td class="num">7</td><td><strong>não</strong></td></tr>
+      <tr><td><code>mapeamento-funil-cerebro</code></td><td class="num">27</td><td class="num">3</td><td>sim</td></tr>
     </tbody>
   </table></div>
+  <p>Das 8 frentes com ≥3 claims sem progresso, <strong>7 nunca tiveram espera alguma</strong>. Espera estruturada <strong>não teria evitado a maior parte deste churn</strong> — <code>microloops-23-agentes</code> é granularidade ou escopo de frente, investigação própria da sessão do GPS.</p>
+  <p><strong>O anti-loop continua necessário, por outro motivo:</strong> os 89 claims improdutivos saíram de humanos, em ritmo humano. Um executor automático opera em velocidade de máquina — a mesma taxa num tick horário produz padrão muito pior. O mecanismo é preventivo, não corretivo de um número histórico.</p>
   <h3>Progresso verificável (definição proposta)</h3>
   <p>Houve progresso desde o último claim se qualquer destes mudou: <code>frentes.estado</code>; novo evento <code>atualizada</code> com <code>proximo_passo_alterado</code>; <code>frentes.evidencia</code>; espera aberta ou encerrada.</p>
   <p><strong>Checkpoint</strong> = <code>sha256(estado ‖ proximo_passo ‖ criterio_aceite ‖ evidencia)</code>. Mesma frente + mesmo checkpoint por 2 tentativas → <code>SEM_PROGRESSO</code> e quarentena de 24 h em <code>executor_tentativas</code> — a frente <strong>não</strong> é bloqueada no GPS.</p>

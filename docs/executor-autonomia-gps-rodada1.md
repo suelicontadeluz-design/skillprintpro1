@@ -151,15 +151,30 @@ O ponto essencial: **a política é dado em `go_ai_dev_config`, não julgamento 
 
 ## 8. Mecanismo anti-loop
 
-**Este é o risco mais concreto que encontrei, e é medido.** Nos últimos ~10 dias houve **550 claims** e apenas **48 baixas** — 77% terminaram em `postflight_em_andamento`. Casos individuais:
+> **CORREÇÃO (rodada 2).** A primeira versão desta seção dizia *"550 claims para 48 baixas — 77% terminaram em `postflight_em_andamento`"*. Esse número media **fechamento**, não **progresso**, e convidava à leitura errada de que 77% eram churn. Frente longa avança dezenas de vezes antes de fechar; isso é trabalho legítimo. A medição correta está abaixo.
 
-| Frente | Claims | Chats distintos | Estado |
+**Medição correta de progresso.** Para cada claim dos últimos 14 dias, verifiquei se houve entre a captura e a liberação um evento `estado_alterado` ou um `atualizada` com `proximo_passo_alterado`:
+
+| | |
+|---|---|
+| Claims em 14 dias | 555 |
+| **Com progresso real** | **466 (84%)** |
+| Sem progresso detectável | 89 (16%) |
+
+**O churn é 16%, não 77%.** Ressalva do próprio indicador: uma sessão que investiga e confirma "continua quebrado" faz trabalho real sem alterar campo nenhum, então 16% é **teto**, não prova.
+
+**E a causa não é espera não registrada.** Das 8 frentes com ≥3 claims sem progresso, **7 nunca tiveram espera alguma**:
+
+| Frente | Claims | Sem progresso | Já teve espera? |
 |---|---|---|---|
-| `microloops-23-agentes` | **68** | **68** | ainda `em_andamento` |
-| `mapeamento-funil-cerebro` | 24 | 24 | `em_andamento` |
-| `criterios-midia-inconsistentes` | 20 | 20 | `em_andamento` |
+| `microloops-23-agentes` | 68 | 30 | **não** |
+| `joao-contexto-comercial-canonico` | 20 | 15 | **não** |
+| `isabela-classificacao-posvenda-regex` | 19 | 7 | **não** |
+| `mapeamento-funil-cerebro` | 27 | 3 | sim |
 
-68 sessões distintas capturaram a mesma frente e nenhuma a fechou. **Um executor automático reproduz exatamente esse padrão em velocidade de máquina.** Sem anti-loop, isto não é um risco — é uma certeza.
+Portanto **espera estruturada não teria evitado a maior parte deste churn**. `microloops-23-agentes` — 68 claims, 30 sem progresso, zero espera — é problema de granularidade ou de escopo da frente, e pertence à sessão do GPS como investigação própria.
+
+**O anti-loop continua necessário**, por outro motivo: 89 claims improdutivos em 14 dias saíram de humanos, em ritmo humano. Um executor automático opera em velocidade de máquina e sem cansaço — a mesma taxa aplicada a um tick horário produz um padrão muito pior. O mecanismo abaixo é preventivo, não corretivo de um número histórico.
 
 **Progresso verificável (definição proposta):** houve progresso desde o último claim se **qualquer** destes mudou:
 
