@@ -661,3 +661,55 @@ disparando a cada 6 horas para falhar.
 
 **Ação única do Alessandro:** abrir `trig_012NBquhE2Etwa8CddxT2bnr` na UI de Routines do claude.ai,
 anexar o connector do Supabase e reabilitar. Nada precisa ser reconstruído.
+
+---
+
+# ADENDO 7 — Ativação do desenvolvimento autônomo (17/08/2026)
+
+## Capacidade real, investigada e não presumida
+
+| Mecanismo | Serve? | Prova |
+|---|---|---|
+| `CronCreate` (cron do Cowork/Claude Code) | ❌ | Explicitamente *session-only, in-memory, gone when Claude exits*, e só dispara com o REPL ocioso. Exigiria manter uma sessão aberta — o oposto do objetivo |
+| Routine com **sessão nova** por disparo | ❌ | `create_trigger` recusou: *"the connectors parameter is not available for this organization"*. Sessão nova por Routine roda **sem** `mcp__Supabase__*` |
+| Routine para **sessão persistente** que já detém o connector | ✅ (em prova) | É o padrão das 6 Routines históricas desta conta, todas com `persist_session: true` |
+
+**Correção de uma afirmação minha da rodada anterior:** eu disse que o bloqueio de connector era eu
+ter omitido o parâmetro. Não era — o parâmetro **não existe** para esta organização.
+
+## Canário 1 — sessão automática alcança o Supabase
+
+Worker criada por `create_session`: `session_011wFDWmt4L2BUnir9aLcZkW`, `origin: claude_code_mcp_seed`,
+sem humano. Gravou em `microloops_23_wakeup_canario`:
+
+```
+origem=sessao_agendada · protocolo_itens=14 · gps_trilhas=18
+selecionaveis=9 · comprovados=76 · ledger_eventos=192
+observacao: "...Primeiro item do array protocolo lido:
+             PRE-FLIGHT: gerar chat_id estavel e nome legivel para esta sessao."
+```
+
+O item do protocolo citado **verbatim** é prova de leitura real, não de inferência. A linha de
+controle da sessão interativa está na mesma tabela para comparação.
+
+**`SESSAO_AGENDADA_COM_SUPABASE` — provado para sessão criada programaticamente.**
+
+## Arquitetura de ativação
+
+```
+Routine (despertador)  →  worker session persistente (detém o connector Supabase)
+                            →  fn_microloops_23_pode_rodar()  (kill switch + autoteste)
+                            →  GPS → ponto → claim → trabalho → prova → release
+```
+
+O scheduler é só o despertador. **O banco/GPS é a memória e a autoridade.**
+
+## Kill switch — imediato e sem apagar histórico
+
+```sql
+update public.microloops_23_loop_config
+   set habilitado=false, motivo_desligado='...', atualizado_em=now(), atualizado_por='...';
+```
+
+Toda rodada consulta `fn_microloops_23_pode_rodar()` antes de qualquer trabalho. Desligar aqui
+para o executor mesmo com a Routine ativa e sem tocar na plataforma. Nenhum histórico é apagado.
