@@ -1,0 +1,309 @@
+<title>Wake-up do Claude Code</title>
+<style>
+  :root {
+    --bg:#F4F6F8; --surface:#FFFFFF; --surface-2:#EDF1F4; --line:#D5DEE5; --line-soft:#E4EAEF;
+    --ink:#14202B; --ink-2:#3C4C5B; --muted:#64757F;
+    --accent:#0E6B87; --accent-soft:#E2EFF4;
+    --ok:#1C7048; --ok-soft:#E3F1EA; --warn:#8A5A00; --warn-soft:#F7EEDD; --crit:#A62F2F; --crit-soft:#F7E6E6;
+    --code-bg:#EAEFF3;
+    --serif: ui-serif,"Iowan Old Style","Source Serif 4",Palatino,Georgia,serif;
+    --sans: system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",sans-serif;
+    --mono: ui-monospace,SFMono-Regular,"SF Mono","Cascadia Mono","Roboto Mono",Menlo,monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg:#0E141A; --surface:#161E26; --surface-2:#1C262F; --line:#2C3945; --line-soft:#232E38;
+      --ink:#DEE6ED; --ink-2:#B3C1CD; --muted:#8496A3;
+      --accent:#57B4D2; --accent-soft:#16323D;
+      --ok:#56B98A; --ok-soft:#142C22; --warn:#D4A24A; --warn-soft:#2E2415; --crit:#E08585; --crit-soft:#32191A;
+      --code-bg:#1B252E;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg:#0E141A; --surface:#161E26; --surface-2:#1C262F; --line:#2C3945; --line-soft:#232E38;
+    --ink:#DEE6ED; --ink-2:#B3C1CD; --muted:#8496A3;
+    --accent:#57B4D2; --accent-soft:#16323D;
+    --ok:#56B98A; --ok-soft:#142C22; --warn:#D4A24A; --warn-soft:#2E2415; --crit:#E08585; --crit-soft:#32191A;
+    --code-bg:#1B252E;
+  }
+  * { box-sizing:border-box; }
+  body { background:var(--bg); color:var(--ink); font-family:var(--sans); font-size:16.5px; line-height:1.62; margin:0; padding:0 1.25rem 6rem; -webkit-font-smoothing:antialiased; }
+  .wrap { max-width:47rem; margin:0 auto; }
+
+  header.masthead { padding:3.5rem 0 1.75rem; border-bottom:2px solid var(--ink); display:flex; flex-direction:column; gap:1rem; }
+  .eyebrow { font-family:var(--mono); font-size:.72rem; letter-spacing:.13em; text-transform:uppercase; color:var(--muted); }
+  h1 { font-family:var(--serif); font-weight:600; font-size:clamp(2rem,5.4vw,2.9rem); line-height:1.12; letter-spacing:-.015em; text-wrap:balance; margin:0; }
+  .standfirst { font-size:1.05rem; color:var(--ink-2); max-width:38rem; margin:0; }
+  .meta { display:flex; flex-wrap:wrap; gap:.5rem 1.4rem; font-family:var(--mono); font-size:.76rem; color:var(--muted); }
+
+  .verdict { margin:2rem 0 0; background:var(--surface); border:1px solid var(--line); border-left:4px solid var(--accent); border-radius:3px; padding:1.25rem 1.4rem; display:flex; flex-direction:column; gap:.55rem; }
+  .verdict .label { font-family:var(--mono); font-size:.7rem; letter-spacing:.13em; text-transform:uppercase; color:var(--muted); }
+  .verdict .value { font-family:var(--mono); font-size:1.15rem; font-weight:600; color:var(--accent); letter-spacing:-.01em; }
+  .verdict p { margin:0; color:var(--ink-2); font-size:.95rem; }
+
+  section { padding-top:3rem; display:flex; flex-direction:column; gap:1rem; }
+  h2 { font-family:var(--serif); font-size:1.45rem; font-weight:600; line-height:1.25; letter-spacing:-.01em; text-wrap:balance; margin:0; padding-bottom:.5rem; border-bottom:1px solid var(--line); display:flex; align-items:baseline; gap:.75rem; }
+  h2 .num { font-family:var(--mono); font-size:.8rem; font-weight:500; color:var(--accent); letter-spacing:.04em; flex:none; }
+  h3 { font-family:var(--sans); font-size:.95rem; font-weight:650; margin:.5rem 0 0; color:var(--ink); }
+  p { margin:0; }
+  section > p, section > ul, section > ol { color:var(--ink-2); }
+  ul, ol { margin:0; padding-left:1.3rem; display:flex; flex-direction:column; gap:.45rem; }
+  strong { color:var(--ink); font-weight:650; }
+  code { font-family:var(--mono); font-size:.855em; background:var(--code-bg); padding:.1em .36em; border-radius:3px; color:var(--ink); }
+
+  .scroll { overflow-x:auto; border:1px solid var(--line); border-radius:3px; background:var(--surface); }
+  table { border-collapse:collapse; width:100%; font-size:.875rem; }
+  th, td { text-align:left; padding:.62rem .8rem; border-bottom:1px solid var(--line-soft); vertical-align:top; }
+  thead th { font-family:var(--mono); font-size:.68rem; letter-spacing:.1em; text-transform:uppercase; color:var(--muted); font-weight:500; background:var(--surface-2); border-bottom:1px solid var(--line); white-space:nowrap; }
+  tbody tr:last-child td { border-bottom:none; }
+  td.num, th.num { font-variant-numeric:tabular-nums; font-family:var(--mono); white-space:nowrap; }
+  .rec td { background:var(--accent-soft); }
+
+  .flow { font-family:var(--mono); font-size:.78rem; line-height:1.75; background:var(--surface); border:1px solid var(--line); border-radius:3px; padding:1rem 1.1rem; overflow-x:auto; white-space:pre; color:var(--ink-2); margin:0; }
+
+  .note { background:var(--surface); border:1px solid var(--line); border-left:3px solid var(--warn); border-radius:3px; padding:.95rem 1.1rem; display:flex; flex-direction:column; gap:.5rem; font-size:.93rem; color:var(--ink-2); }
+  .note.crit { border-left-color:var(--crit); }
+  .note.ok { border-left-color:var(--ok); }
+  .note .tag { font-family:var(--mono); font-size:.68rem; letter-spacing:.12em; text-transform:uppercase; color:var(--warn); }
+  .note.crit .tag { color:var(--crit); }
+  .note.ok .tag { color:var(--ok); }
+
+  .pill { display:inline-block; font-family:var(--mono); font-size:.66rem; letter-spacing:.08em; text-transform:uppercase; padding:.16em .5em; border-radius:2px; white-space:nowrap; }
+  .pill.ok { background:var(--ok-soft); color:var(--ok); }
+  .pill.no { background:var(--crit-soft); color:var(--crit); }
+  .pill.part { background:var(--warn-soft); color:var(--warn); }
+
+  footer { margin-top:4rem; padding-top:1.5rem; border-top:1px solid var(--line); font-size:.9rem; color:var(--muted); display:flex; flex-direction:column; gap:.6rem; }
+  footer strong { color:var(--ink); }
+</style>
+
+<div class="wrap">
+
+<header class="masthead">
+  <div class="eyebrow">Validação read-only · Rodada 2 · Papel do Claude Code</div>
+  <h1>Dá para acordar o Claude Code programaticamente?</h1>
+  <p class="standfirst">Você mandou refutar a hipótese antes de desenhar o piloto automático em cima dela. Refutei em parte: o mecanismo de wake-up existe e está provado em produção — mas a seta aponta para o lado contrário do que a arquitetura candidata supõe.</p>
+  <div class="meta"><span>17/08/2026</span><span>Zero implementação</span><span>Canário não executado</span></div>
+</header>
+
+<div class="verdict">
+  <div class="label">Veredito</div>
+  <div class="value">ARQUITETURA_HIBRIDA_RECOMENDADA</div>
+  <p>Claude Code é <strong>worker sob demanda (B)</strong> — sua hipótese está certa nesse ponto. Mas o executor <strong>não pode chamá-lo de fora</strong>: não existe credencial no ambiente para isso. O wake-up tem de ser <strong>auto-agendado de dentro da plataforma Claude</strong>, com o SQL barato como primeiro portão dentro da sessão.</p>
+</div>
+
+<section>
+  <h2><span class="num">01</span> A pergunta crítica, respondida com evidência</h2>
+  <p><strong>Sim, dá para acordar o Claude Code programaticamente.</strong> Não é teoria — <strong>você já faz isso</strong>. Encontrei 6 Routines (triggers) na sua conta, todos <code>created_via: meta_mcp</code>, todos com <code>ended_reason: run_once_fired</code> e <code>last_fired_at</code> preenchido. Dispararam de verdade.</p>
+  <div class="scroll"><table>
+    <thead><tr><th>Mecanismo</th><th>Existe?</th><th>Serve de piloto automático?</th></tr></thead>
+    <tbody>
+      <tr>
+        <td><strong>CCR Routines</strong><br><code>create_trigger</code> / <code>fire_trigger</code></td>
+        <td><span class="pill ok">Provado</span></td>
+        <td><strong>Sim.</strong> Modo <code>create_new_session_on_fire</code> abre sessão nova a cada disparo. <code>fire_trigger</code> dispara sob demanda com texto anexado. Intervalo mínimo: <strong>horário</strong>.</td>
+      </tr>
+      <tr>
+        <td><strong><code>claude -p</code></strong> headless no container</td>
+        <td><span class="pill part">Roda</span></td>
+        <td><strong>Não.</strong> Testei: funciona, mas <strong>sem nenhum MCP</strong>. Sem Supabase não há GPS, claim nem deploy.</td>
+      </tr>
+      <tr>
+        <td><strong><code>CronCreate</code></strong> (tool do harness)</td>
+        <td><span class="pill no">Inviável</span></td>
+        <td><strong>Não.</strong> A própria doc diz: vive só na sessão, some quando o Claude sai, <code>durable</code> não tem efeito, expira em 7 dias, e só dispara com o REPL ocioso.</td>
+      </tr>
+    </tbody>
+  </table></div>
+  <div class="note crit">
+    <span class="tag">A refutação — seta invertida</span>
+    <p>A arquitetura candidata é <em>GPS → scheduler barato → executor → <strong>invoca</strong> Claude Code</em>. Esse último passo <strong>não é executável hoje</strong>:</p>
+    <ul>
+      <li><code>create_trigger</code> e <code>fire_trigger</code> são ferramentas MCP disponíveis <strong>dentro</strong> de uma sessão Claude. Não achei endpoint REST que um edge function pudesse chamar.</li>
+      <li>No container: <code>ANTHROPIC_API_KEY</code> <strong>ausente</strong>, <code>ANTHROPIC_AUTH_TOKEN</code> ausente, <code>CLAUDE_CODE_OAUTH_TOKEN</code> ausente, nenhum token CCR. A autenticação é por <code>oauthAccount</code> via proxy local <code>127.0.0.1:39229</code> — <strong>inalcançável de um edge function.</strong></li>
+    </ul>
+    <p>Um <code>pg_cron</code> no Supabase <strong>não tem com o que acordar o Claude</strong>. Se desenhássemos o piloto automático assumindo essa seta, ele não sairia do papel.</p>
+  </div>
+  <div class="note ok">
+    <span class="tag">Como salvar a arquitetura</span>
+    <p><strong>Inverta a direção.</strong> Em vez de o executor acordar o Claude, uma Routine com sessão nova por disparo <strong>se acorda sozinha</strong> e a primeira coisa que faz é chamar o SQL determinístico. Sem trabalho, encerra em segundos. A propriedade de custo se preserva sem depender de uma capacidade que não existe.</p>
+  </div>
+</section>
+
+<section>
+  <h2><span class="num">02</span> Papel correto do Claude Code</h2>
+  <p><strong>B — WORKER SOB DEMANDA.</strong> Fundamentado por quatro fatos do ambiente real, não por preferência:</p>
+  <ul>
+    <li><strong>Persistência.</strong> O container é efêmero e reciclado por inatividade. Nada que more só nele sobrevive. <code>CronCreate</code> morre junto. Não há o que sustente um orquestrador permanente.</li>
+    <li><strong>Custo de partida a frio.</strong> Medi: <code>claude -p</code> para responder <em>"OK"</em> gastou <strong>38.091 tokens</strong> de escrita de cache e <strong>US$ 0,23</strong>. A segunda chamada, com cache quente, US$ 0,083. Todo despertar paga esse pedágio antes de fazer qualquer trabalho.</li>
+    <li><strong>Rate limit é a escassez real.</strong> <code>get_session</code> devolve <code>rateLimitType: "five_hour"</code>. Sessão de Claude Code consome <strong>janela de assinatura</strong>, não fatura por token. Um orquestrador permanente competiria com o seu uso interativo — a conta não é em dólares, é em você não conseguir trabalhar.</li>
+    <li><strong>Credenciais.</strong> O que dá poder à sessão são os conectores MCP de organização (<code>Supabase</code> e <code>Google Drive</code> aparecem <code>connected: true</code>), não variáveis no container. Isso é uma vantagem — e é exatamente o que o <code>claude -p</code> headless não herda.</li>
+  </ul>
+  <p>Claude Code é excelente como <strong>engenheiro convocado</strong>: já chega com Supabase MCP, git autenticado, deploy de edge function e migration. É péssimo como relógio.</p>
+</section>
+
+<section>
+  <h2><span class="num">03</span> Mecanismo real de wake-up</h2>
+  <pre class="flow">Routine CCR (create_new_session_on_fire = true)
+   │  cron mínimo: 1×/hora · sessão nova a cada disparo
+   ▼
+Sessão Claude nasce  ─ herda conectores MCP da organização
+   │
+   ├─ PASSO 1 (segundos): select fn_gps_panorama()
+   │     └─ sem trabalho? grava tick e ENCERRA. Custo: só o cold start.
+   │
+   └─ há trabalho? claim → executa → evidência → finaliza → encerra
+
+Canal de retorno = BANCO, não a API de sessão.</pre>
+  <div class="note">
+    <span class="tag">Limitação confirmada — e você já a documentou</span>
+    <p>Uma sessão-mãe <strong>só enxerga o status da filha, nunca o transcript</strong>. Está escrito num dos seus próprios triggers: <em>"o conteúdo do transcript da filha só é visível na UI — eu só enxergo o status"</em>. Portanto o resultado <strong>não volta pela API</strong>. A sessão trabalhadora precisa escrever o desfecho no banco (<code>frentes.evidencia</code>, <code>executor_ticks</code>), e o banco é o canal de retorno. É o que o seu fluxo atual já faz na prática.</p>
+  </div>
+</section>
+
+<section>
+  <h2><span class="num">04</span> Caso 1 — trabalho puramente determinístico</h2>
+  <p><strong>Pode ocorrer sem LLM. Integralmente.</strong> Conferir métrica, contar amostra, verificar cron, checar se shadow terminou, avaliar condição estruturada — nada disso precisa de modelo.</p>
+  <p>Mecanismo real disponível: <code>pg_cron</code> + funções SQL, exatamente como já fazem <code>fn_vigia_ciclo_compra</code>, <code>fn_vigia_leads_mornos</code>, <code>fn_medir_orfas_diario</code> e <code>fn_tiago_reconciliar_resultados</code>. Verificação de cron sai de <code>cron.job_run_details</code> — foi assim que confirmei, na rodada anterior, que os jobs 80 e 131 rodaram <code>succeeded</code> em 14, 15 e 16/08.</p>
+  <p><span class="pill ok">Sem Claude Code</span> Este caso nunca deveria acordar um modelo.</p>
+</section>
+
+<section>
+  <h2><span class="num">05</span> Caso 2 — espera, shadow e amostra orgânica</h2>
+  <p>O fluxo candidato — <em>trabalho → registrar espera → release → watcher barato → condição satisfeita → fechar espera → GPS volta a marcar acionável</em> — <strong>é suportado pela arquitetura atual</strong>, com uma lacuna importante.</p>
+  <p><strong>O que já funciona:</strong> <code>frentes_espera</code> é append-only, tem <code>tipo='evento_organico'</code>, e <code>vw_frentes_elegiveis</code> deriva <code>acionavel = elegivel E sem espera aberta</code>. Fechar a espera devolve a frente ao GPS automaticamente, sem tocar em nada mais. O desenho está certo.</p>
+  <p>E a distinção que você fez está corretamente refletida no schema: fechar espera grava <code>evidencia_encerramento</code>; aprovar critério de aceite é outro ato, em <code>fn_frente_finalizar_chat</code>. <strong>Condição de espera satisfeita ≠ critério de aceite aprovado</strong> — o banco já separa os dois.</p>
+  <div class="note crit">
+    <span class="tag">Lacuna que impede o watcher determinístico</span>
+    <p><code>frentes_espera</code> tem <code>id, frente_slug, tipo, descricao, aberta_em, aberta_por, encerrada_em, encerrada_por, evidencia_encerramento</code>. <strong>Não existe campo de condição legível por máquina.</strong> "Aguardar 5 execuções orgânicas" vive em <code>descricao</code>, em prosa.</p>
+    <p>Um watcher barato não pode avaliar isso — e <strong>não tem permissão de tentar</strong>: a própria tabela proíbe backfill <em>"por prosa, regex ou LLM"</em>. Sem um predicado estruturado, ou o watcher não existe, ou vira um LLM lendo texto a cada tick, que é exatamente o custo que queremos eliminar. <strong>Este é o contrato que mais bloqueia o piloto automático.</strong> Detalhe na seção 12.</p>
+  </div>
+</section>
+
+<section>
+  <h2><span class="num">06</span> Caso 3 — trabalho de código</h2>
+  <p>Tecnicamente possível. Provei cada elo com o ambiente real:</p>
+  <div class="scroll"><table>
+    <thead><tr><th>Elo</th><th>Mecanismo real</th><th>Status</th></tr></thead>
+    <tbody>
+      <tr><td>Como é iniciado</td><td>Routine CCR com sessão nova por disparo, ou <code>fire_trigger</code> sob demanda</td><td><span class="pill ok">Provado</span></td></tr>
+      <tr><td>Como recebe contexto</td><td><code>prompt</code> do trigger + <code>text</code> do <code>fire_trigger</code>. Seus triggers atuais já carregam briefings longos e específicos</td><td><span class="pill ok">Provado</span></td></tr>
+      <tr><td>Credenciais</td><td>Conectores MCP de organização (<code>Supabase connected: true</code>), git autenticado via proxy</td><td><span class="pill ok">Provado</span></td></tr>
+      <tr><td>Claim legítimo</td><td>A própria sessão chama <code>fn_frente_claim</code>; token fica em memória. É o que a sessão do claim <code>claude-code-20260817-envioident</code> fez</td><td><span class="pill ok">Provado</span></td></tr>
+      <tr><td>Heartbeat</td><td>Dentro da sessão, enquanto ela vive</td><td><span class="pill ok">Provado</span></td></tr>
+      <tr><td>Resultado volta</td><td><strong>Pelo banco</strong> — a API só expõe status</td><td><span class="pill part">Com desvio</span></td></tr>
+      <tr><td>Timeout / crash</td><td>Expiração de lease + <code>get_session</code> + <code>interrupt_session</code></td><td><span class="pill part">Parcial — ver 09</span></td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<section>
+  <h2><span class="num">07</span> Caso 4 — deploy</h2>
+  <div class="scroll"><table>
+    <thead><tr><th>Alvo</th><th>Mecanismo</th><th>Automatizável?</th></tr></thead>
+    <tbody>
+      <tr><td>Supabase Edge Function</td><td><code>deploy_edge_function</code> via MCP, com versionamento</td><td><span class="pill ok">Sim</span></td></tr>
+      <tr><td>Migration SQL</td><td><code>apply_migration</code> — <strong>1.057 migrations aplicadas</strong>, a última hoje 02:53 UTC</td><td><span class="pill ok">Sim</span></td></tr>
+      <tr><td>GitHub</td><td><code>git push</code> autenticado pelo proxy (usei duas vezes nesta sessão)</td><td><span class="pill ok">Sim</span></td></tr>
+      <tr><td>Vercel</td><td>Sem <code>VERCEL_TOKEN</code> e sem CLI. Deploy sai <strong>indiretamente</strong> do push para o GitHub, pela integração git (<code>vercel.json</code>, região <code>gru1</code>)</td><td><span class="pill part">Indireto</span></td></tr>
+    </tbody>
+  </table></div>
+  <p><strong>Deploy cotidiano dentro da política não precisa de você.</strong> A trava certa não é sua aprovação — é a config: <code>allow_edge_function_patch</code>, <code>allow_schema_patch</code>, <code>allow_production_write</code>. Hoje as três estão <code>false</code>, o que significa que a política <em>já existe</em> e está fechada; abri-la é decisão sua, uma vez, não a cada deploy.</p>
+  <p>Exige bloqueio de verdade, na minha leitura: migration destrutiva sem rollback compensatório escrito, qualquer coisa que toque credencial, e mudança em função de claim ou no próprio GPS.</p>
+</section>
+
+<section>
+  <h2><span class="num">08</span> Caso 5 — falha de deploy e rollback</h2>
+  <div class="scroll"><table>
+    <thead><tr><th>Camada</th><th>Rollback hoje</th><th>Veredito honesto</th></tr></thead>
+    <tbody>
+      <tr><td>Função SQL</td><td><strong>Já existe e funciona.</strong> 12+ tabelas <code>backup_*</code> guardam <code>pg_get_functiondef</code> verbatim antes da mudança — inclusive <code>backup_objetos_gps_20260817</code>, de hoje</td><td><span class="pill ok">Reutilizar</span></td></tr>
+      <tr><td>Edge Function</td><td>Versionada; rollback = republicar a versão anterior. Exige guardar o fonte anterior — a disciplina de sha já aparece nos seus triggers</td><td><span class="pill part">Construir custódia</span></td></tr>
+      <tr><td>Migration DDL</td><td><strong>Não existe undo.</strong> Postgres não desfaz DDL aplicado</td><td><span class="pill no">Não inventar</span></td></tr>
+      <tr><td>Vercel</td><td>Tem rollback instantâneo no próprio produto, mas sem token aqui não dá para automatizar</td><td><span class="pill no">Bloqueado</span></td></tr>
+    </tbody>
+  </table></div>
+  <p><strong>Não vou inventar rollback onde ele não é tecnicamente possível.</strong> Para migration, o único caminho honesto é <em>exigir migration compensatória escrita e testada antes de aplicar</em> — e, se ela não existir, classificar <code>RISCO</code> e parar. Isso é regra de política, não mecanismo de undo.</p>
+</section>
+
+<section>
+  <h2><span class="num">09</span> Crash e recuperação</h2>
+  <div class="note">
+    <span class="tag">Evidência real, do seu próprio histórico</span>
+    <p>Um dos triggers documenta uma sessão travada: <em>"RUNNING, connected, 46.161 tokens de saída gastos, task_summary 'Checking clock against scheduled check-in', sem ter reivindicado a frente em 18 minutos"</em> — e a instrução de contingência: <em>"mais de ~30 minutos sem progresso verificável… a sessão parece travada"</em>.</p>
+    <p>Ou seja: <strong>sessões travam, e hoje quem percebe é você.</strong> Esse é um ponto concreto onde você ainda está no loop.</p>
+  </div>
+  <p>O que já protege sem ninguém: <strong>a expiração da lease</strong>. Uma sessão morta libera a frente sozinha e grava <code>claim_expirado</code>. Nenhuma frente fica presa para sempre.</p>
+  <p>O que dá para automatizar sem inventar nada: um watchdog em SQL comparando <code>frentes_claims.heartbeat_em</code> com <code>now()</code>. Heartbeat parado além do limiar = sessão travada, mesmo com status <code>RUNNING</code>. Isso é detectável deterministicamente e **sem LLM** — e é estritamente melhor que o critério atual, que depende de você olhar a tela.</p>
+</section>
+
+<section>
+  <h2><span class="num">10</span> Custo comparativo</h2>
+  <p>Duas moedas diferentes, e confundi-las levaria à decisão errada: <strong>Claude Code consome janela de rate limit de assinatura; a API Anthropic consome dólares.</strong> Preços por MTok: Opus 5 US$ 5/25 · Sonnet 5 US$ 3/15 · Haiku 4.5 US$ 1/5.</p>
+  <div class="scroll"><table>
+    <thead><tr><th>Arquitetura</th><th>Custo ocioso</th><th>Moeda / observação</th></tr></thead>
+    <tbody>
+      <tr><td>1. Claude Code permanente</td><td class="num">alto e contínuo</td><td>Queima janela de 5h competindo com seu uso interativo. <strong>Inviável também por persistência</strong> — o container morre.</td></tr>
+      <tr><td>2. Claude Code sob demanda, 1×/h</td><td class="num">~US$ 0,08–0,23 por tick vazio</td><td>≈ US$ 60–170/mês só de cold start em ticks sem trabalho. Medido, não estimado.</td></tr>
+      <tr><td>3. API Anthropic sob demanda</td><td class="num">menor por chamada</td><td>Mas <strong>não há API key provisionada</strong>, e reconstruir Supabase MCP + git + deploy num worker próprio é obra grande sem ganho.</td></tr>
+      <tr class="rec"><td><strong>4. Worker determinístico + LLM só para engenharia</strong></td><td class="num"><strong>≈ zero</strong></td><td>SQL decide em 186 ms. LLM só entra quando há engenharia de verdade.</td></tr>
+      <tr><td>5. GitHub Actions para operações padronizadas</td><td class="num">minutos grátis</td><td><strong>Não existe <code>.github/workflows</code> hoje</strong> — teria de ser criado do zero, e precisaria de secrets próprios.</td></tr>
+    </tbody>
+  </table></div>
+  <p><strong>A consequência prática:</strong> mesmo na arquitetura 4, se o despertar for uma Routine horária, cada tick vazio custa o cold start. Por isso o tick precisa ser o mais barato possível — abrir, consultar o SQL, encerrar — e a frequência deve seguir o ritmo real do trabalho, não o do relógio. Um despertar de hora em hora, 24 h por dia, gasta mais em ticks vazios do que em trabalho.</p>
+</section>
+
+<section>
+  <h2><span class="num">11</span> Limitações reais (provadas, não supostas)</h2>
+  <ol>
+    <li><strong>Edge function não acorda Claude Code.</strong> Sem API key, sem token CCR, autenticação por OAuth atrás de proxy local. A seta de fora para dentro não existe hoje.</li>
+    <li><strong><code>claude -p</code> headless não tem MCP.</strong> Testei: respondeu <code>NENHUM_MCP</code>. Sem Supabase não há GPS, claim nem deploy.</li>
+    <li><strong>Resultado da sessão filha não retorna pela API</strong> — só status. O banco tem de ser o canal.</li>
+    <li><strong>Intervalo mínimo de Routine é horário.</strong> Não dá para reagir em 15 minutos por esse caminho.</li>
+    <li><strong>Migration não tem undo</strong>, e Vercel não é automatizável sem token.</li>
+    <li><strong><code>frentes_espera</code> não tem condição legível por máquina</strong> — bloqueia o watcher determinístico.</li>
+    <li><strong>Rate limit de 5 h é compartilhado</strong> entre o executor e você.</li>
+  </ol>
+</section>
+
+<section>
+  <h2><span class="num">12</span> Contrato necessário do GPS</h2>
+  <p>Não alterei nada. Um item novo, mais bloqueante que o da rodada anterior.</p>
+  <h3>Predicado estruturado de espera</h3>
+  <div class="note crit">
+    <span class="tag">Bloqueia o caso 2 inteiro</span>
+    <ul>
+      <li><strong>Fato faltante:</strong> <code>frentes_espera</code> não tem coluna que expresse a condição de fechamento de forma avaliável por máquina.</li>
+      <li><strong>Por que o executor precisa:</strong> sem isso não existe watcher barato. A condição vive em <code>descricao</code>, e a própria tabela proíbe interpretá-la por prosa, regex ou LLM. Sem predicado, todo shadow e toda amostra voltam a depender de alguém lendo texto.</li>
+      <li><strong>Exemplo real:</strong> <code>instrumentar-envio-agentes-conversacionais</code> aguarda <em>"o PRIMEIRO outbound orgânico do Bruno posterior à migration"</em>. Isso é uma consulta SQL de uma linha — mas hoje só existe como frase.</li>
+      <li><strong>Menor alteração possível (sugestão, não decisão):</strong> uma coluna opcional com predicado nomeado e parâmetros, por exemplo <code>{"tipo":"contagem_minima","consulta":"fn_espera_outbound_bruno","minimo":1}</code>, avaliada por uma função whitelist. Espera sem predicado continua válida e simplesmente permanece manual — nada quebra, e o preenchimento é incremental.</li>
+    </ul>
+  </div>
+  <p>Os dois itens da rodada anterior seguem de pé: <strong>custódia do <code>claim_token</code></strong> e <strong>frentes acionáveis cujo próximo passo é esperar</strong>. Este terceiro é o de maior impacto: sem ele, o ciclo autônomo trava toda vez que uma frente precisa aguardar material orgânico — que, pelo panorama, é a situação de 4 das 18 trilhas.</p>
+</section>
+
+<section>
+  <h2><span class="num">13</span> Recomendação final</h2>
+  <pre class="flow">CAMADA 1 — determinística, sem LLM, custo ~zero
+  pg_cron + SQL: watchers de espera, verificação de cron,
+  contagem de amostra, watchdog de heartbeat, tick do GPS
+  → fecha esperas, marca "há trabalho", não acorda ninguém
+
+CAMADA 2 — despertar, auto-agendado de DENTRO
+  Routine CCR, sessão nova por disparo, frequência casada
+  com o ritmo real do trabalho
+  → primeiro ato: consultar o SQL. Sem trabalho, encerra.
+
+CAMADA 3 — engenharia, Claude Code como worker
+  claim → código → teste → deploy sob política → evidência
+  → escreve desfecho no BANCO e encerra</pre>
+  <p><strong>Onde você continua no loop, e só aqui:</strong> provisionar credenciais deliberadamente não delegadas (API key, token Vercel), abrir as flags <code>allow_*</code> uma vez, definir o teto de orçamento, e decidir quanto da janela de 5 h o executor pode consumir do seu próprio uso. Todas são decisões de proprietário por definição — nenhuma é "manda a próxima".</p>
+  <p><strong>O que a validação mudou no desenho da rodada 1:</strong> o tick de 15 minutos em <code>pg_cron</code> continua certo para a camada determinística, mas <strong>não pode ser ele a acordar o Claude</strong>. Ele fecha esperas e prepara o terreno; quem desperta é a Routine. Essa correção só apareceu porque a hipótese foi testada em vez de aceita.</p>
+</section>
+
+<footer>
+  <p><strong>Nada foi implementado. O canário não foi executado. O GPS não foi alterado.</strong></p>
+  <p>A única escrita desta rodada foi um <code>claude -p</code> de teste, em diretório temporário, que respondeu "OK" e listou seus MCPs — foi o experimento que produziu o achado central.</p>
+</footer>
+
+</div>
