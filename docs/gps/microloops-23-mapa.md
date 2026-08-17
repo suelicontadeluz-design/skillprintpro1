@@ -584,3 +584,80 @@ A espera liberou a frente e o GPS recalculou sozinho: `aprendizado` caiu para `U
 
 Próximo ponto indicado (**não executado**): `agente-aprovacao` / `aprendizado` via
 `agentes-sem-aprendizado-ativo`, trilha `aprendizado`, autoridade `UNICA`.
+
+---
+
+# ADENDO 6 — KPI do João + loop autônomo (17/08/2026)
+
+## Fase 1 — primeiro ponto dos 23 fechado pelo ciclo
+
+Decisão do proprietário: KPI/meta inicial de **R$ 20.000** para `agente-noturno`, **valor fixo**, com
+instrução expressa de não fabricar cascata nem fórmula.
+
+Criada `agente_metas` id `4afcb144…`: `kpi=receita_atribuida`, `valor_esperado=20000`,
+`unidade=BRL`, `periodo=mensal`, `direcao_meta=maior`, `derivada_de=decisao_proprietario`,
+**`formula_derivacao=NULL` de propósito**.
+
+Duas ressalvas gravadas **na própria meta**, não escondidas no relatório:
+
+1. **`periodo=mensal` é premissa minha** — a decisão não especificou período. Adotei mensal por ser
+   a leitura natural de um valor em R$ ao lado da meta-raiz de R$120k/mês. Se era semanal ou
+   diária, corrigir a linha.
+2. A meta é hoje **declarada e ainda não mensurável ponta a ponta**: `source_conversion_id` e
+   `regra_atribuicao` são NULL em 89.052/89.052 linhas. Depende de `atribuicao-vendas-v2`.
+
+A espera foi encerrada **só no que a autorização cobre**; nova espera aberta para os 7 agentes
+restantes. Não usei a decisão sobre um agente para fechar os outros sete.
+
+| | Antes | Depois |
+|---|---|---|
+| `agente-noturno` | 4/6 | **5/6** |
+| Global comprovados | 75 | **76** |
+| Ledger | 190 | **192** (só acréscimo) |
+| Eventos do ponto | 2 | **3** (PENDENTE → AGUARDANDO → COMPROVADO, nenhum sobrescrito) |
+| Regressões | — | **0** |
+
+## Fase 2 — testes dos dois bugs anteriores
+
+`fn_microloops_23_autoteste()`, determinística, sem LLM e sem mutação:
+
+| Teste | Contrato | Resultado |
+|---|---|---|
+| T1 | acionável exige selecionável | ✅ 0 violações |
+| T2 | sob `ROTA_ESCOLHIDA`, a rota humana prevalece sobre `candidatas[0]` | ✅ 0 violações |
+| T2b | o teste tem poder (rota ≠ candidatas[0] em 1 trilha) | ✅ não é vácuo |
+| T3 | espera aberta bloqueia acionabilidade | ✅ 0 violações |
+| T4 | só ponto OBRIGATORIO é acionável | ✅ 0 violações |
+
+## Fase 3 — loop autônomo
+
+**Kill switch no banco, não no scheduler:** `microloops_23_loop_config` +
+`fn_microloops_23_pode_rodar()`, porta única consultada antes de qualquer trabalho. Reprova por
+`KILL_SWITCH_DESLIGADO`, `AUTOTESTE_REPROVADO` ou `NENHUM_PONTO_SELECIONAVEL`.
+
+```sql
+-- desligar imediatamente, sem tocar na plataforma
+update public.microloops_23_loop_config
+   set habilitado=false, motivo_desligado='...', atualizado_em=now(), atualizado_por='...';
+```
+
+**Mecanismo de despertar — investigado, não inventado:** a conta tem Routines via `meta_mcp`, 6
+disparos históricos todos `run_once_fired`, e as sessões disparadas **executaram SQL neste projeto**
+— prova de que sessão disparada alcança o Supabase. Ambiente: `env_01HXFVw4PKXiN7dE9jouHnYf`.
+
+**Routine criada:** `trig_012NBquhE2Etwa8CddxT2bnr`, cron `15 */6 * * *` (4 rodadas/dia), sessão
+nova a cada disparo, prompt autossuficiente com porta de entrada, protocolo, regra de seleção,
+baseline, claim, limites de autoridade, as 4 classes de desfecho, post-flight e prova de preservação.
+
+### Bloqueio real encontrado na criação
+
+A plataforma avisou que a Routine **não armazena connectors MCP** — uma Routine só recebe
+connectors que a sessão chamadora já possua como grant repassável, e esta sessão não tinha nenhum.
+As sessões disparadas rodariam **sem `mcp__Supabase__*`**: acordariam e não conseguiriam nem
+executar a porta de entrada.
+
+Por isso a Routine foi **desabilitada** e renomeada com o motivo visível, em vez de deixada
+disparando a cada 6 horas para falhar.
+
+**Ação única do Alessandro:** abrir `trig_012NBquhE2Etwa8CddxT2bnr` na UI de Routines do claude.ai,
+anexar o connector do Supabase e reabilitar. Nada precisa ser reconstruído.
