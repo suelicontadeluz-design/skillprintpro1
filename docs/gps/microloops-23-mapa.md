@@ -357,3 +357,63 @@ Simulação em transação abortada: com a trilha `aprendizado` ocupada por clai
 acionáveis em 7 agentes** nas trilhas `atribuicao` e `conversao_joao` — **sem** devolver
 `NENHUM_PONTO_ACIONAVEL`. Provando `prova_externa` da mídia: global 75→76, Gustavo 5/5, **João
 preservado em 4/6**.
+
+---
+
+# ADENDO 3 — Canário final: o navegador anunciava trabalho que o protocolo proíbe
+
+O canário executaria **1 ponto real**. Não executou nenhum, e o motivo é um defeito estrutural
+que só apareceu ao tentar de verdade.
+
+## O defeito
+
+`fn_microloops_23_proxima` classificava um ponto como acionável usando
+`vw_frentes_elegiveis.acionavel`, que prova apenas *"o portão permitiria capturar e não há espera
+aberta"*. Isso **não** prova que o GPS deixaria a sessão **escolher** a frente.
+
+O protocolo canônico é explícito nos dois pontos:
+
+> `NUNCA escolher frente a partir da chave fila … Escolha somente dentro de selecionavel.`
+> `ROTA: trilha AMBIGUA sem rota registrada NAO pode ser desempatada pelo modelo.`
+
+**Medida da divergência:** o navegador anunciava **31 pontos acionáveis** em 5 frentes portadoras.
+A interseção com a chave `selecionavel` era **vazia**.
+
+| Frente portadora | Trilha | Por que não é selecionável | Pontos |
+|---|---|---|---|
+| `agentes-sem-meta-ativa` | aprendizado | prioridade 2 perde para a melhor prioridade 1 — nem entra como candidata | 8 |
+| `agentes-sem-aprendizado-ativo` | aprendizado | idem | 8 |
+| `resultado-executada-prova-intencao` | atribuicao | trilha `AMBIGUA`, 10 candidatas | 6 |
+| `joao-contexto-comercial-canonico` | conversao_joao | trilha `AMBIGUA`, 5 candidatas | 1 |
+| `crons-sucesso-sem-efeito` | governanca | prioridade 3; outra frente é a `UNICA` | 8 |
+
+Uma sessão Cowork seguindo o protocolo estaria **proibida** de trabalhar qualquer um deles.
+
+## Correção mínima aplicada
+
+O ponto só entra em `pontos_acionaveis` quando `fn_gps_proxima` da trilha devolve `UNICA` ou
+`ROTA_ESCOLHIDA` apontando **exatamente** a frente portadora. Acrescentadas as chaves
+`bloqueados_por_ambiguidade_de_trilha` e `trilhas_que_exigem_decisao_de_rota`, e a situação
+`BLOQUEADO_POR_AMBIGUIDADE_DE_TRILHA`.
+
+Nada de política global mudou: `fn_gps_proxima`, `vw_frentes_elegiveis`, `gps_rota_decisao`,
+autonomia, deploy e schedulers seguem intocados. **Nenhuma rota foi registrada por mim.**
+
+## Preservação — provada mecanicamente
+
+Baseline em `backup_ml23_baseline_canario` (184 pontos), comparado após a rodada:
+
+| Verificação | Resultado |
+|---|---|
+| Regressões de `COMPROVADO` | **0** |
+| Pontos com estado ou aplicabilidade alterados | **0** |
+| Eventos no ledger (antes → depois) | 190 → **190** |
+| Comprovados (antes → depois) | 75 → **75** |
+| Frentes alheias tocadas | **0** |
+| Claims ativos ao final | **0** |
+
+## Lição de segunda ordem
+
+As duas frentes criadas na rodada anterior nasceram com **prioridade 2** numa trilha cuja melhor
+prioridade é 1 — estruturalmente inalcançáveis mesmo sem ambiguidade. **Frente portadora criada
+com prioridade dominada nasce morta.**
