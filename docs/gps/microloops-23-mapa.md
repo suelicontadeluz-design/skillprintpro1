@@ -183,3 +183,94 @@ O inventário dos 19 é trabalho técnico normal e não depende de ninguém: é 
 
 Nada foi alterado em `fn_gps_proxima`, `vw_frentes_elegiveis`, autonomia de deploy, flags `allow_*`
 ou schedulers. `gps_rota_decisao` segue **sem linha nova** — nenhuma decisão humana falsa foi registrada.
+
+---
+
+# ADENDO — Contrato ponto a ponto (decisão do proprietário, 17/08/2026)
+
+O contrato binário `0/23` foi substituído. Unidade mínima: **AGENTE → PONTO → ESTADO + PROVA**.
+Progresso parcial é preservado; nada é zerado.
+
+## Os 8 pontos obrigatórios não foram inventados
+
+São os itens enumerados **literalmente** no `criterio_aceite` da macrofrente, validado por
+Alessandro em 15/08/2026:
+
+| # | Ponto | Observável declarado |
+|---|---|---|
+| 1 | `etapa_crm` | etapa de pipeline CRM no contexto da decisão |
+| 2 | `entrada_observada` | `agente_decisoes_log.contexto` não vazio |
+| 3 | `kpi_meta` | linha ativa em `agente_metas` |
+| 4 | `acao` | `acao_executada` preenchida |
+| 5 | `prova_externa` | `efeito_externo` + `envio_provider_id`, ou `mensagem_envio.autor_id` |
+| 6 | `resultado_comercial` | `source_conversion_id` + `regra_atribuicao` |
+| 7 | `aprendizado` | `agente_aprendizados` ativo (validada/aplicada) |
+| 8 | `ajuste_proxima` | `origem_decision_id` ligando decisão a decisão anterior |
+
+23 agentes × 8 = **184 pontos obrigatórios**.
+
+## Imutabilidade lógica
+
+`microloops_23_ponto_evento` é **append-only**, com trigger que recusa `UPDATE` e `DELETE`
+(testado: ambos bloqueados, 190 eventos intactos). Refutação entra como **evento novo** com
+`refuta_evento_id` — nunca como apagamento.
+
+### Auto-refutação real, ocorrida nesta rodada
+
+A reconciliação inicial marcou `etapa_crm` como COMPROVADO para João e Júlia por presença da
+chave `contexto->etapa`. Conferindo os **valores**, são vocabulário conversacional do agente —
+`sondagem` 772, `orcamento` 265, `fechamento` 119, `pos_pagamento` 104, `despedida` 31, `NULL` 394
+— e não etapa de pipeline CRM. É exatamente o defeito que `mapeamento-funil-cerebro` declara,
+com `fn_contexto_crm_etapa_prompt` implantada e a flag `crm_etapa_no_contexto=off`.
+A refutação virou evento novo; o evento anterior segue no histórico.
+
+## Progresso real (reconciliado do runtime, não de prosa)
+
+**184 pontos · 75 comprovados · 103 pendentes · 4 aguardando · 2 refutados · 0 agentes fechados**
+
+| Agente | Nome | Progresso |
+|---|---|---|
+| `agente-exploracao` | Julia Bitencourt | 5/8 |
+| `agente-fechamento` | Marcos Vieira | 5/8 |
+| `agente-noturno` | João Barros | **4/8** |
+| `agente-atribuicao`, `agente-conversacao`, `agente-memoria`, `agente-midia`, `agente-objecoes`, `agente-observacao`, `agente-pipeline`, `agente-retencao`, `orquestrador` | — | 4/8 |
+| `agente-criativo`, `agente-insights`, `agente-laboratorio`, `agente-mercado`, `agente-supervisor` | — | 3/8 |
+| `agente-aprovacao`, `agente-autonomia`, `agente-campanhas-crm`, `agente-comentario`, `agente-direct` | — | 2/8 |
+| `go` | GO | 0/8 (zero decisões em `agente_decisoes_log`) |
+
+## João detalhado — caso de prova
+
+Agente resolvido por `joao_envios → agente_decisoes_log` em 1006/1006 linhas.
+
+| Ponto | Estado | Evidência |
+|---|---|---|
+| `entrada_observada` | ✅ COMPROVADO | 6.764 decisões com contexto |
+| `acao` | ✅ COMPROVADO | 6.764 com `acao_executada` |
+| `prova_externa` | ✅ COMPROVADO | 711 com `efeito_externo`+`envio_provider_id`; 1.006 envios, 791 com callback do provider |
+| `aprendizado` | ✅ COMPROVADO | 21 aprendizados ativos (validada/aplicada) |
+| `etapa_crm` | ❌ REFUTADO | vocabulário conversacional, não etapa CRM (ver acima) |
+| `kpi_meta` | ❌ PENDENTE | `agente_metas` para `agente-noturno` = **0 linhas**, nem inativas — enquanto 14 outros agentes têm meta ativa |
+| `resultado_comercial` | ❌ PENDENTE | `source_conversion_id`+`regra_atribuicao` = 0. Os 1.551 `atribuicao_tipo` isolados são justamente o que o guardrail vinculante de `joao-loop-desfecho` proíbe tratar como verdade histórica |
+| `ajuste_proxima` | ❌ PENDENTE | `origem_decision_id` = 0 |
+
+**Os 4 comprovados não devem ser refeitos.**
+
+## Próximo ponto acionável
+
+`fn_microloops_23_proxima()` → `UNICO` → **`agente-noturno` / `etapa_crm`**, via
+`joao-contexto-comercial-canonico` (trilha `conversao_joao`).
+
+### Simulação da navegação (transação abortada)
+
+Provando `etapa_crm` e fechando a frente: João **4/8 → 5/8**, global **75 → 76**, e o navegador
+recalcula sozinho para `resultado_comercial` e `ajuste_proxima`, ambos via
+`joao-loop-desfecho`, destravado pelo DAG. Rollback conferido.
+
+## Gaps de contrato restantes
+
+1. **103 pontos pendentes não têm frente portadora registrada.** O navegador os expõe em
+   `pontos_sem_frente_portadora`; criar essas frentes é trabalho da iniciativa.
+2. **Observáveis uniformes podem não servir a agentes de infraestrutura.** `resultado_comercial`
+   e `ajuste_proxima` usam o mesmo observável para os 23. Para `go`, `orquestrador` e
+   `agente-autonomia` talvez caiba `NAO_APLICAVEL` com fundamento — decisão do proprietário.
+3. **Auto-release de espera orgânica** continua sem verificador em `fn_espera_avaliar_um`.
