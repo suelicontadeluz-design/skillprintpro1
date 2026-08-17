@@ -495,3 +495,92 @@ Nenhuma AMBIGUA silenciosamente desempatada, nenhuma espera ignorada.
 ## Próximo ponto legítimo (não capturado)
 
 `agente-noturno` / `etapa_crm` → `joao-contexto-comercial-canonico` → `conversao_joao` → GPS `UNICA`.
+
+---
+
+# ADENDO 5 — Rotas do proprietário + canário unitário (17/08/2026)
+
+## Fase A — as duas rotas
+
+Registradas pelo mecanismo canônico `gps_rota_decisao`, com o array `candidatas` capturado do
+estado real no momento da decisão. Ambas ficaram **vigentes**:
+
+| Trilha | Antes | Depois | Frente | Decidido por |
+|---|---|---|---|---|
+| `aprendizado` | AMBIGUA (2) | **ROTA_ESCOLHIDA** | `agentes-sem-meta-ativa` | alessandro |
+| `atribuicao` | AMBIGUA (7) | **ROTA_ESCOLHIDA** | `atrib-vinculo-origem-decisao` | alessandro |
+
+Nenhuma prioridade alterada, nenhum `depende_de` inventado, `fn_gps_proxima` intocada.
+
+## Segunda divergência estrutural — achada e corrigida
+
+`fn_microloops_23_proxima` derivava a frente liberada como
+`coalesce(candidatas->0->>'frente', rota_escolhida->>'frente')`.
+
+Sob `situacao='ROTA_ESCOLHIDA'` o array `candidatas` **continua preenchido**, então o `coalesce`
+nunca chegava em `rota_escolhida` e liberava `candidatas[0]` — a primeira em ordem alfabética.
+
+**Medido:** rota do proprietário = `agentes-sem-meta-ativa`; `candidatas[0]` = `agentes-sem-aprendizado-ativo`.
+
+> O navegador estava liberando para trabalho exatamente a frente que o proprietário **não** escolheu,
+> e escondendo os 8 pontos `kpi_meta` da frente escolhida. Se o Cowork tivesse rodado assim, teria
+> trabalhado **contra** a decisão registrada.
+
+Correção: ramificação explícita por `situacao` — sob `ROTA_ESCOLHIDA` vale `rota_escolhida`, sob
+`UNICA` vale a única candidata. Nunca `coalesce`.
+
+## Fase B — o canário
+
+| Item | Valor |
+|---|---|
+| Ponto | `kpi_meta` |
+| Agente | `agente-noturno` |
+| Frente portadora | `agentes-sem-meta-ativa` |
+| Trilha | `aprendizado` |
+| Autoridade GPS | `ROTA_ESCOLHIDA` |
+| Claim | `ok=true` |
+| Desfecho | **BLOQUEADO** → registrado como `AGUARDANDO` com espera `decisao_humana` |
+
+### Trabalho real — refutou a premissa
+
+A premissa implícita era "basta inserir uma linha em `agente_metas`". A reconciliação do runtime
+mostrou que não:
+
+| Fato medido | Valor |
+|---|---|
+| Metas totais / ativas | 54 / 34 |
+| Ativas **com** `formula_derivacao` | **2** |
+| Ativas com alvo e nenhum cálculo | 32 |
+| Ativas com `direcao_meta` | 3 |
+| Coluna `parent_meta_id` | **não existe** |
+| Meta-raiz de receita para derivar | **nenhuma** |
+| Única fórmula com cascata | `ROUND(meta_global / 470 / 4 * 0.3)` |
+| `agente-noturno` em `agente_metas` | **0 linhas**, nem inativas, contra 6.764 decisões |
+
+O `criterio_aceite` exige "fórmula de derivação declarada" — não há base derivável. A alternativa
+("declarar que o agente não deve ter meta") exige literalmente *"o fundamento e QUEM DECIDIU"*.
+**Os dois caminhos terminam no proprietário.** Criar a meta agora seria inventar KPI e número, e
+produziria a 33ª meta com alvo e sem cálculo — o defeito que `metas-sem-formula` e
+`numeros-magicos-nas-rotinas-de-meta` existem para remover.
+
+**Nenhuma linha foi criada em `agente_metas`.**
+
+## Preservação — provada mecanicamente
+
+| Verificação | Resultado |
+|---|---|
+| Regressões de `COMPROVADO` | **0** |
+| Pontos com estado alterado | **1** — exatamente `agente-noturno/kpi_meta`: PENDENTE → AGUARDANDO |
+| Ledger | 190 → **191** (somente acréscimo) |
+| Eventos do ponto | 1 → **2** (o anterior permanece) |
+| Progresso do agente | 4/6 → **4/6** (sem aumento artificial) |
+| Progresso global | 75 → **75** |
+| Claims desta sessão ao final | **0** |
+
+## Recálculo automático funcionou
+
+A espera liberou a frente e o GPS recalculou sozinho: `aprendizado` caiu para `UNICA` em
+`agentes-sem-aprendizado-ativo`, e o navegador voltou a **9 selecionáveis** — sem intervenção.
+
+Próximo ponto indicado (**não executado**): `agente-aprovacao` / `aprendizado` via
+`agentes-sem-aprendizado-ativo`, trilha `aprendizado`, autoridade `UNICA`.
