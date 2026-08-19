@@ -1,1 +1,32 @@
-[]
+[
+  {
+    "objeto": "FUNC fn_fase2_vincular_observacoes(p_limite integer, p_falha_proposital boolean)",
+    "arquivo": "baseline/sql/func__fn_fase2_vincular_observacoes.sql",
+    "linhas": 92,
+    "sha256": "7b59c869a8a11ac06b27db2273df80c9881c6915f14dbc90925325058e289f81"
+  },
+  {
+    "objeto": "FUNC fn_registrar_decisao_agente(p_agente_slug text, p_acao_executada text, p_resultado text, p_nivel_autonomia integer, p_lead_id text, p_contexto jsonb, p_decisao jsonb, p_impacto_financeiro numeric, p_acerto boolean, p_feedback text, p_agent_version text, p_prompt_version text, p_dry_run boolean, p_tempo_ms integer)",
+    "arquivo": "baseline/sql/func__fn_registrar_decisao_agente.sql",
+    "linhas": 68,
+    "sha256": "9a16fb82eb2218b3a668de30a2fa4ff776ece3e6261b286b871bff65cd159ced"
+  },
+  {
+    "objeto": "VIEW vw_agente_metas_realizadas",
+    "arquivo": "baseline/sql/view__vw_agente_metas_realizadas.sql",
+    "linhas": 293,
+    "sha256": "977cc93d41cbcd2e6a0a42c271b75a99be910b4d80852faaf20da34c75ae34d6"
+  },
+  {
+    "objeto": "VIEW vw_resultado_comercial_agentes",
+    "arquivo": "baseline/sql/view__vw_resultado_comercial_agentes.sql",
+    "linhas": 30,
+    "sha256": "8b3393caae0da0f63c643c13faf8eedea5db258409701ec16bb168a5c2ad7774"
+  },
+  {
+    "objeto": "VIEW vw_resultado_comercial_decisoes",
+    "arquivo": "baseline/sql/view__vw_resultado_comercial_decisoes.sql",
+    "linhas": 34,
+    "sha256": "1dadab8a2941e0e65eebf75b0be4a06a9f81b98c3a37330bfa1ac0407b9cff1f"
+  }
+]
