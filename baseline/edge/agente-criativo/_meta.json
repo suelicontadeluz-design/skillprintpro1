@@ -1,0 +1,17 @@
+{
+  "slug": "agente-criativo",
+  "version": 59,
+  "status": "ACTIVE",
+  "entrypoint_path": "/tmp/user_fn_ldrdtaibazplvrbwyrvx_715f4c8b-f961-4545-ae91-4a87328ec4fd_55/source/index.ts",
+  "verify_jwt": false,
+  "created_at": 1777855963659,
+  "updated_at": 1786417588328,
+  "ezbr_sha256": "e48bdfcc057101ea1033e580a03b787b1757c84f0ca0478f754df1c0b97a2d04",
+  "captured_from": "session transcript",
+  "files": {
+    "index.ts": {
+      "bytes": 4720,
+      "sha256": "fd7a26aaafff139970b39559b1cba80686031cbd4156d24e5f959ac1fbe3a6ea"
+    }
+  }
+}

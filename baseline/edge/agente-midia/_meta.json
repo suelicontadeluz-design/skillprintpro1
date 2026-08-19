@@ -1,0 +1,21 @@
+{
+  "slug": "agente-midia",
+  "version": 74,
+  "status": "ACTIVE",
+  "entrypoint_path": "/tmp/user_fn_ldrdtaibazplvrbwyrvx_1dd496b5-5c0f-4f2a-8bb9-fab0522b5825_71/source/index.ts",
+  "verify_jwt": false,
+  "created_at": 1777854996215,
+  "updated_at": 1786536388737,
+  "ezbr_sha256": "8c399e8a2c114b394efa3756c21fbba3a4393a5c0639ea41b693a46d99e6efe9",
+  "captured_from": "tool-results file",
+  "files": {
+    "index.ts": {
+      "bytes": 52893,
+      "sha256": "62a0464f5606d318405bf70e54e2f2773c5e2a1c471cc901ebe4fdcd25697cf3"
+    },
+    "connectors/meta.ts": {
+      "bytes": 7659,
+      "sha256": "03ab69988e04a3d7b9a2baf306fb8504d60663b61f9772f3bbab33d55522d792"
+    }
+  }
+}

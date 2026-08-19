@@ -1,0 +1,17 @@
+{
+  "slug": "agente-atribuicao",
+  "version": 51,
+  "status": "ACTIVE",
+  "entrypoint_path": "/tmp/user_fn_ldrdtaibazplvrbwyrvx_c8652928-882b-44b7-91f7-442660f8242b_48/source/index.ts",
+  "verify_jwt": false,
+  "created_at": 1777855147251,
+  "updated_at": 1786540386579,
+  "ezbr_sha256": "9fea086d8a770be24470e42fc09a56e546481ddd80ec194dc69e2b2c95f9ef74",
+  "captured_from": "session transcript",
+  "files": {
+    "index.ts": {
+      "bytes": 20410,
+      "sha256": "69e785c33e5b96d2404ae769a2d6c4b0fe056049f4165e96ab0d227d207ebd9a"
+    }
+  }
+}

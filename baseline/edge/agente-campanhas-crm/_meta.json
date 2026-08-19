@@ -1,0 +1,17 @@
+{
+  "slug": "agente-campanhas-crm",
+  "version": 52,
+  "status": "ACTIVE",
+  "entrypoint_path": "/tmp/user_fn_ldrdtaibazplvrbwyrvx_6c879171-e75d-44c1-948e-703a539c7434_48/source/index.ts",
+  "verify_jwt": false,
+  "created_at": 1777861556786,
+  "updated_at": 1786488902343,
+  "ezbr_sha256": "413348de2a7b5367bcd05dbd2c7b761ec8f738e7359bc8911e58a86909222979",
+  "captured_from": "session transcript",
+  "files": {
+    "index.ts": {
+      "bytes": 30103,
+      "sha256": "e5ccd26c83b8a9dd0a263ba81126864998816c0e41e97e74aeaee9e88ef07cf5"
+    }
+  }
+}

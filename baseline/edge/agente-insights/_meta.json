@@ -1,0 +1,17 @@
+{
+  "slug": "agente-insights",
+  "version": 58,
+  "status": "ACTIVE",
+  "entrypoint_path": "/tmp/user_fn_ldrdtaibazplvrbwyrvx_0bef27ce-1c65-4302-b4ee-8922af65f373_54/source/index.ts",
+  "verify_jwt": false,
+  "created_at": 1777854816757,
+  "updated_at": 1786416995012,
+  "ezbr_sha256": "e9182308d9b051f0f274a62143e1d11174631443d455c21cc3206ac9b7c2396e",
+  "captured_from": "session transcript",
+  "files": {
+    "index.ts": {
+      "bytes": 19203,
+      "sha256": "f7a7bf5aabd117b5cc12e1e8b755aee177dd25babcc4dfb80b85504cb19de2d6"
+    }
+  }
+}
