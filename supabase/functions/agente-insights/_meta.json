@@ -1,0 +1,10 @@
+{
+  "slug": "agente-insights",
+  "version_publicada": 59,
+  "agent_version": "agente-insights-v2.7.0",
+  "rollback_para_version": 58,
+  "ezbr_sha256_deploy": "8919e901adca3ff70ff24735b384552a80d40f3eb31e4cb7d91290bd7702e768",
+  "sha256_fonte": "3fd4656f290c7f62f06a80eec4fa11f2b1b5673ad54bb2ef13c9b4798a21abfd",
+  "bytes": 26314,
+  "origem": "restaurado do fonte publicado (get_edge_function v59) — identico ao deployado"
+}
