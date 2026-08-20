@@ -55,7 +55,10 @@ export async function carregarAgente({ db, env = {}, fetchFake, caminho = CAMINH
 
   const dir = join(tmpdir(), 'agente-noturno-sob-teste');
   await mkdir(dir, { recursive: true });
-  const arquivo = join(dir, `agente_${++contador}_${createHash('sha256').update(src).digest('hex').slice(0, 8)}.ts`);
+  // O pid entra no nome porque `node --test` roda um processo por arquivo de teste:
+  // sem ele, dois processos escreveriam o MESMO caminho ao mesmo tempo e um deles
+  // poderia importar um arquivo pela metade.
+  const arquivo = join(dir, `agente_${process.pid}_${++contador}_${createHash('sha256').update(src).digest('hex').slice(0, 8)}.ts`);
   await writeFile(arquivo, src, 'utf8');
   const mod = await import(pathToFileURL(arquivo).href);
   return { handler: mod.__handler, sha256Artefato: createHash('sha256').update(fonte).digest('hex') };
