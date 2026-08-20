@@ -3348,6 +3348,13 @@ Deno.serve(async (req) => {
   let mensagem = mensagemOriginal;
   const imagens: string[] = [];
   let transcricoes: string[] = [];
+  // v4.30.0 P0-D: o turno CONSOME a rajada inteira (texto, imagem e audio de todas as
+  // linhas pendentes), mas so entregava [inboundId] a atenderCliente. carimbarInbound
+  // marcava um unico id e os demais ficavam 'pendente' — o sweep os reprocessava como
+  // turno novo. No incidente isso gerou uma segunda decisao ~2min depois do encerramento,
+  // com execution_id proprio, que chamou calcular_frete. Agora todos os IDs participantes
+  // do lote sao carimbados no mesmo turno. A ordenacao por created_at fica intacta.
+  const idsDaRajada: any[] = [];
   if (!dryRun) {
     await sleep(DEBOUNCE_MS);
     try {
@@ -3374,6 +3381,7 @@ Deno.serve(async (req) => {
       }
       const { data: rajada } = await sb.from('inbound_fora_horario').select('id, body, created_at').eq('phone', phone).eq('status', 'pendente').gte('created_at', new Date(Date.now() - 300000).toISOString()).order('created_at', { ascending: true }).limit(10);
       if (rajada && rajada.length > 0) {
+        for (const r of rajada) { if (r?.id !== undefined && r?.id !== null) idsDaRajada.push(r.id); }
         const textos = rajada.map((r: any) => {
           const doc = r.body?.document;
           const marcador = doc ? `[Arquivo recebido pelo WhatsApp: ${String(doc.fileName || doc.title || 'documento')}; tipo=${String(doc.mimeType || 'desconhecido')}]` : '';
@@ -3392,6 +3400,7 @@ Deno.serve(async (req) => {
   }
   if (!mensagemValida(mensagem)) return new Response(JSON.stringify({ ok: true, skip: 'sem_conteudo' }), { status: 200 });
 
-  const out = await atenderCliente(phone, chatName, mensagem, imagens, transcricoes, inboundId ? [inboundId] : null, dryRun);
+  const idsDoTurno = Array.from(new Set([...(inboundId ? [inboundId] : []), ...idsDaRajada]));
+  const out = await atenderCliente(phone, chatName, mensagem, imagens, transcricoes, idsDoTurno.length > 0 ? idsDoTurno : null, dryRun);
   return new Response(JSON.stringify(out), { status: 200 });
 });
