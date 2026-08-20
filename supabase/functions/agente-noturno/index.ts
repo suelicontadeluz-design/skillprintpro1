@@ -771,6 +771,125 @@ async function registrarObservacaoSlots(row: any) {
   catch (e: any) { L('shadow_slots_obs_falhou', { erro: String(e?.message ?? e).slice(0, 120) }); }
 }
 
+// ══ v4.30.0 P0-A: PROVENIENCIA DE PARAMETRO FINANCEIRO ═════════════
+// Incidente DTF UV 20/08/2026. O cliente disse apenas "e para copo americano". O SYSTEM
+// trazia "arte de caneca costuma ser 10 x 21cm" como REFERENCIA. O modelo promoveu a
+// referencia a medida real, chamou calcular_rendimento_uv e recebeu de
+// fn_precificar_dtf_uv_v2 um preco matematicamente correto (consumo_m=5.15,
+// preco_total=437.75) para uma premissa que nunca existiu: zero inbound do cliente
+// continha "10x21". A calculadora estava certa; a PREMISSA nao tinha origem.
+//
+// Regra: numero que determina dinheiro so vale com ORIGEM AUTORIZADA no turno.
+//   inbound_cliente  texto de inbound REAL (evento do turno, historico inbound do
+//                    cliente, transcricao do audio do proprio cliente)
+//   bloco_canonico   fonte canonica operacional ja suportada hoje: [ARQUIVOS REAIS DESTE
+//                    LEAD] com dimensao medida, e orcamento CalcMe vigente (>= 0.90)
+//   slot_validado    slot carimbado em turno anterior por uma das origens acima
+// NAO contam: exemplo/referencia do SYSTEM, inferencia ou numero criado pelo modelo,
+// slot sem carimbo de origem. Fail-closed: sem ledger, nenhuma tool financeira passa.
+const ORIGENS_AUTORIZADAS = ['inbound_cliente', 'bloco_canonico', 'slot_validado'];
+const SLOTS_PROTEGIDOS = ['arte', 'medidas', 'largura_cm', 'altura_cm', 'quantidade', 'copias', 'quantidade_desejada', 'cep'];
+// Medida so e medida quando aparece como PAR (10x21, 10 x 21 cm, "10 de largura por 21 de
+// altura") ou como valor explicitamente em cm. Inteiro solto NAO autoriza dimensao.
+const RX_PROV_PAR = /(\d{1,4}(?:[.,]\d{1,2})?)\s*(?:cm)?\s*[x×X]\s*(\d{1,4}(?:[.,]\d{1,2})?)\s*(?:cm)?/g;
+const RX_PROV_LARG_ALT = /(\d{1,4}(?:[.,]\d{1,2})?)\s*(?:cm)?\s*(?:de\s+)?largura[^\d]{0,30}(\d{1,4}(?:[.,]\d{1,2})?)\s*(?:cm)?\s*(?:de\s+)?altura/gi;
+const RX_PROV_CM = /(\d{1,4}(?:[.,]\d{1,2})?)\s*cm\b/g;
+const RX_PROV_INT = /\b(\d{1,6})\b/g;
+const RX_PROV_CEP = /\b(\d{5})[-. ]?(\d{3})\b/g;
+
+function provNum(v: any): number { return Number(String(v ?? '').replace(',', '.')); }
+function provChavePar(a: number, b: number): string { return `${Math.round(a * 100)}x${Math.round(b * 100)}`; }
+
+// Ledger determinístico do turno: guarda somente o que veio de origem autorizada, junto
+// com QUAL origem — o bloqueio precisa saber dizer por que passou ou por que nao passou.
+function construirProveniencia(args: {
+  mensagem: string; inbounds: any[]; transcricoes: string[];
+  slots: any; blocosCanonicos: string[];
+}): any {
+  const pares = new Map<string, string>();
+  const cms = new Map<number, string>();
+  const inteiros = new Map<number, string>();
+  const ceps = new Map<string, string>();
+  const registrar = (txt: any, origem: string) => {
+    const t = String(txt ?? '');
+    if (!t) return;
+    for (const m of t.matchAll(RX_PROV_PAR)) {
+      const a = provNum(m[1]), b = provNum(m[2]);
+      if (a > 0 && b > 0) { if (!pares.has(provChavePar(a, b))) pares.set(provChavePar(a, b), origem); if (!pares.has(provChavePar(b, a))) pares.set(provChavePar(b, a), origem); }
+    }
+    for (const m of t.matchAll(RX_PROV_LARG_ALT)) {
+      const a = provNum(m[1]), b = provNum(m[2]);
+      if (a > 0 && b > 0) { if (!pares.has(provChavePar(a, b))) pares.set(provChavePar(a, b), origem); if (!pares.has(provChavePar(b, a))) pares.set(provChavePar(b, a), origem); }
+    }
+    for (const m of t.matchAll(RX_PROV_CM)) { const a = provNum(m[1]); if (a > 0 && !cms.has(a)) cms.set(a, origem); }
+    for (const m of t.matchAll(RX_PROV_INT)) { const n = parseInt(m[1], 10); if (n > 0 && !inteiros.has(n)) inteiros.set(n, origem); }
+    for (const m of t.matchAll(RX_PROV_CEP)) { const c = m[1] + m[2]; if (!ceps.has(c)) ceps.set(c, origem); }
+  };
+  registrar(args.mensagem, 'inbound_cliente');
+  for (const i of (args.inbounds || [])) registrar(i?.message_text, 'inbound_cliente');
+  for (const t of (args.transcricoes || [])) registrar(t, 'inbound_cliente');
+  for (const b of (args.blocosCanonicos || [])) registrar(b, 'bloco_canonico');
+  // Slot so entra como fonte se tiver carimbo de origem autorizada. Slot sem carimbo e
+  // memoria de procedencia desconhecida — foi exatamente assim que "10x21cm" persistiu.
+  const carimbos: any = (args.slots && typeof args.slots._prov === 'object' && args.slots._prov) || {};
+  for (const k of SLOTS_PROTEGIDOS) {
+    if (args.slots?.[k] === undefined || args.slots?.[k] === null || args.slots?.[k] === '') continue;
+    if (!ORIGENS_AUTORIZADAS.includes(String(carimbos[k] || ''))) continue;
+    registrar(args.slots[k], 'slot_validado');
+  }
+  return { ativo: true, pares, cms, inteiros, ceps };
+}
+
+function origemDaMedida(prov: any, larg: number, alt: number): string | null {
+  if (!prov?.ativo || !(larg > 0) || !(alt > 0)) return null;
+  const porPar = prov.pares.get(provChavePar(larg, alt));
+  if (porPar) return porPar;
+  const a = prov.cms.get(larg), b = prov.cms.get(alt);
+  return (a && b) ? (a === b ? a : 'inbound_cliente') : null;
+}
+function origemDaQuantidade(prov: any, qtd: number): string | null {
+  if (!prov?.ativo || !(qtd > 0)) return null;
+  return prov.inteiros.get(qtd) || null;
+}
+function origemDoCep(prov: any, cep: string): string | null {
+  if (!prov?.ativo) return null;
+  return prov.ceps.get(String(cep || '')) || null;
+}
+// Origem de um VALOR DE SLOT protegido, para a guarda de persistencia (P0-B).
+function origemDoSlot(prov: any, slot: string, valor: any): string | null {
+  const txt = String(valor ?? '');
+  if (!txt) return null;
+  if (slot === 'cep') return origemDoCep(prov, txt.replace(/\D/g, ''));
+  if (slot === 'arte' || slot === 'medidas') {
+    const m = txt.match(/(\d{1,4}(?:[.,]\d{1,2})?)\s*(?:cm)?\s*[x×X]\s*(\d{1,4}(?:[.,]\d{1,2})?)/);
+    if (!m) return null;
+    return origemDaMedida(prov, provNum(m[1]), provNum(m[2]));
+  }
+  if (slot === 'largura_cm' || slot === 'altura_cm') {
+    const n = provNum(txt);
+    if (!(n > 0)) return null;
+    if (prov?.cms?.get(n)) return prov.cms.get(n);
+    for (const chave of (prov?.pares?.keys() || [])) { if (String(chave).split('x')[0] === String(Math.round(n * 100))) return prov.pares.get(chave); }
+    return null;
+  }
+  const q = parseInt(txt.replace(/\D/g, ''), 10);
+  return Number.isFinite(q) ? origemDaQuantidade(prov, q) : null;
+}
+
+// Recusa determinística. NAO chama RPC nem Edge externa e NAO emite autorizacao.
+function bloqueioSemProveniencia(tool: string, campos: string[], acao: string): string {
+  return JSON.stringify({
+    ok: false, erro: 'parametro_sem_proveniencia', ferramenta: tool,
+    campos_sem_proveniencia: campos, financial_authorizations: [], acao
+  });
+}
+
+function semProvenienciaInterna(s: any): any {
+  const copia: any = { ...(s || {}) };
+  delete copia._prov;
+  return copia;
+}
+
 async function executarTool(name: string, input: any, ctx: { leadId: string | null; autorizacoes: any[]; cobrancaPendente: any | null; permiteMudanca: boolean; freteJa: any | null; arteParaCalculo?: { largura_cm: number; altura_cm: number; copias: number } | null; phone?: string; pixGerado?: any }): Promise<string> {
   try {
     if (name === 'consultar_catalogo') {
@@ -933,6 +1052,18 @@ async function executarTool(name: string, input: any, ctx: { leadId: string | nu
       // v89: rendimento e preco vem da RPC oficial. A RPC escolhe a orientacao de menor consumo.
       const larg = Number(input?.largura_cm), alt = Number(input?.altura_cm);
       const qtd = parseInt(String(input?.quantidade_desejada || 0)) || 0;
+      // v4.30.0 P0-A: largura, altura e quantidade sao os numeros que viram dinheiro aqui.
+      // Sem origem autorizada nao ha RPC, nao ha autorizacao financeira e nao ha preco.
+      {
+        const faltando: string[] = [];
+        if (!origemDaMedida(ctx.proveniencia, larg, alt)) { faltando.push('largura_cm'); faltando.push('altura_cm'); }
+        if (qtd > 0 && !origemDaQuantidade(ctx.proveniencia, qtd)) faltando.push('quantidade_desejada');
+        if (faltando.length > 0) {
+          await logErro('parametro_sem_proveniencia', { tool: name, campos: faltando, lead: ctx.leadId, largura_cm: larg, altura_cm: alt, quantidade_desejada: qtd });
+          return bloqueioSemProveniencia(name, faltando,
+            'Estes n\u00fameros N\u00c3O vieram do cliente nem de fonte can\u00f4nica. NUNCA use exemplo ou refer\u00eancia do prompt como medida real. Pergunte ao cliente o que falta (' + faltando.join(', ') + ') e s\u00f3 depois chame a ferramenta. N\u00c3O apresente pre\u00e7o por \u00e1rea agora.');
+        }
+      }
       if (qtd <= 0) {
         return JSON.stringify({ ok: true, financial_authorizations: [], display_data: { produto: 'dtf_uv', obs: 'Informe quantidade_desejada para receber os metros reais e o valor total.' } });
       }
@@ -1005,6 +1136,14 @@ async function executarTool(name: string, input: any, ctx: { leadId: string | nu
       if (ctx.freteJa && !ctx.permiteMudanca) return JSON.stringify({ ok: true, financial_authorizations: [], display_data: { ja_calculado: true, servico: ctx.freteJa.servico_frete, preco: `R$${Number(ctx.freteJa.valor_frete).toFixed(2)}`, cep: ctx.freteJa.cep_destino, acao: 'Frete ja calculado. NAO recalcule.' } });
       const cep = String(input?.cep_destino || '').replace(/\D/g, '');
       if (cep.length !== 8) return JSON.stringify({ ok: false, erro: 'cep_invalido', acao: 'O CEP precisa ter 8 digitos. Peca o CEP completo.' });
+      // v4.30.0 P0-A: "tem 8 digitos" nao prova origem. No incidente a P15 registrou
+      // cep_disponivel=false com chamou_calcular_frete=true: a Edge externa foi chamada
+      // com um CEP que nunca esteve no contexto autorizado, e voltou HTTP 422.
+      if (!origemDoCep(ctx.proveniencia, cep)) {
+        await logErro('parametro_sem_proveniencia', { tool: name, campos: ['cep_destino'], lead: ctx.leadId, cep_final: cep.slice(-3) });
+        return bloqueioSemProveniencia(name, ['cep_destino'],
+          'Este CEP N\u00c3O foi informado pelo cliente nem consta em slot validado. Pe\u00e7a o CEP ao cliente e s\u00f3 depois calcule o frete. N\u00c3O informe valor de frete agora.');
+      }
       const r = await fetch(`${SUPABASE_URL}/functions/v1/calcular-frete`, { method: 'POST', headers: { 'content-type': 'application/json', Authorization: `Bearer ${SUPABASE_SERVICE_KEY}` }, body: JSON.stringify({ cep_destino: cep, metros: 1, valor_declarado: 60 }), signal: AbortSignal.timeout(12000) });
       const d = await r.json();
       if (!(d?.ok && Array.isArray(d.opcoes) && d.opcoes.length > 0)) return JSON.stringify({ ok: false, erro: 'sem_opcoes' });
@@ -1148,7 +1287,7 @@ VOC\u00ca ENXERGA IMAGENS: PROIBIDO dizer que n\u00e3o consegue ver.
 
 VOC\u00ca L\u00ca ARQUIVOS: o bloco [ARQUIVOS REAIS DESTE LEAD] \u00e9 fonte operacional. Arquivo pode chegar pelo WhatsApp OU pelo upload do site. Reconhe\u00e7a nomes, quantidade, peso e medidas; diferencie arte solta de arquivo montado; nunca presuma que todo cliente tem artes soltas. N\u00e3o pe\u00e7a reenvio de arquivo que consta como armazenado.
 
-CLIENTE SEM MEDIDA: pergunte a medida do OBJETO e ofere\u00e7a op\u00e7\u00f5es proporcionais. Refer\u00eancia: arte de caneca costuma ser 10 x 21cm.
+CLIENTE SEM MEDIDA: pergunte a medida do OBJETO e ofere\u00e7a op\u00e7\u00f5es proporcionais. Exemplo e refer\u00eancia do prompt N\u00c3O s\u00e3o medida: PROIBIDO usar qualquer n\u00famero deste texto como largura, altura ou quantidade em ferramenta. Sem medida dita pelo cliente ou vinda de arquivo/or\u00e7amento can\u00f4nico, N\u00c3O chame ferramenta de c\u00e1lculo por \u00e1rea e N\u00c3O apresente pre\u00e7o por \u00e1rea: pergunte a medida.
 
 ANTI-ENROLA\u00c7\u00c3O: pediu valor ou tabela, a PR\u00d3XIMA MENSAGEM TEM N\u00daMERO EM R$.
 
@@ -1903,6 +2042,13 @@ async function atenderClienteInterno(phone: string, chatName: string, mensagem: 
       await logErro('calcme_extrator_falhou', { phone, erro: String(e).slice(0, 120) });
     }
   }
+  // v4.30.0 P0-A: ledger de proveniencia do turno. Montado DEPOIS das fontes canonicas
+  // (arquivos do lead e CalcMe vigente) e ANTES do primeiro chamarCerebro, para que
+  // nenhuma tool financeira possa rodar sem ele. Ver ORIGENS_AUTORIZADAS.
+  ctx.proveniencia = construirProveniencia({
+    mensagem, inbounds, transcricoes, slots: slotsCtx,
+    blocosCanonicos: [blocoArquivos, calcmeVigente ? JSON.stringify(calcmeVigente.itens || []) : ''],
+  });
   const chamarCerebro = async (nudge?: string): Promise<any> => {
     const msgs: any[] = [...hist, { role: 'user', content: userContent }];
     if (nudge) msgs.push({ role: 'user', content: nudge });
