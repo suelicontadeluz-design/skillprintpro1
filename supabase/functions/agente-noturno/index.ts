@@ -227,6 +227,16 @@ const RX_DESPEDIDA_FIM = /boa noite[\s!,.]*$/i;
 // v4.21.4 ETAPA A2: frases-ancora das respostas seguras de cortesia. Se um outbound recente
 // ja contem uma delas, a proxima cortesia vira silencio deliberado (nao repete o ack).
 const RX_ACK_CORTESIA = /(qualquer coisa é só chamar por aqui|pedido está reservado|continua valendo|cualquier cosa me escribes)/i;
+// v4.30.0 P0-C: a rajada agregada chega como VARIAS LINHAS num unico evento. As regex
+// ancoradas (^...$) de mensagem unica deixavam de reconhecer "Ok\nObrigada" como cortesia
+// pura, e o turno comercial reabria depois de "Fico no aguardo...". A avaliacao passa a ser
+// por LINHA: so e ACK puro quando TODAS as linhas do lote sao confirmacao/cortesia — uma
+// unica linha com conteudo comercial real ("quero 100 unidades") j\u00e1 derruba a regra.
+function todasAsLinhasCasam(texto: string, rx: RegExp): boolean {
+  const linhas = String(texto || '').split('\n').map((l: string) => l.trim()).filter(Boolean);
+  return linhas.length > 0 && linhas.every((l: string) => rx.test(l));
+}
+const RX_ACK_LOTE = /^(t[a\u00e1] bom|t[a\u00e1] certo|certo|combinado|fechado|ok(?:ay)?|beleza|blz|obrigad[oa]|obg|valeu|vlw|tmj|amem|amen|de nada|disponha|perfeito|show|\u00f3timo|otimo|joia|j\u00f3ia|boa noite|bom descanso|at[e\u00e9] mais|ate mais|tchau|gracias)[!,. ]*$/i;
 const RX_PROD_UV = /\b(dtf ?uv|adesivo|etiqueta|r[o\u00f3]tulo|copo|caneca|garrafa|vidro|metal|madeira|mdf|acr[i\u00ed]lico)\b/i;
 const RX_PROD_TEXTIL = /\b(dtf ?t[e\u00ea]xtil|dtf|pel[i\u00ed]cula|filme|tecido|malha|prensa)\b/i;
 const RX_PROD_CAMISETA = /\b(camiseta|moletom|baby ?look|regata|polo|uniforme|oversized)\b/i;
@@ -1827,7 +1837,7 @@ async function atenderClienteInterno(phone: string, chatName: string, mensagem: 
   }
   // v4.22.2: ack curto depois de encerramento e gesto, nao um novo turno comercial.
   // A dupla condicao impede reagir a "sim/ok" no meio da coleta de dados ou da venda.
-  if (RX_CONFIRMACAO_CURTA.test(mensagem.trim()) && RX_ENCERRAMENTO_JOAO.test(ultimaMsgJoao)) {
+  if (todasAsLinhasCasam(mensagem, RX_ACK_LOTE) && RX_ENCERRAMENTO_JOAO.test(ultimaMsgJoao)) {
     if (dryRun) return { ok: true, dry_run: true, respondeu: false, reagiu: true, reaction: '\u2764\ufe0f', motivo: 'confirmacao_curta_pos_encerramento' };
     const messageId = await messageIdInbound(idsParaCarimbar, phone, mensagem);
     const envR = messageId ? await reagirComoJoao(phone, messageId) : { ok: false, canal: 'zapi' };
@@ -1839,7 +1849,7 @@ async function atenderClienteInterno(phone: string, chatName: string, mensagem: 
     return { ok: true, respondeu: false, reagiu: envR.ok, motivo: 'confirmacao_curta_pos_encerramento', canal: envR.canal };
   }
   // ── v4.21.4 ETAPA A2: cortesia nunca encerra turno em silencio mudo ──
-  const cortesiaPura = REGEX_CORTESIA.test(mensagem.trim());
+  const cortesiaPura = todasAsLinhasCasam(mensagem, REGEX_CORTESIA);
   const motivoCortesia = (jaDespediuHoje && cortesiaPura) ? 'cortesia_pos_despedida'
     : (execucoes.cobrancaPendente && !pediuMudanca && cortesiaPura) ? 'cortesia_pos_cobranca' : null;
   if (motivoCortesia) {
