@@ -1956,7 +1956,7 @@ async function atenderClienteInterno(phone: string, chatName: string, mensagem: 
     ? (execucoes.bloco ? BLOCO_EXECUCOES_SUPRIMIDO : '')
     : execucoes.bloco;
   if (gateFechado && execucoes.bloco) L('contexto_canonico_execucoes_suprimido', { phone: phone.slice(-4), motivo: gateComercial?.motivo });
-  const blocoEstado = estado ? `\n\n[FICHA: etapa=${estado.etapa}; slots=${JSON.stringify(estado.slots)}. N\u00c3O pergunte o preenchido.]` : '';
+  const blocoEstado = estado ? `\n\n[FICHA: etapa=${estado.etapa}; slots=${JSON.stringify(semProvenienciaInterna(estado.slots))}. N\u00c3O pergunte o preenchido.]` : '';
   const blocoOrigem = (categoriaAnuncio && !mudouProduto) ? `\n\n[ORIGEM: an\u00fancio "${categoriaAnuncio}". Comece por este produto, mas atenda outro se o cliente pedir.]` : '';
   const pediuPrecoAgora = REGEX_PEDIU_PRECO.test(mensagem);
   const devePrecoJa = (pediuPrecoAgora || jaPediuPrecoAntes) && !joaoJaDeuPreco;
@@ -3081,6 +3081,32 @@ async function atenderClienteInterno(phone: string, chatName: string, mensagem: 
     if (cepLimpo.length !== 8) delete slotsNovos.cep; else slotsNovos.cep = cepLimpo;
   }
   if (slotsSalvos._idioma) slotsNovos._idioma = slotsSalvos._idioma;
+
+  // ── v4.30.0 P0-B: SLOT PROTEGIDO NAO SE AUTO-CONFIRMA ──────────────────
+  // Antes, decisao.slots era mesclado direto no estado: a saida inferida pelo proprio
+  // modelo virava memoria operacional (foi assim que slots.arte = "10x21cm" nasceu de uma
+  // referencia do SYSTEM). Agora, determinante financeiro so persiste com origem provada
+  // no ledger do turno, e o valor aceito fica CARIMBADO em slots._prov para o turno
+  // seguinte reconhece-lo como slot_validado. Valor legitimo ja confirmado por cliente ou
+  // fonte canonica e preservado; valor sem prova volta ao anterior validado, ou cai.
+  const provCarimboAnterior: any = (slotsAnteriores._prov && typeof slotsAnteriores._prov === 'object') ? slotsAnteriores._prov : {};
+  const provCarimboNovo: any = { ...provCarimboAnterior };
+  const slotsRecusados: Array<{ slot: string; valor: string; anterior_preservado: boolean }> = [];
+  for (const k of SLOTS_PROTEGIDOS) {
+    if (slotsNovos[k] === undefined || slotsNovos[k] === null || slotsNovos[k] === '') { delete provCarimboNovo[k]; continue; }
+    const anteriorValidado = slotsAnteriores[k] !== undefined
+      && String(slotsAnteriores[k]) === String(slotsNovos[k])
+      && ORIGENS_AUTORIZADAS.includes(String(provCarimboAnterior[k] || ''));
+    if (anteriorValidado) continue;
+    const origem = origemDoSlot(ctx.proveniencia, k, slotsNovos[k]);
+    if (origem) { provCarimboNovo[k] = origem; continue; }
+    const preservaAnterior = slotsAnteriores[k] !== undefined && ORIGENS_AUTORIZADAS.includes(String(provCarimboAnterior[k] || ''));
+    slotsRecusados.push({ slot: k, valor: String(slotsNovos[k]).slice(0, 40), anterior_preservado: preservaAnterior });
+    if (preservaAnterior) slotsNovos[k] = slotsAnteriores[k];
+    else { delete slotsNovos[k]; delete provCarimboNovo[k]; }
+  }
+  slotsNovos._prov = provCarimboNovo;
+  if (slotsRecusados.length > 0) await logErro('slot_protegido_sem_proveniencia', { phone, lead: leadId, recusados: slotsRecusados });
 
   // ── v4.28.0 P14: OBSERVABILIDADE DE SLOTS ────────────────────────────────
   // Registra antes -> correcoes -> invalidacoes PROPOSTAS -> depois. As propostas
