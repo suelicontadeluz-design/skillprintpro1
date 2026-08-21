@@ -39,11 +39,19 @@ export type Veredito = typeof Veredito[keyof typeof Veredito];
 
 /** Classificacao de autoridade de uma fonte de dado. */
 export const Autoridade = {
-  AUTORIDADE_CONFIAVEL: 'AUTORIDADE_CONFIAVEL',
+  /** Localizada, preenchida e vinculavel ao pedido correto. Unica que emite. */
+  FONTE_CANONICA_PROVADA: 'FONTE_CANONICA_PROVADA',
+  /** Existe, mas cobertura ou vinculo com o pedido ainda nao provados. */
+  FONTE_CANDIDATA: 'FONTE_CANDIDATA',
+  /** Fonte certa, preenchimento parcial. */
   INCOMPLETO: 'INCOMPLETO',
+  /** Duas fontes vivas divergem. Escolher e decisao de negocio, nao de codigo. */
+  AMBIGUA: 'AMBIGUA',
+  /** Nao existe em nenhuma fonte conhecida. */
+  AUSENTE: 'AUSENTE',
   AINDA_EM_DESENVOLVIMENTO: 'AINDA_EM_DESENVOLVIMENTO',
-  NAO_EXISTE: 'NAO_EXISTE',
-  NAO_AUTORIZADO_PARA_EMISSAO: 'NAO_AUTORIZADO_PARA_EMISSAO',
+  /** Existe e e legitima para cotar, mas nao pode sustentar emissao. */
+  NAO_AUTORIZADA: 'NAO_AUTORIZADA',
 } as const;
 export type Autoridade = typeof Autoridade[keyof typeof Autoridade];
 

@@ -4,7 +4,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { OrigemMedida, Veredito, Efeito, type PedidoEnvio } from '../tipos.ts';
+import { OrigemMedida, Veredito, Efeito, Autoridade, type PedidoEnvio } from '../tipos.ts';
 import { validarEmissao, escolherVeredito } from '../validador.ts';
 import { fontesQueBloqueiamEmissao, MAPA_FONTES } from '../fontes.ts';
 import {
@@ -392,4 +392,76 @@ test('hash do payload redige o segredo do webhook', async () => {
   const h1 = await hashPayload(montarPayloadCriacao(e, { url: 'https://x.test', token_name: 'X-T', token_value: 'segredo-A' }));
   const h2 = await hashPayload(montarPayloadCriacao(e, { url: 'https://x.test', token_name: 'X-T', token_value: 'segredo-B' }));
   assert.equal(h1, h2, 'trocar o segredo nao pode mudar o hash persistido');
+});
+
+// ------------------------------------------------ rodada 2: mapa de fontes
+// Estes testes travam os achados da auditoria de 21/08/2026 rodada 2. Se
+// alguem rebaixar ou promover uma fonte sem refazer a prova, quebram aqui.
+
+test('endereco do destinatario tem fonte canonica provada (correcao da rodada 1)', async () => {
+  const { fonteDe } = await import('../fontes.ts');
+  const f = fonteDe('destinatario.endereco');
+  assert.ok(f);
+  assert.equal(f.autoridade, Autoridade.FONTE_CANONICA_PROVADA);
+  assert.match(f.fonte, /ERP\.public\.pessoa_cliente_dados/);
+});
+
+test('endereco do remetente esta AMBIGUA ate decisao de negocio', async () => {
+  const { fonteDe } = await import('../fontes.ts');
+  const f = fonteDe('remetente.endereco');
+  assert.ok(f);
+  assert.equal(f.autoridade, Autoridade.AMBIGUA);
+  assert.match(f.evidencia, /06803-150/);
+  assert.match(f.evidencia, /06813230|06813-230/);
+});
+
+test('peso e dimensoes continuam AUSENTE: a regra dura nao afrouxou', async () => {
+  const { fonteDe } = await import('../fontes.ts');
+  for (const campo of ['pacote.peso_kg', 'pacote.dimensoes_cm', 'pacote.regra_de_embalagem']) {
+    const f = fonteDe(campo);
+    assert.ok(f, campo);
+    assert.equal(f.autoridade, Autoridade.AUSENTE, campo);
+    assert.equal(f.obrigatorio_para_emitir, true, campo);
+  }
+});
+
+test('heuristica de embalagem cota mas nunca emite', async () => {
+  const { fonteDe } = await import('../fontes.ts');
+  const f = fonteDe('pacote.heuristica_dtf');
+  assert.ok(f);
+  assert.equal(f.autoridade, Autoridade.NAO_AUTORIZADA);
+  assert.equal(f.obrigatorio_para_emitir, false);
+});
+
+test('somente FONTE_CANONICA_PROVADA libera emissao', async () => {
+  const { bloqueia } = await import('../fontes.ts');
+  assert.equal(bloqueia(Autoridade.FONTE_CANONICA_PROVADA), false);
+  for (const a of [
+    Autoridade.FONTE_CANDIDATA, Autoridade.INCOMPLETO, Autoridade.AMBIGUA,
+    Autoridade.AUSENTE, Autoridade.AINDA_EM_DESENVOLVIMENTO, Autoridade.NAO_AUTORIZADA,
+  ]) {
+    assert.equal(bloqueia(a), true, a);
+  }
+});
+
+test('a ponte Cerebro<->ERP e um bloqueio declarado, nao um esquecimento', async () => {
+  const { fonteDe } = await import('../fontes.ts');
+  const f = fonteDe('ponte_cerebro_erp');
+  assert.ok(f);
+  assert.equal(f.autoridade, Autoridade.AUSENTE);
+  assert.equal(f.obrigatorio_para_emitir, true);
+});
+
+test('o receptor de webhook continua sem autoridade ate o PATCH 0 ir ao ar', async () => {
+  const { fonteDe } = await import('../fontes.ts');
+  const f = fonteDe('receptor_webhook_tracking');
+  assert.ok(f);
+  assert.equal(f.autoridade, Autoridade.NAO_AUTORIZADA);
+  assert.match(f.evidencia, /af11c994/);
+});
+
+test('placar de fontes bate com a contagem do mapa', async () => {
+  const { placarFontes, MAPA_FONTES: mapa } = await import('../fontes.ts');
+  const soma = Object.values(placarFontes()).reduce((a, b) => a + b, 0);
+  assert.equal(soma, mapa.length);
 });

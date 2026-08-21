@@ -99,12 +99,27 @@ e-mail — que é a premissa do receptor atual.
 ## 5. Fonte dos dados
 
 `fontes.ts` é lido em runtime pelo validador. Rebaixar uma fonte lá bloqueia a
-emissão automaticamente. Hoje **19 de 24** campos mapeados bloqueiam.
+emissão automaticamente, e só `FONTE_CANONICA_PROVADA` libera.
+
+Estado após a rodada 2 (21/08/2026): **9 de 20** campos obrigatórios ainda
+bloqueiam — eram 19 de 24. O endereço do destinatário passou a
+`FONTE_CANONICA_PROVADA` (`ERP.public.pessoa_cliente_dados`, 129/130 completos,
+7 de 8 vendas reais resolvem tudo) e o remetente ganhou fonte completa em
+`ERP.public.perfil_empresa`, ficando `AMBIGUA` só por divergência de CEP de origem.
+Detalhes em `AUDITORIA-2026-08-21-R2.md`.
+
+## 5b. Receptor de webhook
+
+`receptor/patch0.ts` é a proposta de PATCH 0 para a Edge Function
+`frenet-tracking-webhook`, com 20 testes. **Não deployada**: aquela função
+pertence à frente `logistica-frenet-fonte-canonica`, e o deploy depende de
+Alessandro cadastrar `FRENET_WEBHOOK_TOKEN_NAME` e `FRENET_WEBHOOK_TOKEN_VALUE`.
 
 ## 6. Como rodar
 
 ```bash
 node --experimental-strip-types --test logistica/frenet/test/contrato.test.ts
+node --experimental-strip-types --test logistica/frenet/test/receptor.test.ts
 node --experimental-strip-types logistica/frenet/dry-run.ts
 tsc -p logistica/frenet/tsconfig.json
 ```

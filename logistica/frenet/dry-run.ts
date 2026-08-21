@@ -5,7 +5,7 @@
 
 import { OrigemMedida, Veredito, type PedidoEnvio } from './tipos.ts';
 import { validarEmissao } from './validador.ts';
-import { fontesQueBloqueiamEmissao, MAPA_FONTES } from './fontes.ts';
+import { fontesQueBloqueiamEmissao, placarFontes, MAPA_FONTES } from './fontes.ts';
 import { ENDPOINT_COTACAO, ENDPOINT_EMISSAO, ENDPOINT_PROIBIDO_NESTA_FASE, endpoint } from './endpoints.ts';
 import {
   NOME_BASE_WHITELABEL,
@@ -68,6 +68,10 @@ export async function relatorio(): Promise<string> {
   ])) {
     p(`${s.presente ? 'PRESENTE' : 'AUSENTE '}  ${s.nome}`);
   }
+  p();
+
+  p('== PLACAR DE FONTES ==');
+  for (const [autoridade, n] of Object.entries(placarFontes()).sort()) p(`  ${String(n).padStart(2)}  ${autoridade}`);
   p();
 
   p('== FONTES QUE BLOQUEIAM EMISSAO ==');

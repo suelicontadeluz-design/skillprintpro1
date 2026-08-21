@@ -1,12 +1,17 @@
-// Mapa campo -> fonte canonica, com a classificacao de autoridade provada
-// mecanicamente em 21/08/2026 (chat claude-20260821-criar-etiqueta-frenet).
+// Mapa campo -> fonte canonica, lido em RUNTIME pelo validador.
+// Rebaixar uma entrada aqui bloqueia a emissao sozinho.
 //
-// Este arquivo NAO e documentacao: o validador le estas entradas em runtime.
-// Rebaixar uma fonte aqui bloqueia a emissao automaticamente.
+// Rodada 2 — 21/08/2026, chat claude-20260821-criar-etiqueta-frenet-r2.
+//
+// CORRECAO IMPORTANTE DA RODADA 1: eu havia classificado o endereco do
+// destinatario como AUSENTE depois de provar que CEREBRO.public.pessoas tinha
+// 0 de 1754 linhas com CEP. Isso provava apenas que AQUELA tabela nao era a
+// fonte. A fonte canonica existe, esta modelada e esta preenchida — ela vive
+// no projeto ERP, nao no Cerebro.
 //
 // Projetos:
 //   CEREBRO = Supabase ldrdtaibazplvrbwyrvx (onde vive calcular-frete)
-//   ERP     = Supabase ynjsflvdfftcopibzxyo (criativa-futuro-erp, em desenvolvimento)
+//   ERP     = Supabase ynjsflvdfftcopibzxyo (criativa-futuro-erp)
 
 import { Autoridade } from './tipos.ts';
 
@@ -21,172 +26,157 @@ export interface FonteCampo {
 }
 
 export const MAPA_FONTES: readonly FonteCampo[] = Object.freeze([
+  // ------------------------------------------------------------ PEDIDO
   {
     campo: 'pedido',
     fonte: 'ERP.public.vendas',
-    autoridade: Autoridade.AINDA_EM_DESENVOLVIMENTO,
-    evidencia: 'ERP public.vendas = 6 linhas; public.venda_itens = 3; public.produtos = 12. ERP ainda em desenvolvimento e sem ponte com o Cerebro.',
+    autoridade: Autoridade.FONTE_CANONICA_PROVADA,
+    evidencia: 'ERP public.vendas = 8 linhas; FK vendas.cliente_id -> pessoa_cliente_dados(id) ON DELETE RESTRICT, entao o vinculo e garantido pelo banco. 7 de 8 vendas resolvem cliente completo; a venda 19 esta sem cliente_id. total_liquido preenchido em 8 de 8.',
     obrigatorio_para_emitir: true,
   },
   {
-    campo: 'pedido.alternativa_cerebro',
-    fonte: 'CEREBRO.public.orcamentos',
-    autoridade: Autoridade.INCOMPLETO,
-    evidencia: 'CEREBRO public.orcamentos = 99 linhas (38 status=pago). Nao possui destinatario, documento, endereco completo nem itens; so cep_destino (19/99), metros, largura_cm, altura_cm.',
+    campo: 'ponte_cerebro_erp',
+    fonte: '(inexistente)',
+    autoridade: Autoridade.AUSENTE,
+    evidencia: 'calcular-frete v34 roda no CEREBRO e nao alcanca o banco do ERP. O pedido e o endereco vivem no ERP. Consequencia de projeto: a EMISSAO deve rodar no projeto ERP, onde o dado esta, e nao no Cerebro. Nenhuma edge de emissao existe hoje em nenhum dos dois.',
     obrigatorio_para_emitir: true,
   },
+
+  // ------------------------------------------------------ DESTINATARIO
   {
     campo: 'destinatario.nome',
-    fonte: 'ERP.public.pessoas.nome',
-    autoridade: Autoridade.AINDA_EM_DESENVOLVIMENTO,
-    evidencia: 'ERP public.pessoas = 136 linhas, 128 com endereco completo. Base do ERP, ainda nao ligada ao pedido do Cerebro.',
+    fonte: 'ERP.public.pessoas.nome (via pessoa_cliente_dados.pessoa_id)',
+    autoridade: Autoridade.FONTE_CANONICA_PROVADA,
+    evidencia: 'ERP public.pessoas = 136 linhas; pessoa_papel papel=cliente = 129. 7 de 8 vendas resolvem nome do cliente.',
     obrigatorio_para_emitir: true,
   },
   {
     campo: 'destinatario.documento',
-    fonte: 'ERP.public.pessoas.cpf|cnpj',
-    autoridade: Autoridade.INCOMPLETO,
-    evidencia: 'CEREBRO public.pessoas: 976 cpf, 502 cnpj de 1754. CEREBRO public.lead_identificadores.cpf_cnpj: 327 de 15715.',
+    fonte: 'ERP.public.pessoas.cpf | cnpj',
+    autoridade: Autoridade.FONTE_CANONICA_PROVADA,
+    evidencia: '7 de 8 vendas resolvem CPF ou CNPJ do cliente pelo caminho vendas -> pessoa_cliente_dados -> pessoas.',
     obrigatorio_para_emitir: true,
   },
   {
     campo: 'destinatario.telefone',
-    fonte: 'CEREBRO.public.lead_identificadores.telefone',
-    autoridade: Autoridade.AUTORIDADE_CONFIAVEL,
-    evidencia: 'CEREBRO public.pessoas.telefone: 1554 de 1754. lead_identificadores = 15715 linhas, chave viva do WhatsApp.',
+    fonte: 'ERP.public.pessoas.telefone | whatsapp',
+    autoridade: Autoridade.FONTE_CANONICA_PROVADA,
+    evidencia: '7 de 8 vendas resolvem telefone ou whatsapp.',
     obrigatorio_para_emitir: true,
   },
   {
     campo: 'destinatario.email',
-    fonte: 'CEREBRO.public.pessoas.email',
-    autoridade: Autoridade.INCOMPLETO,
-    evidencia: 'CEREBRO public.pessoas.email: 1325 de 1754.',
+    fonte: 'ERP.public.pessoas.email',
+    autoridade: Autoridade.FONTE_CANONICA_PROVADA,
+    evidencia: '7 de 8 vendas resolvem email.',
     obrigatorio_para_emitir: false,
   },
   {
-    campo: 'destinatario.endereco.cep',
-    fonte: 'ERP.public.pessoas.cep',
-    autoridade: Autoridade.NAO_EXISTE,
-    evidencia: 'CEREBRO public.pessoas: 1754 linhas, 0 com cep. Unico CEP vivo no Cerebro e o cep_destino de cotacao (operacoes_financeiras.components), que nao e cadastro.',
+    campo: 'destinatario.endereco',
+    fonte: 'ERP.public.pessoa_cliente_dados (cep, logradouro, numero, complemento, bairro, cidade, estado)',
+    autoridade: Autoridade.FONTE_CANONICA_PROVADA,
+    evidencia: 'ERP public.pessoa_cliente_dados = 130 linhas, 129 com cep, logradouro, numero, bairro, cidade e estado simultaneamente (99,2%). Nas vendas reais: 7 de 8 com endereco completo. Substitui a classificacao AUSENTE da rodada 1, que media a tabela errada (CEREBRO public.pessoas).',
     obrigatorio_para_emitir: true,
   },
   {
-    campo: 'destinatario.endereco.logradouro',
-    fonte: 'ERP.public.pessoas.logradouro',
-    autoridade: Autoridade.NAO_EXISTE,
-    evidencia: 'CEREBRO public.pessoas: 0 de 1754 com logradouro.',
-    obrigatorio_para_emitir: true,
-  },
-  {
-    campo: 'destinatario.endereco.numero',
-    fonte: 'ERP.public.pessoas.numero',
-    autoridade: Autoridade.NAO_EXISTE,
-    evidencia: 'CEREBRO public.pessoas: 0 de 1754 com numero.',
-    obrigatorio_para_emitir: true,
-  },
-  {
-    campo: 'destinatario.endereco.complemento',
-    fonte: 'ERP.public.pessoas.complemento',
-    autoridade: Autoridade.NAO_EXISTE,
-    evidencia: 'CEREBRO public.pessoas: coluna existe, 0 preenchida.',
+    campo: 'destinatario.endereco.override_entrega',
+    fonte: 'ERP.public.vendas.endereco_entrega / pessoa_cliente_dados.endereco_entrega (jsonb)',
+    autoridade: Autoridade.FONTE_CANONICA_PROVADA,
+    evidencia: 'Shape confirmado em dado real: {cep, logradouro, numero, complemento, bairro, cidade, estado}. Preenchido em 5 de 130 clientes e 0 de 8 vendas — e override opcional, nao lacuna: quando vazio, vale o endereco cadastral.',
     obrigatorio_para_emitir: false,
   },
+
+  // ---------------------------------------------------------- REMETENTE
   {
-    campo: 'destinatario.endereco.bairro',
-    fonte: 'ERP.public.pessoas.bairro',
-    autoridade: Autoridade.NAO_EXISTE,
-    evidencia: 'CEREBRO public.pessoas: 0 de 1754 com bairro.',
+    campo: 'remetente.identificacao',
+    fonte: 'ERP.public.perfil_empresa (razao_social, nome_fantasia, cnpj, email, telefone, inscricao_estadual)',
+    autoridade: Autoridade.FONTE_CANONICA_PROVADA,
+    evidencia: 'ERP public.perfil_empresa = 1 linha, com razao_social, nome_fantasia, CNPJ de 14 digitos, email, telefone e IE todos preenchidos. Substitui frete_config[remetente], que so tinha uf/cep/cidade.',
     obrigatorio_para_emitir: true,
   },
   {
-    campo: 'destinatario.endereco.cidade',
-    fonte: 'ERP.public.pessoas.cidade',
-    autoridade: Autoridade.NAO_EXISTE,
-    evidencia: 'CEREBRO public.pessoas: 1 de 1754 com cidade.',
+    campo: 'remetente.endereco',
+    fonte: 'ERP.public.perfil_empresa VS CEREBRO.frete_config[remetente] / calcular-frete',
+    autoridade: Autoridade.AMBIGUA,
+    evidencia: 'DIVERGENCIA VIVA: perfil_empresa.cep = 06803-150 (com logradouro, numero, complemento, bairro, cidade e estado preenchidos). frete_config[remetente].cep = 06813-230 e calcular-frete v34 tem CEP_ORIGEM = 06813230 hardcoded. Ambos em Embu das Artes/SP. Endereco fiscal e endereco de postagem podem legitimamente diferir; escolher e decisao de negocio e muda o preco do frete.',
     obrigatorio_para_emitir: true,
   },
   {
-    campo: 'destinatario.endereco.uf',
-    fonte: 'ERP.public.pessoas.estado',
-    autoridade: Autoridade.NAO_EXISTE,
-    evidencia: 'CEREBRO public.pessoas.estado sem preenchimento util; calcme_itens_pedido.uf e historico importado, nao cadastro de entrega.',
-    obrigatorio_para_emitir: true,
-  },
-  {
-    campo: 'remetente.*',
-    fonte: 'CEREBRO.public.frete_config[chave=remetente]',
+    campo: 'remetente.telefone',
+    fonte: 'ERP.public.perfil_empresa.telefone',
     autoridade: Autoridade.INCOMPLETO,
-    evidencia: 'frete_config.remetente = {uf: SP, cep: 06813-230, cidade: Embu das Artes}. Falta razao social, CNPJ, logradouro, numero, bairro, telefone e email do remetente — obrigatorios em etiqueta.',
-    obrigatorio_para_emitir: true,
+    evidencia: 'Preenchido, mas com 10 digitos (fixo). Transportadora costuma exigir celular para contato de coleta/entrega. Nao bloqueia sozinho; confirmar na homologacao.',
+    obrigatorio_para_emitir: false,
   },
+
+  // -------------------------------------------------------------- ITENS
   {
     campo: 'itens',
     fonte: 'ERP.public.venda_itens',
-    autoridade: Autoridade.AINDA_EM_DESENVOLVIMENTO,
-    evidencia: 'ERP public.venda_itens = 3 linhas.',
+    autoridade: Autoridade.FONTE_CANDIDATA,
+    evidencia: 'ERP public.venda_itens = 3 linhas, 3 com quantidade > 0 e 3 com produto_id. Estrutura correta, volume baixo demais para chamar de provada: 8 vendas geram apenas 3 itens.',
     obrigatorio_para_emitir: true,
   },
-  {
-    campo: 'itens.quantidade',
-    fonte: 'ERP.public.venda_itens.quantidade',
-    autoridade: Autoridade.AINDA_EM_DESENVOLVIMENTO,
-    evidencia: 'Mesma tabela do item; sem volume real ainda.',
-    obrigatorio_para_emitir: true,
-  },
+
+  // ------------------------------------------------ PACOTE (REGRA DURA)
   {
     campo: 'pacote.peso_kg',
     fonte: 'ERP.public.produtos.peso_bruto_kg',
-    autoridade: Autoridade.AINDA_EM_DESENVOLVIMENTO,
-    evidencia: 'ERP public.produtos: 12 produtos, 1 com peso_bruto_kg (0.15). Frente entrega-cep-e-frete-sem-fonte-fiel esta BLOQUEADA aguardando entrevista humana de peso/volume/embalagem por produto.',
+    autoridade: Autoridade.AUSENTE,
+    evidencia: 'ERP public.produtos: 12 ativos, 1 com peso_bruto_kg (Baby look 100% algodao, 0,150 kg). Os outros 11 sao NULL. gramatura_g_m2 e NULL em 12 de 12.',
     obrigatorio_para_emitir: true,
   },
   {
-    campo: 'pacote.altura_cm',
-    fonte: 'ERP.public.produtos.altura_cm',
-    autoridade: Autoridade.AINDA_EM_DESENVOLVIMENTO,
-    evidencia: 'ERP public.produtos: 1 de 12 com altura_cm.',
+    campo: 'pacote.dimensoes_cm',
+    fonte: 'ERP.public.produtos.altura_cm/largura_cm/comprimento_cm',
+    autoridade: Autoridade.AUSENTE,
+    evidencia: 'ERP public.produtos: 1 de 12 com as tres dimensoes (10 x 30 x 40). Os outros 11 sao NULL.',
     obrigatorio_para_emitir: true,
   },
   {
-    campo: 'pacote.largura_cm',
-    fonte: 'ERP.public.produtos.largura_cm',
-    autoridade: Autoridade.AINDA_EM_DESENVOLVIMENTO,
-    evidencia: 'ERP public.produtos: 1 de 12 com largura_cm.',
-    obrigatorio_para_emitir: true,
-  },
-  {
-    campo: 'pacote.comprimento_cm',
-    fonte: 'ERP.public.produtos.comprimento_cm',
-    autoridade: Autoridade.AINDA_EM_DESENVOLVIMENTO,
-    evidencia: 'ERP public.produtos: 1 de 12 com comprimento_cm.',
+    campo: 'pacote.regra_de_embalagem',
+    fonte: '(inexistente)',
+    autoridade: Autoridade.AUSENTE,
+    evidencia: 'Nao existe regra de como N pecas viram M volumes. produtos.unidade_venda tem dois regimes: unidade (11 produtos) e metro_linear (Filme DTF Textil). Peso de peca sozinho nao determina o volume postado.',
     obrigatorio_para_emitir: true,
   },
   {
     campo: 'pacote.heuristica_dtf',
     fonte: 'CEREBRO.public.frete_config[chave=embalagem]',
-    autoridade: Autoridade.NAO_AUTORIZADO_PARA_EMISSAO,
-    evidencia: 'frete_config.embalagem = peso_por_metro_g 100 + duas caixas fixas 60x13x13 / 60x26x13. E regra de COTACAO para DTF linear. calcular-frete v34 aplica piso de 300 g. Serve para cotar, nunca para emitir: 125 operacoes kind=frete e 0 registram peso.',
+    autoridade: Autoridade.NAO_AUTORIZADA,
+    evidencia: 'peso_por_metro_g = 100 + duas caixas fixas 60x13x13 / 60x26x13, com piso de 300 g em calcular-frete v34. Legitima para COTAR e continua em uso. Nunca ganha autoridade para EMITIR: 125 operacoes kind=frete e 0 registram peso.',
     obrigatorio_para_emitir: false,
   },
+
+  // ------------------------------------------------------ COMERCIAL
   {
     campo: 'valor_declarado',
-    fonte: 'CEREBRO.public.orcamentos.valor_total',
-    autoridade: Autoridade.INCOMPLETO,
-    evidencia: 'calcular-frete v34 usa default 50 quando ausente. Default de cotacao nao pode virar valor segurado de etiqueta.',
+    fonte: 'ERP.public.vendas.total_liquido',
+    autoridade: Autoridade.FONTE_CANONICA_PROVADA,
+    evidencia: 'ERP public.vendas: total_liquido preenchido em 8 de 8; valor_frete em 8 de 8. subtotal_itens so em 4 de 8, por isso a fonte do valor segurado e total_liquido e nao subtotal_itens.',
     obrigatorio_para_emitir: true,
   },
   {
     campo: 'servico',
-    fonte: 'CEREBRO.public.operacoes_financeiras[kind=frete].components.servico',
+    fonte: 'CEREBRO.public.operacoes_financeiras[kind=frete].components',
     autoridade: Autoridade.INCOMPLETO,
-    evidencia: '125 operacoes kind=frete; components guarda apenas {cep, servico}. Nao guarda codigo do servico, peso, dimensoes nem vinculo com pedido — impossivel reconciliar cotacao x etiqueta hoje.',
+    evidencia: '125 operacoes kind=frete; components guarda apenas {cep, servico}, sem ServiceCode, sem peso, sem dimensoes e sem vinculo com o pedido. A cotacao devolve ServiceCode mas ele e descartado, entao hoje nao da para reconciliar cotacao x etiqueta. ERP public.transportadoras = 1 e 0 de 8 vendas apontam transportadora_id.',
+    obrigatorio_para_emitir: true,
+  },
+
+  // ----------------------------------------------------------- ESTADO
+  {
+    campo: 'estado_envio_etiqueta_tracking',
+    fonte: 'sql/0001_logistica_envio.sql (nao aplicada)',
+    autoridade: Autoridade.AUSENTE,
+    evidencia: 'Zero tabelas/views etiqueta/label/shipment/tracking/rastreio no CEREBRO. A migration existe no repo e nao foi aplicada em nenhum ambiente.',
     obrigatorio_para_emitir: true,
   },
   {
-    campo: 'estado_envio_etiqueta_tracking',
-    fonte: '(inexistente)',
-    autoridade: Autoridade.NAO_EXISTE,
-    evidencia: 'Zero tabelas/views em CEREBRO public com nome etiqueta/label/shipment/tracking/rastreio. Nao ha onde persistir etiqueta, custo real, OrderId ou ShipmentId.',
+    campo: 'receptor_webhook_tracking',
+    fonte: 'CEREBRO edge frenet-tracking-webhook',
+    autoridade: Autoridade.NAO_AUTORIZADA,
+    evidencia: 'v27 ACTIVE, ezbr af11c994... — identico a v25 ja auditada, o PATCH 0 continua nao deployado. Sem autenticacao, dispara WhatsApp antes de persistir, dedup inoperante e trata OrderId como telefone/CPF. PATCH 0 escrito e testado em receptor/patch0.ts (20 testes), mas a Edge Function pertence a frente logistica-frenet-fonte-canonica e depende do cadastro de FRENET_WEBHOOK_TOKEN_NAME/VALUE.',
     obrigatorio_para_emitir: true,
   },
 ]);
@@ -199,17 +189,21 @@ export function fonteDe(campo: string): FonteCampo | undefined {
   return INDICE.get(campo);
 }
 
-/** Autoridades que jamais podem sustentar uma emissao real. */
-export const AUTORIDADES_QUE_BLOQUEIAM: ReadonlySet<Autoridade> = new Set([
-  Autoridade.INCOMPLETO,
-  Autoridade.AINDA_EM_DESENVOLVIMENTO,
-  Autoridade.NAO_EXISTE,
-  Autoridade.NAO_AUTORIZADO_PARA_EMISSAO,
-]);
+/** Unica autoridade que sustenta emissao. Todo o resto bloqueia. */
+export const AUTORIDADE_QUE_EMITE = Autoridade.FONTE_CANONICA_PROVADA;
+
+export function bloqueia(a: Autoridade): boolean {
+  return a !== AUTORIDADE_QUE_EMITE;
+}
 
 /** Campos obrigatorios cuja fonte hoje nao sustenta emissao. Fail-closed. */
 export function fontesQueBloqueiamEmissao(): FonteCampo[] {
-  return MAPA_FONTES.filter(
-    (f) => f.obrigatorio_para_emitir && AUTORIDADES_QUE_BLOQUEIAM.has(f.autoridade),
-  );
+  return MAPA_FONTES.filter((f) => f.obrigatorio_para_emitir && bloqueia(f.autoridade));
+}
+
+/** Placar por autoridade, para relatorio e teste de regressao. */
+export function placarFontes(): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const f of MAPA_FONTES) out[f.autoridade] = (out[f.autoridade] ?? 0) + 1;
+  return out;
 }

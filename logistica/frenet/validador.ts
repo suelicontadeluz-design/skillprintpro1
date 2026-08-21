@@ -137,8 +137,8 @@ export async function validarEmissao(
         bloqueios.push(
           b(Veredito.BLOCKED_FONTE, `pacotes[${i}].origem_medida`, `medida_sem_fonte_fisica:${p.origem_medida}`, {
             autoridade: p.origem_medida === OrigemMedida.HEURISTICA_CONFIG
-              ? Autoridade.NAO_AUTORIZADO_PARA_EMISSAO
-              : Autoridade.NAO_EXISTE,
+              ? Autoridade.NAO_AUTORIZADA
+              : Autoridade.AUSENTE,
           }),
         );
       }
