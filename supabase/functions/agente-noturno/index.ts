@@ -733,7 +733,10 @@ const RX_FRETE_PALAVRA = /\b(frete|sedex|pac)\b/i;
 // este casou 197 — 3x mais preciso, sem perder os 93 casos saudaveis conhecidos.
 const RX_VALOR_FRETE = /R\$\s?\d[\s\S]{0,40}?\b(frete|sedex|pac)\b|\b(frete|sedex|pac)\b[\s\S]{0,40}?R\$\s?\d/i;
 const RX_CEP = /\b\d{5}-?\d{3}\b/;
-const RX_PEDE_CEP = /(qual|me\s+passa|me\s+manda|informe)[\s\S]{0,20}cep/i;
+// v4.30.1 P0-K: o detector antigo so casava qual/me passa/me manda/informe. "Preciso do
+// seu CEP" e "CEP, por favor" passavam batido — inclusive na telemetria, que registrava
+// pediu_cep=false num turno que pediu CEP com todas as letras.
+const RX_PEDE_CEP = /((qual|me\s+(passa|manda|informa|envia)|informe|informa|preciso\s+d[oe]|preciso\s+saber|pode\s+(me\s+)?(passar|mandar|informar|dizer)|manda|envia|qual\s+[e\u00e9])[\s\S]{0,25}\bcep\b|\bcep\b[\s\S]{0,18}(por\s+favor|pfv|pf\b|pra\s+mim|completo))/i;
 
 function sinaisFreteDoTurno(
   resposta: string, inbounds: any[], slots: any, tools: string[], autorizacoes: any[]
@@ -2819,6 +2822,21 @@ async function atenderClienteInterno(phone: string, chatName: string, mensagem: 
     }
   }
 
+  // ── v4.30.1 P0-K: CEP confirmado nao se pergunta de novo ──────────────
+  // Sem invalidacao explicita (mudanca de pedido ou CEP novo), repetir a pergunta
+  // desperdicia o turno e reabre a porta para o cliente ditar outro dado por engano.
+  const cepJaConfirmado = (ORIGENS_AUTORIZADAS.includes(String(estado?.slots?._prov?.cep || '')) && estado?.slots?.cep)
+    ? String(estado.slots.cep) : null;
+  if (decisao.responde === true && cepJaConfirmado && !pediuMudanca && RX_PEDE_CEP.test(resposta)) {
+    await logErro('guardrail_cep_pedido_de_novo', { phone, cep_confirmado: cepJaConfirmado, resposta: resposta.slice(0, 200) });
+    try {
+      const dcep = await chamarCerebro('[SISTEMA: o CEP do cliente JA esta confirmado: ' + cepJaConfirmado + '. NAO peca CEP de novo. Siga do ponto em que parou usando esse CEP. Retorne APENAS o JSON.]');
+      const rcep = aberturaCorreta(sanearMsg(dcep.mensagem), !conversaAtivaHoje, false);
+      if (dcep.responde === true && !RX_PEDE_CEP.test(rcep) && validarMsg(rcep, ehPerguntaDireta) && validarPix(rcep)) { decisao = dcep; resposta = rcep; }
+      else { await logErro('guardrail_cep_pedido_de_novo_2a_falha', { phone }); decisao.responde = false; }
+    } catch { decisao.responde = false; }
+  }
+
   if (decisao.responde === true && execucoes.cobrancaPendente && !pediuMudanca && temPreco) {
     const vPend = Math.round(Number(execucoes.cobrancaPendente.valor) * 100) / 100;
     const valoresNaMsg = (resposta.match(/R\$\s?(\d{1,5}(?:[.,]\d{3})*[.,]\d{2})/g) || []).map((s: string) => {
@@ -3233,6 +3251,10 @@ async function atenderClienteInterno(phone: string, chatName: string, mensagem: 
       const fontesRetry = fontesSemanticasDoTurno(ctx, execucoes, estado?.slots);
       const incompativeisRetry = afirmacoesFinanceiras(r2).filter((a) => a.claim !== 'indeterminado' && !valorCompativel(a, fontesRetry));
       if (incompativeisRetry.length > 0) await logErro('retry_bloqueado_por_proveniencia_semantica', { phone, incompativeis: incompativeisRetry });
+      // Mesma porta dos fundos para o CEP: se ele ja esta confirmado, o retry tambem nao
+      // pode voltar perguntando.
+      const pedeCepNoRetry = !!cepJaConfirmado && !pediuMudanca && RX_PEDE_CEP.test(r2);
+      if (pedeCepNoRetry) await logErro('retry_bloqueado_por_cep_ja_confirmado', { phone, cep_confirmado: cepJaConfirmado });
 
       if (temPreco2 && toolsUsadas.length === 0) {
         const prodRetry: string | null = (() => {
@@ -3280,6 +3302,7 @@ async function atenderClienteInterno(phone: string, chatName: string, mensagem: 
         && estiloOk(r2)
         && !cruzaNoRetry
         && incompativeisRetry.length === 0
+        && !pedeCepNoRetry
       ) {
         decisao = d2;
         resposta = r2;
