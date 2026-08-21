@@ -970,6 +970,115 @@ function cotacaoAindaVale(vig: any, cep: string, comp: any): boolean {
   return true;
 }
 
+// ══ v4.30.1 P0-J: PROVENIENCIA FINANCEIRA SEMANTICA DE SAIDA ═══════════
+// A whitelist plana de centavos nao distingue produto de frete de total. Com ela,
+// R$40,37 legitimo como PRODUTO autorizava a frase "PAC ficou R$40,37", e R$31,96
+// legitimo como FRETE autorizava "Total R$31,96" — os dois numeros existiam, a
+// afirmacao e que estava errada. Aqui cada valor da resposta e classificado pelo que a
+// FRASE afirma e so passa se existir fonte do MESMO tipo. Fail-closed: afirmacao de
+// frete ou de total sem fonte compativel derruba a resposta, inclusive quando a lista
+// de fontes esta vazia.
+//
+// A classificacao usa o rotulo que PRECEDE o valor (ordem natural em portugues:
+// "PAC R$31,96", "Total R$72,33"), e so olha para frente quando o texto seguinte comeca
+// com um rotulo explicito ("R$31,96 e o PAC"). Valor sem rotulo fica indeterminado e
+// segue com as guardas historicas — esta camada nunca inventa uma acusacao.
+const RX_MOEDA_AF = /R\$\s?(\d{1,3}(?:\.\d{3})*,\d{2}|\d+,\d{2})/g;
+const RX_CLAIM_TOTAL = /\btotal\b|\bno total\b|fica tudo|tudo junto|somando/i;
+const RX_CLAIM_SEDEX = /\bsedex\b/i;
+const RX_CLAIM_PAC = /\bpac\b/i;
+const RX_CLAIM_FRETE = /\bfrete\b|\bcorreios\b/i;
+// Rotulo DEPOIS do valor so conta com copula explicita ("R$31,96 e o PAC"). A conjuncao
+// "e" sozinha nao serve: em "O produto fica R$40,37 e o PAC R$31,96" ela apenas emenda o
+// item seguinte, e lida como rotulo faria a guarda acusar a frase certa.
+const RX_ROTULO_POSPOSTO = /^[\s,:-]*(?:\u00e9|eh|sendo|referente\s+a|corresponde\s+a)\s*(?:o|a|ao|do|da)?\s*(total|sedex|pac|frete)\b/i;
+
+function classificarClaim(janelaAntes: string, janelaDepois: string): string {
+  const porTexto = (t: string): string | null => {
+    if (RX_CLAIM_TOTAL.test(t)) return 'total';
+    if (RX_CLAIM_SEDEX.test(t)) return 'frete_sedex';
+    if (RX_CLAIM_PAC.test(t)) return 'frete_pac';
+    if (RX_CLAIM_FRETE.test(t)) return 'frete';
+    return null;
+  };
+  const antes = porTexto(janelaAntes);
+  if (antes) return antes;
+  const m = String(janelaDepois || '').match(RX_ROTULO_POSPOSTO);
+  if (m) { const r = m[1].toLowerCase(); return r === 'total' ? 'total' : r === 'sedex' ? 'frete_sedex' : r === 'pac' ? 'frete_pac' : 'frete'; }
+  return 'indeterminado';
+}
+
+function afirmacoesFinanceiras(msg: string): Array<{ centavos: number; claim: string; trecho: string }> {
+  const t = String(msg || '');
+  const achados = [...t.matchAll(RX_MOEDA_AF)];
+  const out: Array<{ centavos: number; claim: string; trecho: string }> = [];
+  for (let i = 0; i < achados.length; i++) {
+    const m = achados[i];
+    const ini = m.index ?? 0;
+    const fim = ini + m[0].length;
+    const limiteAntes = i === 0 ? 0 : ((achados[i - 1].index ?? 0) + achados[i - 1][0].length);
+    const limiteDepois = i === achados.length - 1 ? t.length : (achados[i + 1].index ?? t.length);
+    // A janela do rotulo termina no valor e comeca na fronteira mais proxima: o valor
+    // anterior, o fim da frase anterior, ou 40 caracteres. Sem esse corte, "Fechamos no
+    // PAC. O produto fica R$40,37" leria "PAC" como rotulo do produto e acusaria sozinho.
+    const bruta = t.slice(Math.max(limiteAntes, ini - 40), ini);
+    const corte = Math.max(bruta.lastIndexOf('.'), bruta.lastIndexOf(';'), bruta.lastIndexOf('!'), bruta.lastIndexOf('?'), bruta.lastIndexOf('\n'));
+    const janelaAntes = corte >= 0 ? bruta.slice(corte + 1) : bruta;
+    const janelaDepois = t.slice(fim, Math.min(limiteDepois, fim + 30));
+    out.push({ centavos: reaisParaCentavos(m[1]), claim: classificarClaim(janelaAntes, janelaDepois), trecho: (janelaAntes + m[0]).slice(-80) });
+  }
+  return out;
+}
+
+function fontesSemanticasDoTurno(ctx: any, execucoes: any, slotsVigentes: any): Array<{ tipo: string; centavos: number }> {
+  const out: Array<{ tipo: string; centavos: number }> = [];
+  const push = (tipo: any, centavos: any) => { const c = Number(centavos); if (Number.isFinite(c) && c > 0) out.push({ tipo: String(tipo || 'valor'), centavos: Math.round(c) }); };
+  for (const f of (ctx?.fontesSemanticas || [])) push(f?.tipo, f?.centavos);
+  // Cotacao canonica ainda vigente: repetir no turno seguinte o que ja foi cotado e legitimo.
+  const vig = (slotsVigentes && typeof slotsVigentes._cotacao_frete === 'object') ? slotsVigentes._cotacao_frete : null;
+  for (const o of (vig?.opcoes || [])) push(o?.tipo, Math.round(Number(o?.preco) * 100));
+  push('produto_subtotal', vig?.composicao?.produto_centavos);
+  // Frete ja registrado em orcamento canonico do lead.
+  const fj = execucoes?.freteJa;
+  if (fj && Number(fj.valor_frete) > 0) push(tipoSemanticoFrete(fj.servico_frete), Math.round(Number(fj.valor_frete) * 100));
+  return out;
+}
+
+function valorCompativel(af: { centavos: number; claim: string }, fontes: Array<{ tipo: string; centavos: number }>): boolean {
+  const de = (pred: (f: any) => boolean) => fontes.filter(pred).map((f) => Number(f.centavos));
+  const pacs = de((f) => f.tipo === 'frete_pac');
+  const sedexes = de((f) => f.tipo === 'frete_sedex');
+  const genericos = de((f) => f.tipo === 'frete');
+  const fretes = de((f) => String(f.tipo).startsWith('frete'));
+  const totais = de((f) => String(f.tipo).startsWith('total'));
+  const produtos = de((f) => !String(f.tipo).startsWith('frete') && !String(f.tipo).startsWith('total'));
+  const c = af.centavos;
+  if (af.claim === 'frete_pac') return pacs.includes(c) || genericos.includes(c);
+  if (af.claim === 'frete_sedex') return sedexes.includes(c) || genericos.includes(c);
+  if (af.claim === 'frete') return fretes.includes(c);
+  if (af.claim === 'total') {
+    if (totais.includes(c) || produtos.includes(c)) return true;
+    for (const p of produtos) for (const f of fretes) if (p + f === c) return true;
+    return false;
+  }
+  return true;
+}
+
+function totaisDerivados(fontes: Array<{ tipo: string; centavos: number }>): number[] {
+  const produtos = fontes.filter((f) => !String(f.tipo).startsWith('frete') && !String(f.tipo).startsWith('total')).map((f) => f.centavos);
+  const fretes = fontes.filter((f) => String(f.tipo).startsWith('frete')).map((f) => f.centavos);
+  const out: number[] = [];
+  for (const p of produtos) for (const f of fretes) out.push(p + f);
+  return out;
+}
+
+function descreverFontes(fontes: Array<{ tipo: string; centavos: number }>): string {
+  if (fontes.length === 0) return '(nenhum valor autorizado neste turno)';
+  const vistos = new Set<string>();
+  return fontes.filter((f) => { const k = f.tipo + ':' + f.centavos; if (vistos.has(k)) return false; vistos.add(k); return true; })
+    .map((f) => `- ${f.tipo}: R$${(f.centavos / 100).toFixed(2).replace('.', ',')}`).join('\n');
+}
+
 function semProvenienciaInterna(s: any): any {
   const copia: any = { ...(s || {}) };
   delete copia._prov;
@@ -2665,6 +2774,16 @@ async function atenderClienteInterno(phone: string, chatName: string, mensagem: 
 
   if (decisao.responde === true && temPreco && ctx.precosAutorizados.length > 0) {
     const permitidos = new Set<number>(ctx.precosAutorizados.map((p: any) => Number(p.centavos)));
+    // v4.30.1 P0-J: a lista plana passa a enxergar tambem o estado canonico do pedido —
+    // cotacao de frete vigente, subtotal do produto e os totais derivados deles. Sem isso,
+    // dizer "produto + frete = total" com TODOS os numeros legitimos era barrado como
+    // intruso, porque cada ferramenta so declarava a propria fatia. Quem separa o que
+    // significa o que e a guarda semantica logo abaixo, nao esta lista.
+    {
+      const canonicas = fontesSemanticasDoTurno(ctx, execucoes, estado?.slots);
+      for (const f of canonicas) permitidos.add(f.centavos);
+      for (const t of totaisDerivados(canonicas)) permitidos.add(t);
+    }
     const naMsg = valoresDaMensagem(resposta);
     const intrusos = naMsg.filter((c: number) => !permitidos.has(c));
     if (intrusos.length > 0) {
@@ -2680,6 +2799,22 @@ async function atenderClienteInterno(phone: string, chatName: string, mensagem: 
           await logErro('guardrail_preco_nao_autorizado_2a_falha', { phone, intrusos2 });
           decisao.responde = false;
         }
+      } catch { decisao.responde = false; }
+    }
+  }
+
+  // ── v4.30.1 P0-J: guarda semantica. NAO depende de ctx.precosAutorizados.length ──
+  if (decisao.responde === true && temPreco) {
+    const fontesSem = fontesSemanticasDoTurno(ctx, execucoes, estado?.slots);
+    const incompativeis = afirmacoesFinanceiras(resposta).filter((a) => a.claim !== 'indeterminado' && !valorCompativel(a, fontesSem));
+    if (incompativeis.length > 0) {
+      await logErro('guardrail_proveniencia_semantica', { phone, incompativeis, fontes: fontesSem, resposta: resposta.slice(0, 300) });
+      try {
+        const dsem = await chamarCerebro('[SISTEMA: sua resposta foi bloqueada porque apresentou um valor com o SIGNIFICADO errado (produto falado como frete, frete falado como total, ou valor sem fonte). Cada numero abaixo so pode ser dito com o nome do que ele e:\n' + descreverFontes(fontesSem) + '\nTotal so pode ser a soma de produto + frete listados acima. Nao invente, nao troque de categoria e nao some outra coisa. Retorne APENAS o JSON.]');
+        const rsem = aberturaCorreta(sanearMsg(dsem.mensagem), !conversaAtivaHoje, false);
+        const restantes = afirmacoesFinanceiras(rsem).filter((a) => a.claim !== 'indeterminado' && !valorCompativel(a, fontesSem));
+        if (dsem.responde === true && restantes.length === 0 && validarMsg(rsem, ehPerguntaDireta) && validarPix(rsem)) { decisao = dsem; resposta = rsem; }
+        else { await logErro('guardrail_proveniencia_semantica_2a_falha', { phone, restantes }); decisao.responde = false; }
       } catch { decisao.responde = false; }
     }
   }
@@ -3092,6 +3227,12 @@ async function atenderClienteInterno(phone: string, chatName: string, mensagem: 
       const temPreco2 = /R\$\s?\d/.test(r2);
       // v4.24.0: retry passa pelo mesmo criterio de cruzamento de produto.
       let cruzaNoRetry = false;
+      // v4.30.1 P0-J: e pelo mesmo criterio SEMANTICO. Sem isto, a recuperacao era a
+      // porta dos fundos da guarda: a resposta derrubada por afirmar produto como frete
+      // voltava intacta por aqui, porque este ponto so conferia forma, Pix e estilo.
+      const fontesRetry = fontesSemanticasDoTurno(ctx, execucoes, estado?.slots);
+      const incompativeisRetry = afirmacoesFinanceiras(r2).filter((a) => a.claim !== 'indeterminado' && !valorCompativel(a, fontesRetry));
+      if (incompativeisRetry.length > 0) await logErro('retry_bloqueado_por_proveniencia_semantica', { phone, incompativeis: incompativeisRetry });
 
       if (temPreco2 && toolsUsadas.length === 0) {
         const prodRetry: string | null = (() => {
@@ -3138,6 +3279,7 @@ async function atenderClienteInterno(phone: string, chatName: string, mensagem: 
         && validarPix(r2)
         && estiloOk(r2)
         && !cruzaNoRetry
+        && incompativeisRetry.length === 0
       ) {
         decisao = d2;
         resposta = r2;
