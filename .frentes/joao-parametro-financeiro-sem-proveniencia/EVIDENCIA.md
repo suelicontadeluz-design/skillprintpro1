@@ -55,3 +55,44 @@ em vez de testar outra coisa. Nenhum teste toca Supabase, Z-API ou Anthropic
 reais: qualquer URL não prevista devolve 500 e fica registrada.
 
 `npm run test:agente-noturno`
+
+---
+
+# Suplemento de frete — classificação dos achados
+
+Auditoria feita sobre o HEAD `a2cd284` (patch da Issue #3 original já aplicado).
+Cada item foi reproduzido no código antes de qualquer edição.
+
+| # | achado | veredito | prova mecânica |
+|---|---|---|---|
+| 1 | `null` destrói slot protegido | **CONFIRMADO** | o merge era `{...slotsAnteriores, ...slotsRecebidos}` e a limpeza `delete slotsNovos[k] se null` rodava **antes** da guarda P0-B; com `cep=null` o valor herdado virava `null`, era apagado, e a guarda só removia o carimbo |
+| 2 | `calcular_frete` pré-seleciona Sedex | **CONFIRMADO** | `const melhor = sedex \|\| [...].sort(...)[0]` seguido de uma única `emitirAutorizacao(..., melhor.preco, ...)` |
+| 3 | `envio_retirada` fora da proteção | **CONFIRMADO** | `SLOTS_PROTEGIDOS` não continha o campo, embora o schema do prompt o exponha como slot livre |
+| 4 | cotação não vira estado reutilizável | **CONFIRMADO** | `freteJa` vem de `orcamentos.valor_frete`, e o único `insert` em `orcamentos` desta Edge (dentro de `gerar_pix`) não preenche frete algum — o desvio "NÃO recalcule" praticamente nunca armava |
+| 5 | proveniência de saída é numérica, não semântica; bypass com lista vazia | **CONFIRMADO** | a validação era `new Set(precosAutorizados.map(p => p.centavos))` (o `tipo` só entrava no texto do retry), sob a condição `temPreco && ctx.precosAutorizados.length > 0`; e `calcular_frete` não declarava `precos_verbalizaveis`, então após cotar frete a lista ficava vazia — essa guarda não rodava, e a outra também não, porque exige `toolsUsadas.length === 0` |
+| 5b | eliminar por completo a condição `length > 0` | **PARCIAL** | a condição foi neutralizada na origem (toda autorização vira fonte tipada) e uma guarda semântica que **não** depende dela passa a rodar; tornar a whitelist plana incondicional foi rejeitado com prova: `consultar_tabela_dtf` e `consultar_catalogo` devolvem preços legítimos com `financial_authorizations: []`, e passariam a ser bloqueados |
+| 5c | eliminar `preco_sem_fonte_liberado` | **PARCIAL** | eliminado para afirmações de **frete e total**, que agora são fail-closed; afirmações de produto seguem sob a guarda histórica v4.24.0, cuja permissividade é deliberada e está fora do incidente |
+| 6 | PAC/Sedex sem tipo semântico e sem `operation_id` próprios | **CONFIRMADO** | só `melhor` recebia autorização; as demais opções existiam apenas como texto de display |
+| 7 | detector de pedido de CEP superficial | **CONFIRMADO** | `RX_PEDE_CEP = /(qual\|me passa\|me manda\|informe)[\s\S]{0,20}cep/i` não casa "Preciso do seu CEP" nem "CEP, por favor" |
+| 7b | o detector dependia de `?` | **REFUTADO** | a regex nunca exigiu interrogação; o defeito real é o vocabulário curto de verbos |
+| 8 | `metros: 1` e `valor_declarado: 60` fixos | **CONFIRMADO como defeito, frente separada** | o literal está na chamada e não representa o pedido (o turno já conhece `consumo_m` e o subtotal). Não corrigido aqui: o contrato da Edge `calcular-frete` — o que significam `metros` e `valor_declarado` para os Correios — não vive neste repositório, e chutar as unidades arriscaria **cobrar frete errado em produção**, que é pior que o defeito atual. Passou a ser medível: cada cotação registra `frete_parametros_fixos` com os valores enviados ao lado da composição real, e um teste pina os literais para que mudá-los seja deliberado |
+
+## O que foi corrigido
+
+- **P0-G** `null` em slot protegido = sem atualização. Remoção só por invalidação explícita.
+- **P0-H** modalidade de envio é escolha do cliente, provada lexicalmente no inbound dele.
+- **P0-I** cotação de frete é estado canônico (`slots._cotacao_frete`) com CEP, composição,
+  fingerprint, opções tipadas e timestamp; PAC e Sedex com autorização própria; reuso sem
+  chamada externa enquanto CEP e composição não mudam; invalidação explícita quando mudam.
+- **P0-J** proveniência financeira de saída semântica e fail-closed, inclusive no retry de
+  recuperação — que era a porta dos fundos da guarda.
+- **P0-K** detector de pedido de CEP realista, corrigindo guarda e telemetria de uma vez;
+  CEP confirmado não é pedido de novo.
+
+## Limite conhecido da guarda semântica
+
+A classificação usa o rótulo que **precede** o valor ("PAC R$31,96", "Total R$72,33"),
+cortado na fronteira da frase, e só olha para frente quando há cópula explícita
+("R$31,96 é o PAC"). É deliberado: uma janela mais larga lia "O produto fica R$40,37 e o
+PAC R$31,96" como se `40,37` fosse frete e derrubava a frase correta. Valor sem rótulo fica
+indeterminado e segue com as guardas históricas — esta camada nunca inventa uma acusação.

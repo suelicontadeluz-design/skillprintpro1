@@ -66,8 +66,14 @@ describe('regressoes saudaveis', () => {
     assert.equal(r.chamadas.calcularFrete[0].cep_destino, '01310100');
     const res = resultadosDeTool(r.chamadas).find((x) => x?.display_data?.cep === '01310100');
     assert.ok(res && res.ok === true);
-    assert.equal(res.financial_authorizations.length, 1);
-    assert.equal(res.financial_authorizations[0].kind, 'frete');
+    // v4.30.1: cotar != escolher. PAC e Sedex saem como opcoes, cada uma com autorizacao
+    // e tipo semantico proprios, e nenhuma delas marcada como escolha do cliente.
+    assert.equal(res.financial_authorizations.length, 2);
+    assert.deepEqual(res.financial_authorizations.map((a) => a.kind), ['frete', 'frete']);
+    assert.deepEqual(res.financial_authorizations.map((a) => a.components.tipo_semantico).sort(), ['frete_pac', 'frete_sedex']);
+    assert.deepEqual(res.display_data.opcoes.map((o) => o.tipo).sort(), ['frete_pac', 'frete_sedex']);
+    assert.equal(res.display_data.escolha_do_cliente, null, 'a ferramenta nao escolhe modalidade');
+    assert.ok(!('servico_recomendado' in res.display_data), 'pre-selecao removida');
   });
 
   test('R3. medida vinda de arquivo/bloco canonico do lead continua permitida', async () => {
@@ -193,5 +199,65 @@ describe('regressoes saudaveis', () => {
     const estado = db.tabela('agente_noturno_estado').find((e) => e.phone === TELEFONE);
     assert.equal(estado.slots.arte, '10x21cm', 'o valor validado do cliente prevalece sobre a inferencia');
     assert.equal(estado.slots._prov.arte, 'inbound_cliente');
+  });
+
+  test('R7a. modalidade de envio inferida pelo modelo NAO persiste', async () => {
+    const texto = 'quanto fica a entrega?';
+    const db = novoBanco({ inbounds: [inbound({ id: 'r7a', texto })] });
+    await cenario({
+      db,
+      turnosModelo: [respostaTexto({ responde: true, mensagem: 'Recomendo o Sedex, chega mais rapido.', tema: 'frete',
+        encaminhou_venda: false, etapa: 'orcamento', slots: { envio_retirada: 'Sedex' } })],
+      corpo: { phone: TELEFONE, chat_name: 'Cliente Teste', mensagem: texto, inbound_id: 'r7a' },
+    });
+    const s = db.tabela('agente_noturno_estado').find((e) => e.phone === TELEFONE).slots;
+    assert.equal(s.envio_retirada, undefined, 'recomendacao da ferramenta nao e escolha do cliente');
+    assert.ok(db.tabela('error_log').some((e) => e.error_message === 'slot_protegido_sem_proveniencia'));
+  });
+
+  test('R7b. escolha explicita do cliente (retirada) continua funcionando', async () => {
+    const texto = 'prefiro retirar na loja mesmo';
+    const db = novoBanco({ inbounds: [inbound({ id: 'r7b', texto })] });
+    await cenario({
+      db,
+      turnosModelo: [respostaTexto({ responde: true, mensagem: 'Combinado, deixo separado para retirada.', tema: 'frete',
+        encaminhou_venda: false, etapa: 'orcamento', slots: { envio_retirada: 'retirada' } })],
+      corpo: { phone: TELEFONE, chat_name: 'Cliente Teste', mensagem: texto, inbound_id: 'r7b' },
+    });
+    const s = db.tabela('agente_noturno_estado').find((e) => e.phone === TELEFONE).slots;
+    assert.equal(s.envio_retirada, 'retirada');
+    assert.equal(s._prov.envio_retirada, 'inbound_cliente');
+  });
+
+  test('R8. pedido de CEP em linguagem natural deixa de ser invisivel na telemetria', async () => {
+    const texto = 'quero enviar para minha casa';
+    const db = novoBanco({ inbounds: [inbound({ id: 'r8', texto })] });
+    await cenario({
+      db,
+      turnosModelo: [respostaTexto({ responde: true, mensagem: 'Perfeito! Preciso do seu CEP para calcular o frete.', tema: 'frete',
+        encaminhou_venda: false, etapa: 'orcamento', slots: {} })],
+      corpo: { phone: TELEFONE, chat_name: 'Cliente Teste', mensagem: texto, inbound_id: 'r8' },
+    });
+    const obs = db.tabela('joao_slots_observacao').at(-1);
+    assert.ok(obs, 'a observabilidade P15 tinha que gravar');
+    assert.equal(obs.pediu_cep, true, '"Preciso do seu CEP" passava batido antes');
+  });
+
+  test('R9. CEP ja confirmado nao e pedido de novo', async () => {
+    const texto = 'e o prazo de entrega?';
+    const db = novoBanco({
+      inbounds: [inbound({ id: 'r9', texto })],
+      estado: { phone: TELEFONE, lead_id: LEAD, etapa: 'orcamento', updated_at: new Date().toISOString(),
+                slots: { cep: '01310100', _prov: { cep: 'inbound_cliente' } } },
+    });
+    const { r } = await cenario({
+      db,
+      turnosModelo: [respostaTexto({ responde: true, mensagem: 'Me manda seu CEP, por favor, que eu calculo o prazo.', tema: 'frete',
+        encaminhou_venda: false, etapa: 'orcamento', slots: {} })],
+      corpo: { phone: TELEFONE, chat_name: 'Cliente Teste', mensagem: texto, inbound_id: 'r9' },
+    });
+    assert.ok(db.tabela('error_log').some((e) => e.error_message === 'guardrail_cep_pedido_de_novo'), 'a guarda tinha que acusar');
+    const enviada = r.chamadas.envios.map((e) => e.message).join(' ');
+    assert.ok(!/manda seu CEP/i.test(enviada), 'a pergunta repetida nao pode chegar ao cliente');
   });
 });

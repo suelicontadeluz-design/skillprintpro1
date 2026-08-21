@@ -3,7 +3,12 @@
 // Qualquer URL nao prevista e registrada em `outras` e devolve 500 — nenhum teste
 // pode tocar em servico real por acidente.
 
-export function criarRoteadorFetch({ turnosModelo = [], repetirUltimo = true } = {}) {
+export const FRETE_PADRAO = [
+  { servico: 'PAC', preco: 24.5, preco_formatado: 'R$24,50', prazo_formatado: '5 dias' },
+  { servico: 'SEDEX', preco: 38.9, preco_formatado: 'R$38,90', prazo_formatado: '2 dias' },
+];
+
+export function criarRoteadorFetch({ turnosModelo = [], repetirUltimo = true, opcoesFrete = FRETE_PADRAO } = {}) {
   const chamadas = { anthropic: [], calcularFrete: [], envios: [], reacoes: [], outras: [] };
   let iModelo = 0;
 
@@ -28,10 +33,7 @@ export function criarRoteadorFetch({ turnosModelo = [], repetirUltimo = true } =
     }
     if (u.includes('/functions/v1/calcular-frete')) {
       chamadas.calcularFrete.push(corpo);
-      return json({ ok: true, opcoes: [
-        { servico: 'PAC', preco: 24.5, preco_formatado: 'R$24,50', prazo_formatado: '5 dias' },
-        { servico: 'SEDEX', preco: 38.9, preco_formatado: 'R$38,90', prazo_formatado: '2 dias' },
-      ] });
+      return json({ ok: true, opcoes: opcoesFrete });
     }
     if (u.includes('/send-reaction')) { chamadas.reacoes.push(corpo); return json({ messageId: 'reac-1' }); }
     if (u.includes('/send-text')) { chamadas.envios.push(corpo); return json({ messageId: 'msg-' + chamadas.envios.length }); }

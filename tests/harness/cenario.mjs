@@ -6,19 +6,27 @@ import { criarBancoFake } from './fake_supabase.mjs';
 export const TELEFONE = '5511999990001';
 export const LEAD = 'lead-teste-0001';
 
+// Retornos canonicos da fn_precificar_dtf_uv_v2, indexados por quantidade x medida.
+// Nao ha formula aqui de proposito: o teste prova que o preco vem da RPC, entao a RPC
+// falsa devolve valores fixos e observaveis.
+const TABELA_UV_OFICIAL = {
+  '50x10x21': { consumo_m: 5.15, preco_total: 437.75, degrau: 'acima_1m', unidade_cobranca: 'metro', cabem_por_metro: 10, cabem_ainda_no_material: 1 },
+  '30x5x7':   { consumo_m: 0.424, preco_total: 40.37, degrau: 'folha_a3', unidade_cobranca: 'folha', cabem_por_metro: 72, cabem_ainda_no_material: 42 },
+  '60x5x7':   { consumo_m: 0.85, preco_total: 78.40, degrau: 'acima_050m', unidade_cobranca: 'folha_mais_excedente', cabem_por_metro: 72, cabem_ainda_no_material: 12 },
+};
+
 export function precificarUvOficial(payload) {
   if (payload?.origem !== 'rendimento_adesivos') return { ok: false, erro: 'origem_nao_suportada_no_mock' };
   const { quantidade, largura_cm, altura_cm } = payload;
-  // Reproducao fiel do caso do incidente, que e o unico usado nas regressoes.
-  if (Number(largura_cm) === 10 && Number(altura_cm) === 21 && Number(quantidade) === 50) {
-    return {
-      ok: true, consumo_m: 5.15, unidade_cobranca: 'metro', degrau: 'acima_1m',
-      preco_total: 437.75, faixa_id: 'faixa-uv-metro',
-      precos_verbalizaveis: [{ tipo: 'total', centavos: 43775 }],
-      display: { cabem_por_metro: 10, cabem_ainda_no_material: 1 },
-    };
-  }
-  return { ok: false, erro: 'combinacao_fora_do_mock' };
+  const chave = `${Number(quantidade)}x${Number(largura_cm)}x${Number(altura_cm)}`;
+  const linha = TABELA_UV_OFICIAL[chave] || TABELA_UV_OFICIAL[`${Number(quantidade)}x${Number(altura_cm)}x${Number(largura_cm)}`];
+  if (!linha) return { ok: false, erro: 'combinacao_fora_do_mock' };
+  return {
+    ok: true, consumo_m: linha.consumo_m, unidade_cobranca: linha.unidade_cobranca,
+    degrau: linha.degrau, preco_total: linha.preco_total, faixa_id: 'faixa-' + chave,
+    precos_verbalizaveis: [{ tipo: 'total', centavos: Math.round(linha.preco_total * 100) }],
+    display: { cabem_por_metro: linha.cabem_por_metro, cabem_ainda_no_material: linha.cabem_ainda_no_material },
+  };
 }
 
 export function novoBanco({ inbounds = [], conversas = [], estado = null } = {}) {

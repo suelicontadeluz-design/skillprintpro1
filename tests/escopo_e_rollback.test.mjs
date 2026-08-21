@@ -31,13 +31,29 @@ const SHA_V166 = '6c3c90bf19af4c3f39be0b11584a763f0fedf20f5e870da6f03acd982b0247
 const BYTES_V166 = 244094;
 const LINHAS_V166 = 3215;
 
-// As 5 linhas que este patch tem direito de remover. Qualquer outra remocao e
-// refatoracao cosmetica ou dano colateral, e derruba o teste.
+// As linhas que este patch tem direito de remover — as 5 da Issue #3 original mais as 14
+// do suplemento de frete (pre-selecao de Sedex, merge cru de slots, ctx, laco de tools,
+// detector de CEP). Qualquer remocao alem destas e refatoracao cosmetica ou dano
+// colateral, e derruba o teste.
 const REMOCOES_ESPERADAS = [
+  'const RX_PEDE_CEP = /(qual|me\\s+passa|me\\s+manda|informe)[\\s\\S]{0,20}cep/i;',
+  '      const opcoes = d.opcoes.map((o: any) => ({ servico: o.servico, preco: o.preco_formatado, prazo: o.prazo_formatado }));',
+  '      const sedex = d.opcoes.find((o: any) => String(o.servico || \'\').toLowerCase().includes(\'sedex\'));',
+  '      const melhor = sedex || [...d.opcoes].sort((a: any, b: any) => Number(a.preco) - Number(b.preco))[0];',
+  '      const dsp = { opcoes, servico_recomendado: melhor.servico, cep, instrucao: \'MANDE AS OPCOES AGORA com preco, prazo e TOTAL. Se o Sedex for mais barato que o PAC, recomende o Sedex.\' };',
+  '      const opF = await emitirAutorizacao(ctx.leadId, \'frete\', Math.round(Number(melhor.preco) * 100) / 100, \'calcular_frete\', { servico: melhor.servico, cep });',
+  '      if (!opF) return falhaAutorizacao(dsp);',
+  '      return envelope([opF], dsp);',
   'CLIENTE SEM MEDIDA: pergunte a medida do OBJETO e ofere\\u00e7a op\\u00e7\\u00f5es proporcionais. Refer\\u00eancia: arte de caneca costuma ser 10 x 21cm.',
   '  if (RX_CONFIRMACAO_CURTA.test(mensagem.trim()) && RX_ENCERRAMENTO_JOAO.test(ultimaMsgJoao)) {',
   '  const cortesiaPura = REGEX_CORTESIA.test(mensagem.trim());',
   '  const blocoEstado = estado ? `\\n\\n[FICHA: etapa=${estado.etapa}; slots=${JSON.stringify(estado.slots)}. N\\u00c3O pergunte o preenchido.]` : \'\';',
+  '  const ctx: any = { leadId, phone, autorizacoes: [] as any[], precosAutorizados: [] as any[], cobrancaPendente: execucoes.cobrancaPendente, permiteMudanca: pediuMudanca, freteJa: execucoes.freteJa, arteParaCalculo, pixGerado: null };',
+  '        try { const parsed = JSON.parse(out); if (Array.isArray(parsed?.financial_authorizations)) ctx.autorizacoes.push(...parsed.financial_authorizations);',
+  '             if (Array.isArray(parsed?.precos_verbalizaveis)) ctx.precosAutorizados.push(...parsed.precos_verbalizaveis); } catch {}',
+  '    ...slotsRecebidos,',
+  '    grade: (Array.isArray(slotsRecebidos.grade) && slotsRecebidos.grade.length > 0) ? slotsRecebidos.grade : slotsAnteriores.grade,',
+  '    estampas: (Array.isArray(slotsRecebidos.estampas) && slotsRecebidos.estampas.length > 0) ? slotsRecebidos.estampas : slotsAnteriores.estampas,',
   '  const out = await atenderCliente(phone, chatName, mensagem, imagens, transcricoes, inboundId ? [inboundId] : null, dryRun);',
 ];
 
@@ -67,7 +83,7 @@ describe('escopo do patch e rollback', () => {
     assert.ok(!arquivosTocados().includes(ROLLBACK), 'o artefato de rollback nao pode ser tocado');
   });
 
-  test('o patch remove exatamente as 5 linhas previstas', () => {
+  test('o patch remove exatamente as linhas previstas', () => {
     const removidas = git('diff', '-U0', BASE, '--', ALVO)
       .split('\n').filter((l) => l.startsWith('-') && !l.startsWith('---'))
       .map((l) => l.slice(1));
@@ -90,5 +106,18 @@ describe('escopo do patch e rollback', () => {
       assert.ok(!/^supabase\/migrations\//.test(f), `migration no patch: ${f}`);
       assert.ok(!/^supabase\/functions\/(?!agente-noturno\/)/.test(f), `outra Edge no patch: ${f}`);
     }
+  });
+
+  // Item 8 do suplemento: os parametros da chamada externa de frete continuam FIXOS.
+  // A auditoria classificou como CONFIRMADO e frente separada (ver EVIDENCIA.md): mexer
+  // neles sem o contrato da Edge de frete arriscaria cobrar frete errado em producao.
+  // Este teste PINA o estado atual — mudar os valores exige mudar o teste, de proposito.
+  test('parametros fixos da integracao de frete continuam pinados (frente separada)', () => {
+    const fonte = readFileSync(resolve(RAIZ, ALVO), 'utf8');
+    const chamada = fonte.split('\n').find((l) => l.includes('functions/v1/calcular-frete') && l.includes('cep_destino'));
+    assert.ok(chamada, 'a chamada externa de frete tinha que existir');
+    assert.match(chamada, /metros:\s*1\b/, 'metros segue fixo em 1');
+    assert.match(chamada, /valor_declarado:\s*60\b/, 'valor_declarado segue fixo em 60');
+    assert.match(fonte, /frete_parametros_fixos/, 'a cotacao registra os parametros fixos junto da composicao real');
   });
 });
