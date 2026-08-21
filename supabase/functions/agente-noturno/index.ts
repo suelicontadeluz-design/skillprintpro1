@@ -798,7 +798,11 @@ async function registrarObservacaoSlots(row: any) {
 // NAO contam: exemplo/referencia do SYSTEM, inferencia ou numero criado pelo modelo,
 // slot sem carimbo de origem. Fail-closed: sem ledger, nenhuma tool financeira passa.
 const ORIGENS_AUTORIZADAS = ['inbound_cliente', 'bloco_canonico', 'slot_validado'];
-const SLOTS_PROTEGIDOS = ['arte', 'medidas', 'largura_cm', 'altura_cm', 'quantidade', 'copias', 'quantidade_desejada', 'cep'];
+// v4.30.1 P0-H: modalidade de envio e ESCOLHA do cliente, nao inferencia do modelo.
+// Entra em SLOTS_PROTEGIDOS para herdar a regra de null-nao-apaga e a de proveniencia,
+// mas a prova dela e LEXICAL (o cliente disse "PAC"/"Sedex"/"retirar"), nao numerica.
+const SLOTS_ESCOLHA_ENVIO = ['envio_retirada', 'modalidade_envio', 'servico_frete'];
+const SLOTS_PROTEGIDOS = ['arte', 'medidas', 'largura_cm', 'altura_cm', 'quantidade', 'copias', 'quantidade_desejada', 'cep', ...SLOTS_ESCOLHA_ENVIO];
 // Medida so e medida quando aparece como PAR (10x21, 10 x 21 cm, "10 de largura por 21 de
 // altura") ou como valor explicitamente em cm. Inteiro solto NAO autoriza dimensao.
 const RX_PROV_PAR = /(\d{1,4}(?:[.,]\d{1,2})?)\s*(?:cm)?\s*[x×X]\s*(\d{1,4}(?:[.,]\d{1,2})?)\s*(?:cm)?/g;
@@ -820,9 +824,11 @@ function construirProveniencia(args: {
   const cms = new Map<number, string>();
   const inteiros = new Map<number, string>();
   const ceps = new Map<string, string>();
+  const textos: Array<{ t: string; origem: string }> = [];
   const registrar = (txt: any, origem: string) => {
     const t = String(txt ?? '');
     if (!t) return;
+    textos.push({ t, origem });
     for (const m of t.matchAll(RX_PROV_PAR)) {
       const a = provNum(m[1]), b = provNum(m[2]);
       if (a > 0 && b > 0) { if (!pares.has(provChavePar(a, b))) pares.set(provChavePar(a, b), origem); if (!pares.has(provChavePar(b, a))) pares.set(provChavePar(b, a), origem); }
@@ -847,7 +853,26 @@ function construirProveniencia(args: {
     if (!ORIGENS_AUTORIZADAS.includes(String(carimbos[k] || ''))) continue;
     registrar(args.slots[k], 'slot_validado');
   }
-  return { ativo: true, pares, cms, inteiros, ceps };
+  return { ativo: true, pares, cms, inteiros, ceps, textos };
+}
+
+// Escolha de modalidade so vale se o PROPRIO CLIENTE disse. Bloco canonico e slot
+// validado nao escolhem por ele: recomendacao da ferramenta nunca vira escolha.
+const RX_ESCOLHA_ENVIO: Array<{ chave: string; rx: RegExp }> = [
+  { chave: 'sedex',    rx: /\bsedex\b/i },
+  { chave: 'pac',      rx: /\bpac\b/i },
+  { chave: 'retirada', rx: /\b(retir\w*|buscar|balc[a\u00e3]o|na loja)\b/i },
+];
+function origemDaEscolhaEnvio(prov: any, valor: any): string | null {
+  if (!prov?.ativo) return null;
+  const v = String(valor ?? '').toLowerCase();
+  const regra = RX_ESCOLHA_ENVIO.find((r) => r.rx.test(v));
+  if (!regra) return null;
+  for (const bloco of (prov.textos || [])) {
+    if (bloco.origem !== 'inbound_cliente') continue;
+    if (regra.rx.test(String(bloco.t || ''))) return 'inbound_cliente';
+  }
+  return null;
 }
 
 function origemDaMedida(prov: any, larg: number, alt: number): string | null {
@@ -869,6 +894,7 @@ function origemDoCep(prov: any, cep: string): string | null {
 function origemDoSlot(prov: any, slot: string, valor: any): string | null {
   const txt = String(valor ?? '');
   if (!txt) return null;
+  if (SLOTS_ESCOLHA_ENVIO.includes(slot)) return origemDaEscolhaEnvio(prov, txt);
   if (slot === 'cep') return origemDoCep(prov, txt.replace(/\D/g, ''));
   if (slot === 'arte' || slot === 'medidas') {
     const m = txt.match(/(\d{1,4}(?:[.,]\d{1,2})?)\s*(?:cm)?\s*[x×X]\s*(\d{1,4}(?:[.,]\d{1,2})?)/);
@@ -3079,11 +3105,28 @@ async function atenderClienteInterno(phone: string, chatName: string, mensagem: 
   // FIX 1 (v87): resposta vazia do modelo NAO sobrescreve memoria estruturada ja preenchida.
   const slotsAnteriores: any = estado?.slots || {};
   const slotsRecebidos: any = decisao.slots || {};
+  // ── v4.30.1 P0-G: null em slot protegido significa SEM ATUALIZACAO ─────
+  // O schema do JSON pede "...ou null" em cada slot, entao o modelo devolve null o tempo
+  // todo por simples omissao. Com o merge cru, decisao.slots.cep=null virava null em
+  // slotsNovos, a limpeza generica apagava a chave e o CEP confirmado pelo cliente sumia —
+  // a guarda P0-B rodava depois e so removia o carimbo do que ja nao existia mais.
+  // Determinante financeiro so sai por invalidacao explicita (CEP novo com proveniencia,
+  // ou mudanca real de composicao), nunca por ausencia na saida do modelo.
+  const slotsRecebidosSeguros: any = { ...slotsRecebidos };
+  const slotsNulosIgnorados: string[] = [];
+  for (const k of SLOTS_PROTEGIDOS) {
+    if (!(k in slotsRecebidosSeguros)) continue;
+    const v = slotsRecebidosSeguros[k];
+    if (v === null || v === undefined || v === 'null' || v === '') {
+      delete slotsRecebidosSeguros[k];
+      if (slotsAnteriores[k] !== undefined) slotsNulosIgnorados.push(k);
+    }
+  }
   const slotsNovos: any = {
     ...slotsAnteriores,
-    ...slotsRecebidos,
-    grade: (Array.isArray(slotsRecebidos.grade) && slotsRecebidos.grade.length > 0) ? slotsRecebidos.grade : slotsAnteriores.grade,
-    estampas: (Array.isArray(slotsRecebidos.estampas) && slotsRecebidos.estampas.length > 0) ? slotsRecebidos.estampas : slotsAnteriores.estampas,
+    ...slotsRecebidosSeguros,
+    grade: (Array.isArray(slotsRecebidosSeguros.grade) && slotsRecebidosSeguros.grade.length > 0) ? slotsRecebidosSeguros.grade : slotsAnteriores.grade,
+    estampas: (Array.isArray(slotsRecebidosSeguros.estampas) && slotsRecebidosSeguros.estampas.length > 0) ? slotsRecebidosSeguros.estampas : slotsAnteriores.estampas,
   };
   Object.keys(slotsNovos).forEach((k) => { if (slotsNovos[k] === null || slotsNovos[k] === 'null' || slotsNovos[k] === '') delete slotsNovos[k]; });
   if (slotsNovos.cep) {
@@ -3107,6 +3150,8 @@ async function atenderClienteInterno(phone: string, chatName: string, mensagem: 
     const anteriorValidado = slotsAnteriores[k] !== undefined
       && String(slotsAnteriores[k]) === String(slotsNovos[k])
       && ORIGENS_AUTORIZADAS.includes(String(provCarimboAnterior[k] || ''));
+    // Slot protegido nao apagado por null: se o valor veio inteiro do turno anterior e ja
+    // estava carimbado, ele nao precisa de nova prova para continuar existindo.
     if (anteriorValidado) continue;
     const origem = origemDoSlot(ctx.proveniencia, k, slotsNovos[k]);
     if (origem) { provCarimboNovo[k] = origem; continue; }
@@ -3117,6 +3162,19 @@ async function atenderClienteInterno(phone: string, chatName: string, mensagem: 
   }
   slotsNovos._prov = provCarimboNovo;
   if (slotsRecusados.length > 0) await logErro('slot_protegido_sem_proveniencia', { phone, lead: leadId, recusados: slotsRecusados });
+  if (slotsNulosIgnorados.length > 0) L('slot_protegido_null_ignorado', { phone: phone.slice(-4), slots: slotsNulosIgnorados });
+
+  // ── v4.30.1 P0-I: cotacao de frete e estado canonico do pedido ─────────
+  // Guardada com CEP, composicao, fingerprint e timestamp. Invalidada EXPLICITAMENTE
+  // quando o CEP confirmado deixa de bater com o da cotacao; mudanca de composicao e
+  // detectada na propria ferramenta, que recalcula e substitui a cotacao aqui.
+  const cotacaoAnterior = (slotsAnteriores._cotacao_frete && typeof slotsAnteriores._cotacao_frete === 'object') ? slotsAnteriores._cotacao_frete : null;
+  let cotacaoFinal = ctx.cotacaoFrete || cotacaoAnterior;
+  if (cotacaoFinal && slotsNovos.cep && String(cotacaoFinal.cep) !== String(slotsNovos.cep)) {
+    await logErro('cotacao_frete_invalidada', { phone, lead: leadId, motivo: 'cep_mudou', cep_da_cotacao: cotacaoFinal.cep, cep_novo: slotsNovos.cep });
+    cotacaoFinal = null;
+  }
+  if (cotacaoFinal) slotsNovos._cotacao_frete = cotacaoFinal; else delete slotsNovos._cotacao_frete;
 
   // ── v4.28.0 P14: OBSERVABILIDADE DE SLOTS ────────────────────────────────
   // Registra antes -> correcoes -> invalidacoes PROPOSTAS -> depois. As propostas
