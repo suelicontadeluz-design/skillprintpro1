@@ -920,9 +920,60 @@ function bloqueioSemProveniencia(tool: string, campos: string[], acao: string): 
   });
 }
 
+// ══ v4.30.1 P0-I: COTACAO DE FRETE COMO ESTADO CANONICO ════════════════
+// Cotar nao e escolher. A ferramenta devolve PAC e Sedex como OPCOES, cada uma com
+// tipo semantico e autorizacao propria, e nenhuma delas vira escolha do cliente.
+// A cotacao fica persistida em slots._cotacao_frete com CEP, composicao do pedido,
+// fingerprint e timestamp: enquanto CEP e composicao nao mudarem, um novo pedido de
+// frete e servido do estado canonico e a Edge externa NAO e chamada de novo.
+function tipoSemanticoFrete(servico: any): string {
+  const t = String(servico ?? '').toLowerCase();
+  if (t.includes('sedex')) return 'frete_sedex';
+  if (t.includes('pac')) return 'frete_pac';
+  return 'frete';
+}
+function tipoSemanticoAutorizacao(a: any): string {
+  const declarado = a?.components?.tipo_semantico;
+  if (declarado) return String(declarado);
+  const kind = String(a?.kind ?? 'valor');
+  if (kind === 'frete') return 'frete';
+  if (kind === 'produto') return 'produto_subtotal';
+  return kind;
+}
+const DETERMINANTES_PEDIDO = ['produto', 'arte', 'quantidade', 'produto_centavos'];
+function fingerprintPedido(comp: any): string {
+  return DETERMINANTES_PEDIDO.map((k) => `${k}=${String(comp?.[k] ?? 'indeterminado')}`).join('|');
+}
+// Composicao conhecida NESTE turno. produto_centavos so existe se uma ferramenta de
+// produto rodou agora — e ele que denuncia mudanca real de pedido.
+function composicaoDoTurno(ctx: any): any {
+  const prodAut = (ctx?.autorizacoes || []).find((a: any) => a?.kind === 'produto');
+  return {
+    ...(ctx?.composicaoPedido || {}),
+    produto_centavos: prodAut ? Math.round(Number(prodAut.amount) * 100) : null,
+  };
+}
+// Determinante nao apurado neste turno nao invalida cotacao; determinante apurado e
+// DIFERENTE invalida. CEP sempre conta.
+function cotacaoAindaVale(vig: any, cep: string, comp: any): boolean {
+  if (!vig || !Array.isArray(vig.opcoes) || vig.opcoes.length === 0) return false;
+  if (String(vig.cep || '') !== String(cep || '')) return false;
+  for (const k of DETERMINANTES_PEDIDO) {
+    const atual = comp?.[k];
+    const cotado = vig.composicao?.[k];
+    // So invalida quando os DOIS lados conhecem o determinante e eles divergem. Um dado
+    // que a cotacao nao conhecia (e que so agora ficou sabido) nao e mudanca de pedido.
+    if (atual === null || atual === undefined || atual === 'indeterminado') continue;
+    if (cotado === null || cotado === undefined || cotado === 'indeterminado') continue;
+    if (String(atual) !== String(cotado)) return false;
+  }
+  return true;
+}
+
 function semProvenienciaInterna(s: any): any {
   const copia: any = { ...(s || {}) };
   delete copia._prov;
+  delete copia._cotacao_frete;
   return copia;
 }
 
@@ -1175,21 +1226,61 @@ async function executarTool(name: string, input: any, ctx: { leadId: string | nu
       // v4.30.0 P0-A: "tem 8 digitos" nao prova origem. No incidente a P15 registrou
       // cep_disponivel=false com chamou_calcular_frete=true: a Edge externa foi chamada
       // com um CEP que nunca esteve no contexto autorizado, e voltou HTTP 422.
-      if (!origemDoCep(ctx.proveniencia, cep)) {
+      const origemCepFrete = origemDoCep(ctx.proveniencia, cep);
+      if (!origemCepFrete) {
         await logErro('parametro_sem_proveniencia', { tool: name, campos: ['cep_destino'], lead: ctx.leadId, cep_final: cep.slice(-3) });
         return bloqueioSemProveniencia(name, ['cep_destino'],
           'Este CEP N\u00c3O foi informado pelo cliente nem consta em slot validado. Pe\u00e7a o CEP ao cliente e s\u00f3 depois calcule o frete. N\u00c3O informe valor de frete agora.');
       }
+      // v4.30.1 P0-I: composicao conhecida agora + cotacao vigente do estado canonico.
+      const compFrete = composicaoDoTurno(ctx);
+      const fpFrete = fingerprintPedido(compFrete);
+      const montarDsp = (ops: any[], reutilizada: boolean) => ({
+        opcoes: ops.map((o: any) => ({ servico: o.servico, tipo: o.tipo, preco: o.preco_formatado, prazo: o.prazo, operation_id: o.operation_id ?? null })),
+        cep, cotacao_reutilizada: reutilizada, escolha_do_cliente: null,
+        precos_verbalizaveis: ops.map((o: any) => ({ tipo: o.tipo, centavos: Math.round(Number(o.preco) * 100) })),
+        instrucao: 'Isto e COTACAO, nao escolha. Apresente PAC e Sedex com preco e prazo e PERGUNTE qual o cliente prefere. NAO escolha por ele, NAO marque modalidade e NAO some produto com frete antes de ele escolher. Cada valor so pode ser dito com o nome do servico a que pertence.',
+      });
+      const autorizarOpcoes = async (ops: any[], reuso: boolean) => {
+        const emitidas: any[] = [];
+        for (const o of ops) {
+          const op = await emitirAutorizacao(ctx.leadId, 'frete', Math.round(Number(o.preco) * 100) / 100, 'calcular_frete',
+            { servico: o.servico, cep, tipo_semantico: o.tipo, fingerprint: fpFrete, reuso_cotacao: reuso });
+          if (op) { o.operation_id = op.id; emitidas.push(op); }
+        }
+        return emitidas;
+      };
+      // CEP e composicao inalterados: serve do estado canonico, sem tocar a Edge externa.
+      const vigFrete = ctx.cotacaoVigente;
+      if (cotacaoAindaVale(vigFrete, cep, compFrete)) {
+        const opsReuso = vigFrete.opcoes.map((o: any) => ({ ...o }));
+        const emitidasReuso = await autorizarOpcoes(opsReuso, true);
+        const dspReuso = montarDsp(opsReuso, true);
+        if (emitidasReuso.length === 0) return falhaAutorizacao(dspReuso);
+        ctx.cotacaoFrete = { ...vigFrete, opcoes: opsReuso, reutilizada_em: new Date().toISOString() };
+        L('cotacao_frete_reutilizada', { cep_final: cep.slice(-3), fingerprint: fpFrete });
+        return envelope(emitidasReuso, dspReuso);
+      }
+      // v4.30.1 P0-L: metros e valor_declarado seguem FIXOS nesta chamada (auditoria da
+      // Issue #3, item 8). Registrado a cada cotacao para que a divergencia entre o
+      // parametro enviado e o pedido real deixe de ser invisivel. Ver EVIDENCIA.md.
+      await logErro('frete_parametros_fixos', { lead: ctx.leadId, metros_enviado: 1, valor_declarado_enviado: 60, composicao: compFrete });
       const r = await fetch(`${SUPABASE_URL}/functions/v1/calcular-frete`, { method: 'POST', headers: { 'content-type': 'application/json', Authorization: `Bearer ${SUPABASE_SERVICE_KEY}` }, body: JSON.stringify({ cep_destino: cep, metros: 1, valor_declarado: 60 }), signal: AbortSignal.timeout(12000) });
       const d = await r.json();
       if (!(d?.ok && Array.isArray(d.opcoes) && d.opcoes.length > 0)) return JSON.stringify({ ok: false, erro: 'sem_opcoes' });
-      const opcoes = d.opcoes.map((o: any) => ({ servico: o.servico, preco: o.preco_formatado, prazo: o.prazo_formatado }));
-      const sedex = d.opcoes.find((o: any) => String(o.servico || '').toLowerCase().includes('sedex'));
-      const melhor = sedex || [...d.opcoes].sort((a: any, b: any) => Number(a.preco) - Number(b.preco))[0];
-      const dsp = { opcoes, servico_recomendado: melhor.servico, cep, instrucao: 'MANDE AS OPCOES AGORA com preco, prazo e TOTAL. Se o Sedex for mais barato que o PAC, recomende o Sedex.' };
-      const opF = await emitirAutorizacao(ctx.leadId, 'frete', Math.round(Number(melhor.preco) * 100) / 100, 'calcular_frete', { servico: melhor.servico, cep });
-      if (!opF) return falhaAutorizacao(dsp);
-      return envelope([opF], dsp);
+      const opcoes = d.opcoes.map((o: any) => ({
+        servico: o.servico, tipo: tipoSemanticoFrete(o.servico),
+        preco: Math.round(Number(o.preco) * 100) / 100,
+        preco_formatado: o.preco_formatado, prazo: o.prazo_formatado, operation_id: null,
+      }));
+      const emitidas = await autorizarOpcoes(opcoes, false);
+      const dsp = montarDsp(opcoes, false);
+      if (emitidas.length === 0) return falhaAutorizacao(dsp);
+      ctx.cotacaoFrete = {
+        cep, fingerprint: fpFrete, composicao: compFrete,
+        proveniencia: { cep: origemCepFrete }, criado_em: new Date().toISOString(), opcoes,
+      };
+      return envelope(emitidas, dsp);
     }
     if (name === 'compor_total') {
       const ids: string[] = Array.isArray(input?.operation_ids) ? input.operation_ids : [];
@@ -2046,7 +2137,16 @@ async function atenderClienteInterno(phone: string, chatName: string, mensagem: 
   const arteParaCalculo = !pediuMetrosDiretos && larguraCtx > 0 && alturaCtx > 0 && copiasCtx > 0
     ? { largura_cm: larguraCtx, altura_cm: alturaCtx, copias: copiasCtx } : null;
   // v84: valores conversacionais nao autorizam cobranca. Somente operation_id tipado.
-  const ctx: any = { leadId, phone, autorizacoes: [] as any[], precosAutorizados: [] as any[], cobrancaPendente: execucoes.cobrancaPendente, permiteMudanca: pediuMudanca, freteJa: execucoes.freteJa, arteParaCalculo, pixGerado: null };
+  const ctx: any = { leadId, phone, autorizacoes: [] as any[], precosAutorizados: [] as any[], fontesSemanticas: [] as any[], cobrancaPendente: execucoes.cobrancaPendente, permiteMudanca: pediuMudanca, freteJa: execucoes.freteJa, arteParaCalculo, pixGerado: null };
+  // v4.30.1 P0-I: determinantes do pedido e cotacao de frete vigente, lidos do estado
+  // canonico. cotacaoFrete (sem "vigente") e o que ESTE turno produzir.
+  ctx.composicaoPedido = {
+    produto: normalizarProdutoMacro(slotsCtx.produto ?? prodMsg) || 'indeterminado',
+    arte: String(slotsCtx.arte ?? (arteParaCalculo ? `${arteParaCalculo.largura_cm}x${arteParaCalculo.altura_cm}` : '') ?? '') || 'indeterminado',
+    quantidade: String(slotsCtx.quantidade ?? arteParaCalculo?.copias ?? '') || 'indeterminado',
+  };
+  ctx.cotacaoVigente = (slotsCtx._cotacao_frete && typeof slotsCtx._cotacao_frete === 'object') ? slotsCtx._cotacao_frete : null;
+  ctx.cotacaoFrete = null;
   // v4.26.0: fonte canonica CalcMe, somente extracao validada e vigente.
   let calcmeVigente: any = null;
   try {
@@ -2152,8 +2252,22 @@ async function atenderClienteInterno(phone: string, chatName: string, mensagem: 
         const out = await executarTool(toolEfetiva, inputEfetivo, ctx);
         toolsUsadas.push(toolEfetiva);
         // v84: numero sem semantica NAO autoriza dinheiro. A autorizacao vem de operation_id.
-        try { const parsed = JSON.parse(out); if (Array.isArray(parsed?.financial_authorizations)) ctx.autorizacoes.push(...parsed.financial_authorizations);
-             if (Array.isArray(parsed?.precos_verbalizaveis)) ctx.precosAutorizados.push(...parsed.precos_verbalizaveis); } catch {}
+        // v4.30.1 P0-J: alem da whitelist plana historica (ctx.precosAutorizados, intocada),
+        // cada valor entra numa lista com TIPO SEMANTICO. Toda autorizacao financeira vira
+        // fonte tipada mesmo quando a ferramenta nao declara precos_verbalizaveis — era esse
+        // o buraco: depois de calcular_frete a lista plana ficava vazia e a guarda de saida
+        // simplesmente nao rodava.
+        try { const parsed = JSON.parse(out);
+             if (Array.isArray(parsed?.financial_authorizations)) {
+               ctx.autorizacoes.push(...parsed.financial_authorizations);
+               for (const a of parsed.financial_authorizations) {
+                 ctx.fontesSemanticas.push({ tipo: tipoSemanticoAutorizacao(a), centavos: Math.round(Number(a.amount) * 100), operation_id: a.operation_id ?? null });
+               }
+             }
+             if (Array.isArray(parsed?.precos_verbalizaveis)) {
+               ctx.precosAutorizados.push(...parsed.precos_verbalizaveis);
+               for (const p of parsed.precos_verbalizaveis) ctx.fontesSemanticas.push({ tipo: String(p?.tipo || 'valor'), centavos: Number(p?.centavos), operation_id: null });
+             } } catch {}
         L('tool_exec', { tool: tu.name, phone: phone.slice(-4) });
         results.push({ type: 'tool_result', tool_use_id: tu.id, content: out });
       }
