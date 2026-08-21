@@ -35,10 +35,17 @@ export const MAPA_FONTES: readonly FonteCampo[] = Object.freeze([
     obrigatorio_para_emitir: true,
   },
   {
-    campo: 'ponte_cerebro_erp',
-    fonte: '(inexistente)',
+    campo: 'execucao_emissao',
+    fonte: 'ERP (dono dos dados e do estado) + agente controlado fail-closed',
+    autoridade: Autoridade.FONTE_CANONICA_PROVADA,
+    evidencia: 'DECIDIDO PELO DONO em 21/08/2026: a emissao roda como ERP + Agente. Nao ha ponte Cerebro->ERP a construir; calcular-frete permanece no Cerebro so para COTAR. Todos os dados de emissao residem no ERP e o montador erp/montar-envio.ts foi provado contra as 8 vendas reais. O agente nunca monta payload livremente: o envio nasce de montarEnvio() e EMITIR continua exigindo GateAberto com autor humano e teto em BRL.',
+    obrigatorio_para_emitir: true,
+  },
+  {
+    campo: 'credenciais_frenet_no_erp',
+    fonte: 'secrets do projeto ERP ynjsflvdfftcopibzxyo',
     autoridade: Autoridade.AUSENTE,
-    evidencia: 'calcular-frete v34 roda no CEREBRO e nao alcanca o banco do ERP. O pedido e o endereco vivem no ERP. Consequencia de projeto: a EMISSAO deve rodar no projeto ERP, onde o dado esta, e nao no Cerebro. Nenhuma edge de emissao existe hoje em nenhum dos dois.',
+    evidencia: 'Consequencia direta da decisao ERP + Agente: TOKEN_FRENET, FRENET_PARTNER_TOKEN, FRENET_WHITELABEL_BASE_URL, FRENET_WEBHOOK_TOKEN_NAME e FRENET_WEBHOOK_TOKEN_VALUE precisam existir no projeto ERP, onde a emissao vai rodar. Hoje o unico segredo Frenet em uso vive no CEREBRO (TOKEN_FRENET, header token de calcular-frete v34). Gate humano: cadastro de secrets.',
     obrigatorio_para_emitir: true,
   },
 
@@ -96,9 +103,9 @@ export const MAPA_FONTES: readonly FonteCampo[] = Object.freeze([
   },
   {
     campo: 'remetente.endereco',
-    fonte: 'ERP.public.perfil_empresa VS CEREBRO.frete_config[remetente] / calcular-frete',
-    autoridade: Autoridade.AMBIGUA,
-    evidencia: 'DIVERGENCIA VIVA: perfil_empresa.cep = 06803-150 (com logradouro, numero, complemento, bairro, cidade e estado preenchidos). frete_config[remetente].cep = 06813-230 e calcular-frete v34 tem CEP_ORIGEM = 06813230 hardcoded. Ambos em Embu das Artes/SP. Endereco fiscal e endereco de postagem podem legitimamente diferir; escolher e decisao de negocio e muda o preco do frete.',
+    fonte: 'ERP.public.perfil_empresa',
+    autoridade: Autoridade.FONTE_CANONICA_PROVADA,
+    evidencia: 'RESOLVIDO em 21/08/2026. Dono definiu 06813-230 como CEP canonico de origem e mandou corrigir perfil_empresa sem tocar frete_config nem CEP_ORIGEM, que ja usavam 06813230. Aplicado: perfil_empresa.cep de 06803-150 para 06813-230 (linha 6f478d93, so a coluna cep). Nao era divergencia legitima entre fiscal e postagem, era digitacao errada: perfil_empresa ja tinha Rua Agua Branca 185, Jardim Laila, Embu das Artes/SP, e o mesmo logradouro+numero+bairro aparece em tres registros independentes do ERP com CEP 06813-230. A correcao tambem melhora a NF-e, que le v_emp.cep em fn_montar_payload_nfe.',
     obrigatorio_para_emitir: true,
   },
   {
@@ -113,31 +120,38 @@ export const MAPA_FONTES: readonly FonteCampo[] = Object.freeze([
   {
     campo: 'itens',
     fonte: 'ERP.public.venda_itens',
-    autoridade: Autoridade.FONTE_CANDIDATA,
-    evidencia: 'ERP public.venda_itens = 3 linhas, 3 com quantidade > 0 e 3 com produto_id. Estrutura correta, volume baixo demais para chamar de provada: 8 vendas geram apenas 3 itens.',
+    autoridade: Autoridade.FONTE_CANONICA_PROVADA,
+    evidencia: 'ERP public.venda_itens = 3 linhas, 3 de 3 com quantidade > 0 e produto_id, e as tres resolvem produto por join em public.produtos (vendas 30 e 29 com 40 unidades de Baby look, venda 19 com 21 de Camiseta Basica). Volume baixo reflete o ERP ser novo, nao a fonte estar errada: preenchimento e vinculo ao pedido estao provados, que e o criterio.',
     obrigatorio_para_emitir: true,
   },
 
   // ------------------------------------------------ PACOTE (REGRA DURA)
   {
     campo: 'pacote.peso_kg',
-    fonte: 'ERP.public.produtos.peso_bruto_kg',
+    fonte: 'ERP.public.logistica_produto_medida.peso_kg',
     autoridade: Autoridade.AUSENTE,
-    evidencia: 'ERP public.produtos: 12 ativos, 1 com peso_bruto_kg (Baby look 100% algodao, 0,150 kg). Os outros 11 sao NULL. gramatura_g_m2 e NULL em 12 de 12.',
+    evidencia: 'Tabela criada em 21/08/2026 e VAZIA (0 linhas). O peso legado em public.produtos existe para 1 de 12 ativos (Baby look, 0,150 kg) e nao migra automaticamente: sem medido_por e medido_em nao e procedencia, e so um numero. gramatura_g_m2 NULL em 12 de 12.',
     obrigatorio_para_emitir: true,
   },
   {
     campo: 'pacote.dimensoes_cm',
-    fonte: 'ERP.public.produtos.altura_cm/largura_cm/comprimento_cm',
+    fonte: 'ERP.public.logistica_produto_medida (altura_cm, largura_cm, comprimento_cm)',
     autoridade: Autoridade.AUSENTE,
-    evidencia: 'ERP public.produtos: 1 de 12 com as tres dimensoes (10 x 30 x 40). Os outros 11 sao NULL.',
+    evidencia: 'Tabela criada em 21/08/2026 e VAZIA (0 linhas). O legado em public.produtos tem as tres dimensoes para 1 de 12 ativos (10 x 30 x 40, Baby look) e sao medidas de UMA peca, nao do volume postado.',
     obrigatorio_para_emitir: true,
   },
   {
     campo: 'pacote.regra_de_embalagem',
-    fonte: '(inexistente)',
+    fonte: 'ERP.public.logistica_embalagem_regra',
     autoridade: Autoridade.AUSENTE,
-    evidencia: 'Nao existe regra de como N pecas viram M volumes. produtos.unidade_venda tem dois regimes: unidade (11 produtos) e metro_linear (Filme DTF Textil). Peso de peca sozinho nao determina o volume postado.',
+    evidencia: 'Tabela criada em 21/08/2026 e VAZIA (0 linhas). Nao existe regra de como N pecas viram M volumes. CASO DIDATICO PROVADO: a venda 30 do ERP tem 40 unidades de Baby look 100% algodao, produto cadastrado com 0,150 kg e 10x30x40 cm — que sao as medidas de UMA peca. 40 pecas nao cabem numa caixa 10x30x40 e o frete cobra o volume, nao a peca. produtos.unidade_venda tem dois regimes: unidade (11 produtos) e metro_linear (Filme DTF Textil). montarPacotes() recusa fail-closed enquanto nao houver regra.',
+    obrigatorio_para_emitir: true,
+  },
+  {
+    campo: 'pacote.procedencia_da_medida',
+    fonte: 'ERP.public.logistica_produto_medida.origem + medido_por + medido_em',
+    autoridade: Autoridade.AUSENTE,
+    evidencia: 'O ERP guarda peso e dimensoes mas nao guarda COMO foram obtidos. Coluna preenchida nao e medida com procedencia: o unico produto com medida (Baby look, 0,150 kg / 10x30x40) nao tem registro de quem mediu nem quando. montarEnvio() trata medida sem procedencia como OrigemMedida.DESCONHECIDA e recusa. Coluna proposta em sql/0002_erp_logistica_medidas.sql, nao aplicada.',
     obrigatorio_para_emitir: true,
   },
   {
@@ -158,18 +172,18 @@ export const MAPA_FONTES: readonly FonteCampo[] = Object.freeze([
   },
   {
     campo: 'servico',
-    fonte: 'CEREBRO.public.operacoes_financeiras[kind=frete].components',
-    autoridade: Autoridade.INCOMPLETO,
-    evidencia: '125 operacoes kind=frete; components guarda apenas {cep, servico}, sem ServiceCode, sem peso, sem dimensoes e sem vinculo com o pedido. A cotacao devolve ServiceCode mas ele e descartado, entao hoje nao da para reconciliar cotacao x etiqueta. ERP public.transportadoras = 1 e 0 de 8 vendas apontam transportadora_id.',
+    fonte: 'adapter cotar() -> ERP.public.logistica_envio.servico_snapshot + cotacao_ref + custo_cotado',
+    autoridade: Autoridade.FONTE_CANONICA_PROVADA,
+    evidencia: 'RESOLVIDO pela arquitetura ERP + Agente. O buraco antigo era CEREBRO.operacoes_financeiras.components, que guardava so {cep, servico} e descartava o ServiceCode devolvido pela cotacao — por isso 125 operacoes kind=frete nao reconciliavam com etiqueta nenhuma. Agora o produtor e o proprio adapter: cotar() ja devolve codigo, descricao, transportadora, preco e prazo, e logistica_envio guarda servico_snapshot, cotacao_ref, custo_cotado e custo_real na mesma linha do envio. operacoes_financeiras continua sendo o ledger de cotacao do Cerebro e nao e mais a fonte da emissao.',
     obrigatorio_para_emitir: true,
   },
 
   // ----------------------------------------------------------- ESTADO
   {
     campo: 'estado_envio_etiqueta_tracking',
-    fonte: 'sql/0001_logistica_envio.sql (nao aplicada)',
-    autoridade: Autoridade.AUSENTE,
-    evidencia: 'Zero tabelas/views etiqueta/label/shipment/tracking/rastreio no CEREBRO. A migration existe no repo e nao foi aplicada em nenhum ambiente.',
+    fonte: 'ERP.public.logistica_envio / logistica_envio_tentativa / logistica_evento_tracking',
+    autoridade: Autoridade.FONTE_CANONICA_PROVADA,
+    evidencia: 'APLICADA em 21/08/2026 no ERP (migration logistica_envio_estado_canonico, somente aditiva). 5 tabelas criadas, RLS ligada e ZERO policies, entao anon e authenticated ficam sem acesso e so service_role passa. A guarda de idempotencia foi PROVADA no banco: inserir uma segunda tentativa EM_VOO com a mesma chave e recusada por ux_tentativa_viva_por_chave, indice unico parcial sobre estado in (EM_VOO, CONCLUIDA); a prova rodou em bloco abortado e as 5 tabelas seguem com 0 linhas. Rollback em sql/0002_erp_logistica_envio.sql.',
     obrigatorio_para_emitir: true,
   },
   {

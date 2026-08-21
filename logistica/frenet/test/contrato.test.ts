@@ -406,13 +406,16 @@ test('endereco do destinatario tem fonte canonica provada (correcao da rodada 1)
   assert.match(f.fonte, /ERP\.public\.pessoa_cliente_dados/);
 });
 
-test('endereco do remetente esta AMBIGUA ate decisao de negocio', async () => {
-  const { fonteDe } = await import('../fontes.ts');
+test('remetente resolvido: CEP canonico 06813-230 aplicado, sem AMBIGUA sobrando', async () => {
+  const { fonteDe, MAPA_FONTES: mapa } = await import('../fontes.ts');
   const f = fonteDe('remetente.endereco');
   assert.ok(f);
-  assert.equal(f.autoridade, Autoridade.AMBIGUA);
-  assert.match(f.evidencia, /06803-150/);
-  assert.match(f.evidencia, /06813230|06813-230/);
+  assert.equal(f.autoridade, Autoridade.FONTE_CANONICA_PROVADA);
+  assert.match(f.evidencia, /06813-230/);
+  assert.equal(
+    mapa.filter((x) => x.autoridade === Autoridade.AMBIGUA).length, 0,
+    'nenhuma fonte pode continuar AMBIGUA depois das decisoes do dono',
+  );
 });
 
 test('peso e dimensoes continuam AUSENTE: a regra dura nao afrouxou', async () => {
@@ -444,12 +447,26 @@ test('somente FONTE_CANONICA_PROVADA libera emissao', async () => {
   }
 });
 
-test('a ponte Cerebro<->ERP e um bloqueio declarado, nao um esquecimento', async () => {
+test('execucao decidida (ERP + agente) e os segredos no ERP viram o bloqueio nomeado', async () => {
   const { fonteDe } = await import('../fontes.ts');
-  const f = fonteDe('ponte_cerebro_erp');
+  const exec = fonteDe('execucao_emissao');
+  assert.ok(exec);
+  assert.equal(exec.autoridade, Autoridade.FONTE_CANONICA_PROVADA);
+  assert.equal(fonteDe('ponte_cerebro_erp'), undefined, 'a ponte deixou de ser um campo: nao ha ponte a construir');
+
+  const cred = fonteDe('credenciais_frenet_no_erp');
+  assert.ok(cred);
+  assert.equal(cred.autoridade, Autoridade.AUSENTE);
+  assert.equal(cred.obrigatorio_para_emitir, true);
+});
+
+test('estado logistico existe no ERP e a guarda de idempotencia foi provada no banco', async () => {
+  const { fonteDe } = await import('../fontes.ts');
+  const f = fonteDe('estado_envio_etiqueta_tracking');
   assert.ok(f);
-  assert.equal(f.autoridade, Autoridade.AUSENTE);
-  assert.equal(f.obrigatorio_para_emitir, true);
+  assert.equal(f.autoridade, Autoridade.FONTE_CANONICA_PROVADA);
+  assert.match(f.fonte, /ERP\.public\.logistica_envio/);
+  assert.match(f.evidencia, /ux_tentativa_viva_por_chave/);
 });
 
 test('o receptor de webhook continua sem autoridade ate o PATCH 0 ir ao ar', async () => {

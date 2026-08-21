@@ -58,13 +58,26 @@ Foto da balança e da fita métrica para pelo menos um item de cada regime, ou
 uma planilha assinada. Precisa distinguir **peça** de **volume postado** — a
 transportadora cobra o volume.
 
-## Onde isso entra
+## Onde isso entra (atualizado em 21/08/2026)
 
-`ERP.public.produtos.peso_bruto_kg`, `.altura_cm`, `.largura_cm`,
-`.comprimento_cm` (e `gramatura_g_m2` para o filme). A regra de embalagem e
-empilhamento **não tem tabela ainda** — nasce depois da entrevista, junto com a
-frente `entrega-cep-e-frete-sem-fonte-fiel`, que já está bloqueada exatamente
-nisso.
+As tabelas de destino **já existem** no ERP — foram criadas em 21/08/2026 pela
+migration `logistica_envio_estado_canonico`, e estão vazias esperando estes dados:
 
-Enquanto isso, `pacote.origem_medida` só aceita `FICHA_FISICA` ou
-`AFERIDO_NA_EXPEDICAO`. `HEURISTICA_CONFIG` continua cotando e nunca emite.
+| Dado | Tabela | Colunas |
+|---|---|---|
+| peso e dimensões da **peça** | `ERP.public.logistica_produto_medida` | `peso_kg`, `altura_cm`, `largura_cm`, `comprimento_cm`, `origem`, `medido_por`, `medido_em`, `evidencia_url` |
+| regra de embalagem/empilhamento | `ERP.public.logistica_embalagem_regra` | `pecas_por_volume`, `volume_altura_cm`, `volume_largura_cm`, `volume_comprimento_cm`, `tara_kg`, `origem`, `definida_por`, `definida_em` |
+
+Duas coisas de propósito nesse desenho:
+
+1. **`medido_por` e `medido_em` são `NOT NULL`.** Sem quem mediu e quando, não é
+   procedência — é só um número. Por isso o peso legado de `public.produtos`
+   (0,150 kg do Baby look) **não migra sozinho**: ninguém sabe quem o digitou.
+2. **A regra de embalagem é uma tabela separada da medida.** É o que separa "o
+   produto tem peso" de "sei o peso do volume postado". O caso didático está no
+   ERP: a **venda 30 tem 40 unidades** de um produto cadastrado com 0,150 kg e
+   10 × 30 × 40 cm — medidas de **uma peça**. Quarenta peças não cabem nessa
+   caixa, e o frete cobra o volume.
+
+`origem` só aceita `FICHA_FISICA` ou `AFERIDO_NA_EXPEDICAO`. A heurística
+`HEURISTICA_CONFIG` continua cotando e nunca emite.
