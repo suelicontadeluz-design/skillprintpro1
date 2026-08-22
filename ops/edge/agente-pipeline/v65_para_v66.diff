@@ -1,0 +1,20 @@
+--- /tmp/claude-0/-home-user-skillprintpro1/4810f1d5-71e6-5b58-ba92-ce87dfc14acc/scratchpad/rafael/baseline_index.ts	2026-08-22 09:29:24.154343791 +0000
++++ /tmp/claude-0/-home-user-skillprintpro1/4810f1d5-71e6-5b58-ba92-ce87dfc14acc/scratchpad/rafael/candidato_index.ts	2026-08-22 09:30:14.022422094 +0000
+@@ -223,7 +223,7 @@
+ // v4.4.0: acrescenta APENAS os campos `origem` e `erro_modelo` ao retorno (observabilidade).
+ // Titulo, orientacao, urgencia e prazo continuam exatamente como na v4.3.2.
+ async function gerarOrientacaoHandoff(params: { nome: string; segmento: string; historico: { role: string; text: string }[]; ctx: any; promptBase: string; reflexao: string; }): Promise<{ titulo: string; orientacao: string; urgencia: string; prazo_horas: number; origem: 'modelo' | 'fallback'; erro_modelo: string | null }> {
+-  const { nome, segmento, historico, ctx } = params;
++  const { nome, segmento, historico, ctx, promptBase, reflexao } = params;
+   const historicoStr = historico.map(h => `[${h.role.toUpperCase()}] ${h.text}`).join('\n');
+   const valorStr = ctx.valor_ic > 0 ? `Valor em checkout: R$${ctx.valor_ic}` : '';
+   const comprasStr = ctx.compras?.length > 0 ? `Compras anteriores: ${ctx.compras.length}x (total R$${ctx.total_compras})` : 'Primeiro contato';
+@@ -252,7 +252,7 @@
+     const res = await fetch('https://api.anthropic.com/v1/messages', {
+       method: 'POST',
+       headers: { 'Content-Type': 'application/json', 'x-api-key': ANTHROPIC_KEY, 'anthropic-version': '2023-06-01' },
+-      body: JSON.stringify({ model: MODELO_HANDOFF, max_tokens: 600, messages: [{ role: 'user', content: prompt }] }),
++      body: JSON.stringify({ model: MODELO_HANDOFF, max_tokens: 600, system: promptBase + reflexao, messages: [{ role: 'user', content: prompt }] }),
+     });
+     const d = await res.json();
+     const parsed = JSON.parse((d.content?.[0]?.text || '{}').replace(/```json|```/g, '').trim());
