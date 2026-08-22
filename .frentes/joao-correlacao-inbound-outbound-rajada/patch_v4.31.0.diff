@@ -1,0 +1,239 @@
+--- .frentes/joao-correlacao-inbound-outbound-rajada/v172_original_ROLLBACK.index.ts	2026-08-22 03:39:33.113309888 +0000
++++ supabase/functions/agente-noturno/index.ts	2026-08-22 03:48:34.773207531 +0000
+@@ -186,7 +186,19 @@
+ // IDENTICOS (ja bloqueado acima; guardrail_preco_sem_tool preservado byte a byte).
+ // Nao altera fn_valor_e_legitimo, nao amplia regex monetario, nao toca A/A2, produtoSlot,
+ // P14/P15, TTS, debounce, flags ou crons. Rollback: redeploy do v4.29.0 (SHA dc6f3071...53a3fa).
+-const V = 'agente-noturno-v4.30.0';
++// v4.31.0 (22/08/2026) — CORRELACAO INBOUND<->OUTBOUND EM RAJADA (P0).
++// Uma resposta de um turno antigo podia dar por atendida uma mensagem nova do cliente.
++// Caso 5513974079782 em 21/08: A 16:06:57 entrou em processamento, B 16:07:20 chegou
++// com A em voo, a decisao saiu 16:07:24 e B terminou atendido_joao sem resposta propria;
++// as 16:40 o cliente perguntou "E aqui?". Em 14 dias: 33 pares candidatos, 28 clientes.
++// Causa: causalidade inferida por relogio — outbound.created_at > inbound.created_at era
++// lido como "esse outbound respondeu esse inbound". Nao e, e nunca foi.
++// Tres mudancas: (1) o lote passa a carregar owned_inbound_ids reais; (2) a heuristica
++// temporal ja_respondida sai; (3) barreira final de frescor imediatamente antes do
++// transporte suprime a resposta velha SEM carimbar nada, deixando o joao-sweep-2min
++// recolher o lote inteiro. Zero alteracao em preco, Pix, frete, catalogo, TTS ou prompt.
++// Rollback: redeploy do v4.30.0 (Edge 172, index.ts sha256 6c3c90bf...b024764).
++const V = 'agente-noturno-v4.31.0';
+ const MODEL = 'claude-haiku-4-5-20251001';
+ const ASSINATURA = '*Jo\u00e3o Barros:*\n';
+ const ASSINATURA_JULIA = '*Julia Bitencourt:*\n';
+@@ -1248,6 +1260,30 @@
+     if (error) await logErro('CRITICO_decisao_terminal_falhou', { decision_id: decisionId, erro: error.message });
+   } catch (e: any) { await logErro('CRITICO_decisao_terminal_excecao', { decision_id: decisionId, erro: String(e?.message ?? e).slice(0,150) }); }
+ }
++// v4.31.0 P0: terminal proprio da barreira de frescor. Nao e falha de envio — a decisao
++// foi tomada e deliberadamente NAO executada porque o cliente falou de novo antes do
++// transporte. 'nao_executavel' e o unico valor do CHECK chk_terminal_op que descreve isso
++// sem contaminar a serie de erro. A decisao pronta_para_envio nao pode ficar sem terminal,
++// senao a varredura a marca indeterminada.
++async function finalizarDecisaoSuperseded(decisionId: string | null, turnId: string, contexto: any) {
++  if (!decisionId) return;
++  try {
++    const { error } = await sb.from('agente_decisoes_log').update({
++      acao_executada: 'resposta_noturna_superseded_por_inbound_mais_novo',
++      resultado: 'expirada',
++      execucao_sucesso: false,
++      efeito_externo: false,
++      executed_at: new Date().toISOString(),
++      turn_id: turnId,
++      output_origin: 'nenhuma_saida',
++      terminal_operacional: 'nao_executavel',
++      terminal_em: new Date().toISOString(),
++      terminal_fonte: 'freshness_fence',
++      contexto
++    }).eq('id', decisionId);
++    if (error) await logErro('CRITICO_decisao_superseded_falhou', { decision_id: decisionId, erro: error.message });
++  } catch (e: any) { await logErro('CRITICO_decisao_superseded_excecao', { decision_id: decisionId, erro: String(e?.message ?? e).slice(0,150) }); }
++}
+ async function criarTask(leadId: string | null, phone: string, titulo: string, orientacao: string): Promise<boolean> {
+   try {
+     const r = await fetch(`${SUPABASE_URL}/functions/v1/agente-pipeline`, { method: 'POST', headers: { 'content-type': 'application/json', Authorization: `Bearer ${SUPABASE_SERVICE_KEY}` }, body: JSON.stringify({ lead_id: leadId, phone, etapa_funil: 'venda_noturna_encaminhada', titulo, orientacao, urgencia: 'alta', prazo_horas: 15 }) });
+@@ -1258,6 +1294,35 @@
+   try { const { data } = await sb.rpc('fn_get_or_create_lead', { p_phone: phone, p_fullname: chatName && chatName !== 'Cliente' ? chatName : null }); if (data?.ok && data?.lead_id) return data.lead_id; } catch {}
+   return null;
+ }
++// ── v4.31.0 P0: REGRA UNICA DE FRESCOR ───────────────────────────────────────────────
++// Desde julho existia UMA checagem de frescor, no inicio do turno (debounce_msg_mais_nova).
++// Ela nao cobre a janela entre a checagem e o transporte: a mensagem que chega nesse
++// intervalo era considerada respondida por um outbound que nao pertence ao turno dela.
++// Em vez de uma segunda arquitetura de concorrencia, a MESMA regra passa a servir os dois
++// pontos: entrada (debounce) e barreira final antes do envio. O filtro de conteudo e o
++// mesmo do v97/v98 — evento sem texto, imagem, audio ou documento nunca cede a vez.
++const FILTRO_INBOUND_COM_CONTEUDO = 'body->text->>message.not.is.null,body->image->>imageUrl.not.is.null,body->image->>thumbnailUrl.not.is.null,body->audio->>audioUrl.not.is.null,body->document->>documentUrl.not.is.null';
++async function inboundMaisNovoQue(phone: string, refCreatedAt: string, opts: { ownedIds?: any[] | null; somentePendentes?: boolean } = {}): Promise<{ id: string; created_at: string } | null> {
++  try {
++    let q = sb.from('inbound_fora_horario').select('id, created_at').eq('phone', phone).gt('created_at', refCreatedAt);
++    if (opts.somentePendentes) q = q.eq('status', 'pendente');
++    const { data } = await q.or(FILTRO_INBOUND_COM_CONTEUDO).order('created_at', { ascending: true }).limit(5);
++    const owned = (opts.ownedIds || []).map((i: any) => String(i));
++    const novo = (data || []).find((r: any) => !owned.includes(String(r.id)));
++    return novo ? { id: String(novo.id), created_at: String(novo.created_at) } : null;
++  } catch { return null; }
++}
++// Maior created_at do lote. So vai ao banco quando o chamador nao sabe; webhook e sweep
++// ja sabem. Sem referencia devolve null e a barreira NAO bloqueia: como no v98, a falta
++// de linha faz o fluxo responder, nunca calar.
++async function maxCreatedAtDoLote(ids: any[] | null, conhecido: string | null): Promise<string | null> {
++  if (conhecido) return conhecido;
++  if (!ids || ids.length === 0) return null;
++  try {
++    const { data } = await sb.from('inbound_fora_horario').select('created_at').in('id', ids).order('created_at', { ascending: false }).limit(1).maybeSingle();
++    return data?.created_at ? String(data.created_at) : null;
++  } catch { return null; }
++}
+ async function carimbarInbound(phone: string, ids: any[] | null, status: string) {
+   try {
+     if (ids && ids.length > 0) { await sb.from('inbound_fora_horario').update({ status }).in('id', ids); }
+@@ -1538,13 +1603,16 @@
+   }
+ }
+ 
+-async function atenderCliente(phone: string, chatName: string, mensagem: string, imagens: string[], transcricoes: string[], idsParaCarimbar: any[] | null, dryRun: boolean): Promise<any> {
++// v4.31.0 P0: idsParaCarimbar passa a ser owned_inbound_ids — os IDs exatos dos inbounds
++// incorporados a ESTA mensagem — e loteCreatedAtMax a fronteira temporal do lote. Os dois
++// acompanham o turno inteiro: entrada -> decisao -> barreira -> transporte -> carimbo.
++async function atenderCliente(phone: string, chatName: string, mensagem: string, imagens: string[], transcricoes: string[], idsParaCarimbar: any[] | null, dryRun: boolean, loteCreatedAtMax: string | null = null): Promise<any> {
+   if (!dryRun) { const temLock = await adquirirLock(phone); if (!temLock) return { ok: true, skip: 'lock_ocupado' }; }
+-  try { return await atenderClienteInterno(phone, chatName, mensagem, imagens, transcricoes, idsParaCarimbar, dryRun); }
++  try { return await atenderClienteInterno(phone, chatName, mensagem, imagens, transcricoes, idsParaCarimbar, dryRun, loteCreatedAtMax); }
+   finally { if (!dryRun) await liberarLock(phone); }
+ }
+ 
+-async function atenderClienteInterno(phone: string, chatName: string, mensagem: string, imagens: string[], transcricoes: string[], idsParaCarimbar: any[] | null, dryRun: boolean): Promise<any> {
++async function atenderClienteInterno(phone: string, chatName: string, mensagem: string, imagens: string[], transcricoes: string[], idsParaCarimbar: any[] | null, dryRun: boolean, loteCreatedAtMax: string | null = null): Promise<any> {
+   if (await agentePausado(phone)) {
+     if (!dryRun) await carimbarInbound(phone, idsParaCarimbar, 'pausado_humano');
+     return { ok: true, respondeu: false, skip: 'agente_pausado' };
+@@ -1790,13 +1858,12 @@
+       vistas.add(chave);
+       return true;
+     }).slice(0, 60);
+-    const ultInb = (data || []).find((h: any) => h.direction === 'inbound');
+-    if (ultInb && !dryRun) {
+-      const txt = String(ultInb.message_text || '').trim();
+-      const igual = txt.length > 1 && (mensagem.includes(txt.slice(0, 80)) || txt.includes(mensagem.slice(0, 80)));
+-      const jaRespondida = igual && (data || []).some((h: any) => h.direction === 'outbound' && new Date(h.timestamp).getTime() > new Date(ultInb.timestamp).getTime());
+-      if (jaRespondida) { await carimbarInbound(phone, idsParaCarimbar, 'atendido_joao'); return { ok: true, skip: 'ja_respondida' }; }
+-    }
++    // v4.31.0 P0: REMOVIDO o atalho ja_respondida. Ele concluia "existe outbound com
++    // timestamp maior que o do ultimo inbound, logo esse inbound ja foi respondido" e
++    // carimbava atendido_joao sem enviar nada. A propriedade outbound.created_at >
++    // inbound.created_at nao prova autoria: no caso 5513974079782 o outbound posterior
++    // pertencia ao turno de A e engoliu B. Nenhuma heuristica de relogio entra no lugar —
++    // quem garante que uma resposta ainda vale e a barreira de frescor antes do envio.
+     const linhas = (data || []).reverse().map((h: any) => ({ role: h.direction === 'inbound' ? 'user' : 'assistant', content: (h.message_text || '').replace(/^\*[^*]+:\*\n?/, '').trim() })).filter((m: any) => m.content.length > 0 && !/^\[[^\]]+\]$/.test(m.content));
+     const mescladas: any[] = [];
+     for (const m of linhas) {
+@@ -3026,12 +3093,33 @@
+   }
+   const turnId = crypto.randomUUID();
+   const executionId = crypto.randomUUID();
+-  const contextoDecisao = { tema: decisao.tema, tools: toolsUsadas, phone_final: phone.slice(-4), mudou_produto: mudouProduto, fechamento_forcado: fechamentoForcado, objecao_preco: objecaoPreco, execution_id: executionId };
++  // v4.31.0 P0: owned_inbound_ids viaja no contexto que ja existe da decisao. Nao ha
++  // tabela nova nem ledger paralelo: turn_id ja e coluna, execution_id ja era contexto.
++  const ownedInboundIds = (idsParaCarimbar || []).map((i: any) => String(i));
++  const contextoDecisao = { tema: decisao.tema, tools: toolsUsadas, phone_final: phone.slice(-4), mudou_produto: mudouProduto, fechamento_forcado: fechamentoForcado, objecao_preco: objecaoPreco, execution_id: executionId, turn_id: turnId, owned_inbound_ids: ownedInboundIds };
+   const decisionId = await registrarDecisao(leadId, 'resposta_noturna_pronta_para_envio', contextoDecisao, { mensagem: resposta.slice(0, 400) });
+   if (!decisionId) await logErro('CRITICO_decisao_pre_envio_sem_id', { execution_id: executionId, phone: phone.slice(-4) });
+   if (pediuDesistencia) {
+     await processarLostCanonico(idsParaCarimbar?.[0] ? String(idsParaCarimbar[0]) : null, leadId, mensagem, decisionId, false);
+   }
++  // ── v4.31.0 P0: BARREIRA FINAL DE FRESCOR ────────────────────────────────────────────
++  // Ultimo ponto antes do primeiro transporte fisico da resposta principal. Se existe
++  // inbound PENDENTE do mesmo telefone mais novo que o lote e fora de owned_inbound_ids,
++  // esta resposta nasceu velha: nao sai, e NADA e carimbado — nem os inbounds do lote, nem
++  // o novo. Os dois seguem 'pendente' e o joao-sweep-2min recolhe A+B no MESMO lote
++  // (status='pendente', idade entre 30s e 4h), respondendo uma unica vez com o contexto ja
++  // completo. Suprimir sem carimbar e exatamente o que impede a resposta de um turno antigo
++  // de dar por atendida uma mensagem que ela nunca leu.
++  if (!dryRun) {
++    const refLote = await maxCreatedAtDoLote(idsParaCarimbar, loteCreatedAtMax);
++    const novoInbound = refLote ? await inboundMaisNovoQue(phone, refLote, { ownedIds: ownedInboundIds, somentePendentes: true }) : null;
++    if (novoInbound) {
++      const contextoSuperseded = { ...contextoDecisao, superseded: true, skip_reason: 'superseded_por_inbound_mais_novo', newer_inbound_id: novoInbound.id, newer_inbound_created_at: novoInbound.created_at, lote_created_at_max: refLote };
++      await finalizarDecisaoSuperseded(decisionId, turnId, contextoSuperseded);
++      L('superseded_por_inbound_mais_novo', { phone: phone.slice(-4), turn_id: turnId, execution_id: executionId, owned_inbound_ids: ownedInboundIds, newer_inbound_id: novoInbound.id, lote_created_at_max: refLote });
++      return { ok: true, respondeu: false, skip: 'superseded_por_inbound_mais_novo', superseded: true, turn_id: turnId, execution_id: executionId, owned_inbound_ids: ownedInboundIds, newer_inbound_id: novoInbound.id };
++    }
++  }
+   const envio1Id = await prepararEnvio(decisionId, executionId, 1, 'resposta', phone);
+   // v4.25.0: unico ponto do fluxo principal onde a voz pode entrar. A modalidade
+   // e decidida aqui dentro, ANTES do transporte, e sai exatamente um envio.
+@@ -3102,7 +3190,10 @@
+         let msg = textos.join('\n');
+         if (trans.length > 0) msg = (msg ? msg + '\n' : '') + trans.join(' | ');
+         if (!mensagemValida(msg) && imgs.length === 0) { await carimbarInbound(ph, ids, 'silencio_joao'); continue; }
+-        const out = await atenderCliente(ph, lote[0]?.chat_name || 'Cliente', msg || '(cliente enviou imagem)', imgs, trans, ids, false);
++        // v4.31.0 P0: o sweep ja agrupava o lote inteiro; agora tambem declara a fronteira
++        // temporal dele, para a barreira de frescor saber o que e "mais novo que este lote".
++        const loteMax = lote.reduce((m: string | null, r: any) => (!m || String(r.created_at) > m) ? String(r.created_at) : m, null as string | null);
++        const out = await atenderCliente(ph, lote[0]?.chat_name || 'Cliente', msg || '(cliente enviou imagem)', imgs, trans, ids, false, loteMax);
+         atendidos++; resultados.push({ ph: ph.slice(-4), ...out });
+       } catch (e: any) { L('sweep_err', { ph: ph.slice(-4), e: String(e).slice(0, 100) }); }
+     }
+@@ -3166,6 +3257,9 @@
+   let mensagem = mensagemOriginal;
+   const imagens: string[] = [];
+   let transcricoes: string[] = [];
++  // v4.31.0 P0: identidade do lote formada no ponto de entrada e propagada dali em diante.
++  const ownedIds: string[] = [];
++  let loteCreatedAtMax: string | null = null;
+   if (!dryRun) {
+     await sleep(DEBOUNCE_MS);
+     try {
+@@ -3181,17 +3275,36 @@
+         // com ordem real. Sem linha (id nao encontrado), NAO cede a vez: falha para responder,
+         // nunca para silencio.
+         const { data: minhaLinha } = await sb.from('inbound_fora_horario')
+-          .select('created_at').eq('id', inboundId).maybeSingle();
++          .select('created_at, status').eq('id', inboundId).maybeSingle();
++        // v4.31.0 P0: DEDUPLICACAO CAUSAL, nao temporal. Sai com ja_respondida a unica
++        // protecao contra reentrega do MESMO webhook. Ela nao volta: no lugar entra a
++        // identidade da propria linha — este inbound ja alcancou um estado terminal, logo
++        // ja foi tratado por outra execucao. Nao e relogio, e a linha dizendo o que houve
++        // com ela. Linha ausente ou ainda pendente NAO bloqueia: como no v98, a duvida
++        // faz o fluxo responder, nunca calar.
++        if (minhaLinha?.status && minhaLinha.status !== 'pendente') {
++          return new Response(JSON.stringify({ ok: true, skip: 'inbound_ja_terminal', status: minhaLinha.status }), { status: 200 });
++        }
+         if (minhaLinha?.created_at) {
+-          const { data: maisNova } = await sb.from('inbound_fora_horario')
+-            .select('id').eq('phone', phone).gt('created_at', minhaLinha.created_at)
+-            .or('body->text->>message.not.is.null,body->image->>imageUrl.not.is.null,body->image->>thumbnailUrl.not.is.null,body->audio->>audioUrl.not.is.null,body->document->>documentUrl.not.is.null')
+-            .limit(1).maybeSingle();
++          // v4.31.0 P0: o created_at da propria linha ja serve de fronteira do lote — vale
++          // quando a rajada nao devolve nada (linha ja nao pendente, ou consulta falhando).
++          loteCreatedAtMax = String(minhaLinha.created_at);
++          // v4.31.0 P0: mesma regra de frescor da barreira final, agora num helper unico.
++          const maisNova = await inboundMaisNovoQue(phone, String(minhaLinha.created_at));
+           if (maisNova) return new Response(JSON.stringify({ ok: true, skip: 'debounce_msg_mais_nova' }), { status: 200 });
+         }
+       }
+       const { data: rajada } = await sb.from('inbound_fora_horario').select('id, body, created_at').eq('phone', phone).eq('status', 'pendente').gte('created_at', new Date(Date.now() - 300000).toISOString()).order('created_at', { ascending: true }).limit(10);
+       if (rajada && rajada.length > 0) {
++        // v4.31.0 P0: BUG DE PROPAGACAO DO LOTE. A rajada agregava varios inbounds na
++        // mensagem, mas o turno seguia carregando apenas [inboundId] — as demais linhas
++        // eram carimbadas depois pelo fallback por telefone+janela de 10 min, que tambem
++        // alcanca mensagem que nao pertence ao lote. Agora todo ID usado para construir a
++        // mensagem vira owned_inbound_ids e so eles sao carimbados.
++        for (const r of rajada) {
++          ownedIds.push(String(r.id));
++          if (!loteCreatedAtMax || String(r.created_at) > loteCreatedAtMax) loteCreatedAtMax = String(r.created_at);
++        }
+         const textos = rajada.map((r: any) => {
+           const doc = r.body?.document;
+           const marcador = doc ? `[Arquivo recebido pelo WhatsApp: ${String(doc.fileName || doc.title || 'documento')}; tipo=${String(doc.mimeType || 'desconhecido')}]` : '';
+@@ -3210,6 +3323,8 @@
+   }
+   if (!mensagemValida(mensagem)) return new Response(JSON.stringify({ ok: true, skip: 'sem_conteudo' }), { status: 200 });
+ 
+-  const out = await atenderCliente(phone, chatName, mensagem, imagens, transcricoes, inboundId ? [inboundId] : null, dryRun);
++  // v4.31.0 P0: sem rajada observada (dry-run ou consulta vazia) o lote e o proprio inbound.
++  const idsDoLote = ownedIds.length > 0 ? ownedIds : (inboundId ? [String(inboundId)] : null);
++  const out = await atenderCliente(phone, chatName, mensagem, imagens, transcricoes, idsDoLote, dryRun, loteCreatedAtMax);
+   return new Response(JSON.stringify(out), { status: 200 });
+ });
