@@ -79,3 +79,51 @@ Coberto por T3/T4/T4b sobre a query literal extraida do arquivo.
 `deno test --allow-read .frentes/joao-correlacao-inbound-outbound-rajada/testes/p0_test.ts`
 13 passed / 0 failed. `deno check` do index.ts: EXIT=0, zero erro TypeScript.
 Nenhum cliente real usado. Telefones sinteticos `5500...`. Transporte stubado.
+
+## DEPLOY — NAO EXECUTADO
+Edge 172 segue ACTIVE e intocada.
+
+Motivo: esta sessao nao possui `SUPABASE_ACCESS_TOKEN` (verificado em env, `~/.config`,
+`~/.supabase`, `vault.secrets` e tabelas de config — nenhum token `sbp_`). O unico canal
+disponivel e o MCP `deploy_edge_function`, que exige o conteudo do arquivo inline: 253.299
+bytes transcritos pelo modelo. Isso quebraria a garantia do item 23 — um rollback tambem
+dependeria da mesma transcricao, e o baseline byte-exato deixaria de ser recuperavel com
+seguranca. Preferi nao deployar a deployar sem rollback garantido.
+
+Comando de deploy (raiz do repo, branch `claude/joao-correlacao-inbound-outbound-j7jb4x`):
+```
+SUPABASE_ACCESS_TOKEN=<sbp_...> supabase functions deploy agente-noturno \
+  --project-ref ldrdtaibazplvrbwyrvx --no-verify-jwt
+```
+O layout `supabase/functions/agente-noturno/index.ts` ja e o esperado pela CLI, entao o
+entrypoint e o `verify_jwt=false` sao preservados. Nenhuma outra function e publicada.
+
+Pos-deploy a conferir: nova Edge version, nova versao logica `agente-noturno-v4.31.0`,
+novo `ezbr_sha256`, estado ACTIVE, runtime sem erro, cron jobid 113 ainda ativo, ledger
+`joao_envios` gravando, zero erro de bundle. NAO enviar WhatsApp de teste a cliente real.
+
+## ROLLBACK
+```
+cp .frentes/joao-correlacao-inbound-outbound-rajada/v172_original_ROLLBACK.index.ts \
+   supabase/functions/agente-noturno/index.ts
+sha256sum supabase/functions/agente-noturno/index.ts   # 6c3c90bf...b024764
+SUPABASE_ACCESS_TOKEN=<sbp_...> supabase functions deploy agente-noturno \
+  --project-ref ldrdtaibazplvrbwyrvx --no-verify-jwt
+```
+Gatilhos: runtime error, bundle error, duplicidade de outbound, pendentes orfaos alem do
+ciclo do sweep, sweep que nao recupera, carimbo incorreto, aumento de `silencio_joao`
+contra o baseline de 8 em 14 dias (ultimo 18/08), regressao em Pix/frete/preco.
+
+## ACHADOS FORA DE ESCOPO (nao corrigidos)
+1. Caminho `_direct_message` (mensagem ditada por humano) carimba `atendido_joao` por
+   `phone + status='pendente' + created_at >= now-10min`, sem ids. E uma saida lateral que
+   pode alcancar inbound fora do lote. Nao ha `owned_inbound_ids` nesse fluxo porque o
+   texto nao nasce de um turno do Joao. Fora do escopo deste P0.
+2. Lock v1 (`fn_joao_adquirir_lock`, TTL 120s) continua em uso; `fn_joao_adquirir_lock_v2`
+   e `fn_joao_liberar_lock_v2` existem e nao foram adotadas. Divida registrada. Enquanto o
+   v1 estiver la, um turno que passe de 120s pode ser ultrapassado por outro. A barreira de
+   frescor reduz o dano, mas nao substitui o lock por token.
+3. `SWEEP_MAX_CLIENTES = 6` limita quantos clientes um ciclo do sweep atende. Com fila
+   maior que 6, a recuperacao de um lote superseded pode levar mais de um ciclo.
+4. Rajada do webhook tem `limit(10)`. Acima disso o lote nao cobre tudo e a barreira
+   suprime; o sweep resolve, sem cap por telefone. Comportamento correto, porem mais lento.
