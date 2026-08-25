@@ -1,0 +1,1099 @@
+<title>O Juiz Contido</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Spectral:ital,wght@0,400;0,600;1,400&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+
+<style>
+:root{
+  --ground:#F4F5F7; --surface:#FFFFFF; --surface-2:#EDEFF3;
+  --ink:#12161D; --ink-2:#4A5462; --ink-3:#7C8697;
+  --rule:#DCE0E7; --rule-strong:#C3C9D4;
+  --accent:#8C2F39; --accent-soft:#F2E4E5;
+  --ok:#2C6E49; --ok-soft:#E1EFE7;
+  --shadowc:#43518A; --shadowc-soft:#E3E6F2;
+  --off:#616B7A; --off-soft:#E6E9ED;
+  --orphan:#8A6516; --orphan-soft:#F4EADA;
+  --shadow-card:0 1px 2px rgba(18,22,29,.05), 0 8px 24px -16px rgba(18,22,29,.22);
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --ground:#0E1116; --surface:#161A21; --surface-2:#1C212A;
+    --ink:#E8EBF0; --ink-2:#A3ACBB; --ink-3:#737D8C;
+    --rule:#262C36; --rule-strong:#38404D;
+    --accent:#CC6E78; --accent-soft:#2C1B1E;
+    --ok:#63AF83; --ok-soft:#152218;
+    --shadowc:#8B98D0; --shadowc-soft:#191C2B;
+    --off:#8A93A1; --off-soft:#1B1F26;
+    --orphan:#CC9F44; --orphan-soft:#241E12;
+    --shadow-card:0 1px 2px rgba(0,0,0,.4), 0 8px 24px -16px rgba(0,0,0,.6);
+  }
+}
+:root[data-theme="dark"]{
+  --ground:#0E1116; --surface:#161A21; --surface-2:#1C212A;
+  --ink:#E8EBF0; --ink-2:#A3ACBB; --ink-3:#737D8C;
+  --rule:#262C36; --rule-strong:#38404D;
+  --accent:#CC6E78; --accent-soft:#2C1B1E;
+  --ok:#63AF83; --ok-soft:#152218;
+  --shadowc:#8B98D0; --shadowc-soft:#191C2B;
+  --off:#8A93A1; --off-soft:#1B1F26;
+  --orphan:#CC9F44; --orphan-soft:#241E12;
+  --shadow-card:0 1px 2px rgba(0,0,0,.4), 0 8px 24px -16px rgba(0,0,0,.6);
+}
+
+*{box-sizing:border-box}
+body{
+  margin:0; background:var(--ground); color:var(--ink);
+  font-family:"IBM Plex Sans",system-ui,-apple-system,Segoe UI,sans-serif;
+  font-size:16px; line-height:1.65; -webkit-font-smoothing:antialiased;
+}
+.wrap{max-width:1120px; margin:0 auto; padding:0 24px 96px}
+.col{max-width:70ch}
+
+/* ---------- header ---------- */
+header.mast{
+  border-bottom:1px solid var(--rule); background:var(--surface);
+  padding:56px 0 36px; margin-bottom:52px;
+}
+.mast .wrap{padding-bottom:0}
+.eyebrow{
+  font-family:"IBM Plex Mono",ui-monospace,monospace; font-size:11.5px;
+  letter-spacing:.14em; text-transform:uppercase; color:var(--ink-3);
+}
+h1{
+  font-family:Spectral,Georgia,serif; font-weight:600; font-size:clamp(2.4rem,5.2vw,3.6rem);
+  line-height:1.06; letter-spacing:-.015em; margin:14px 0 0; text-wrap:balance;
+}
+.dek{
+  font-family:Spectral,Georgia,serif; font-size:1.15rem; font-style:italic;
+  color:var(--ink-2); margin:16px 0 0; max-width:62ch;
+}
+.meta{
+  display:flex; flex-wrap:wrap; gap:8px 22px; margin-top:26px;
+  font-family:"IBM Plex Mono",monospace; font-size:11.5px; color:var(--ink-3);
+  letter-spacing:.04em;
+}
+.meta b{color:var(--ink-2); font-weight:500}
+
+/* ---------- verdict slab ---------- */
+.slab{
+  background:var(--accent-soft); border:1px solid var(--accent);
+  border-left-width:4px; padding:26px 28px; margin:38px 0 0; border-radius:3px;
+}
+.slab .tag{
+  font-family:"IBM Plex Mono",monospace; font-size:11px; letter-spacing:.16em;
+  text-transform:uppercase; color:var(--accent); font-weight:500;
+}
+.slab p{margin:10px 0 0; font-size:1.05rem}
+.slab p:first-of-type{
+  font-family:Spectral,Georgia,serif; font-size:1.45rem; line-height:1.35;
+  font-weight:600; color:var(--ink);
+}
+
+/* ---------- sections ---------- */
+section{margin-top:64px; scroll-margin-top:24px}
+.sec-head{display:flex; gap:16px; align-items:baseline; border-top:2px solid var(--ink);
+  padding-top:14px; margin-bottom:22px}
+.sec-num{
+  font-family:"IBM Plex Mono",monospace; font-size:12px; font-weight:500;
+  color:var(--accent); letter-spacing:.08em; padding-top:5px; flex:none;
+}
+h2{
+  font-family:Spectral,Georgia,serif; font-weight:600; font-size:1.72rem;
+  line-height:1.2; margin:0; letter-spacing:-.01em; text-wrap:balance;
+}
+h3{
+  font-size:.98rem; font-weight:600; margin:32px 0 10px; color:var(--ink);
+  letter-spacing:.005em;
+}
+h3.lab{
+  font-family:"IBM Plex Mono",monospace; font-size:11.5px; letter-spacing:.13em;
+  text-transform:uppercase; color:var(--ink-3); font-weight:500;
+  border-bottom:1px solid var(--rule); padding-bottom:7px; margin-top:34px;
+}
+p{margin:0 0 15px; max-width:70ch}
+ul,ol{margin:0 0 15px; padding-left:20px; max-width:70ch}
+li{margin-bottom:7px}
+strong{font-weight:600}
+em{font-style:italic}
+code,.mono{font-family:"IBM Plex Mono",ui-monospace,monospace; font-size:.855em}
+code{background:var(--surface-2); padding:1px 5px; border-radius:3px; color:var(--ink-2)}
+a{color:var(--accent)}
+
+/* ---------- pull quote / question ---------- */
+.ask{
+  border-left:3px solid var(--accent); padding:4px 0 4px 20px; margin:26px 0;
+  font-family:Spectral,Georgia,serif; font-size:1.18rem; font-style:italic;
+  color:var(--ink); max-width:64ch;
+}
+.ans{
+  margin:-14px 0 26px 23px; font-size:.96rem; color:var(--ink-2); max-width:64ch;
+}
+.ans b{color:var(--ink)}
+
+/* ---------- status chips ---------- */
+.chip{
+  display:inline-flex; align-items:center; gap:6px; white-space:nowrap;
+  font-family:"IBM Plex Mono",monospace; font-size:10.5px; letter-spacing:.09em;
+  text-transform:uppercase; font-weight:500; padding:3px 8px; border-radius:2px;
+  border:1px solid currentColor;
+}
+.c-ativo{color:var(--ok); background:var(--ok-soft)}
+.c-shadow{color:var(--shadowc); background:var(--shadowc-soft)}
+.c-off{color:var(--off); background:var(--off-soft)}
+.c-block{color:var(--accent); background:var(--accent-soft)}
+.c-orfao{color:var(--orphan); background:var(--orphan-soft)}
+.c-none{color:var(--ink-3); background:transparent; border-style:dashed}
+
+/* ---------- chain ---------- */
+.chain-scroll{overflow-x:auto; margin:24px 0 8px; padding-bottom:10px}
+.chain{display:grid; grid-auto-flow:column; grid-auto-columns:184px; gap:10px; min-width:min-content}
+.link{
+  background:var(--surface); border:1px solid var(--rule); border-radius:3px;
+  padding:13px 13px 15px; position:relative; box-shadow:var(--shadow-card);
+}
+.link .step{
+  font-family:"IBM Plex Mono",monospace; font-size:10px; color:var(--ink-3);
+  letter-spacing:.1em; margin-bottom:7px;
+}
+.link .name{font-weight:600; font-size:.9rem; line-height:1.3; margin-bottom:9px}
+.link .impl{font-size:.775rem; color:var(--ink-2); line-height:1.45; margin-top:9px}
+.link::after{
+  content:"→"; position:absolute; right:-13px; top:50%; transform:translateY(-50%);
+  color:var(--rule-strong); font-size:14px; z-index:2;
+}
+.link:last-child::after{content:none}
+
+/* ---------- tables ---------- */
+.tw{overflow-x:auto; margin:20px 0 26px; border:1px solid var(--rule); border-radius:3px; background:var(--surface)}
+table{border-collapse:collapse; width:100%; font-size:.845rem; min-width:600px}
+th,td{padding:9px 13px; text-align:left; border-bottom:1px solid var(--rule); vertical-align:top}
+thead th{
+  font-family:"IBM Plex Mono",monospace; font-size:10px; letter-spacing:.1em;
+  text-transform:uppercase; color:var(--ink-3); font-weight:500;
+  background:var(--surface-2); white-space:nowrap;
+}
+tbody tr:last-child td{border-bottom:none}
+td.num,th.num{text-align:right; font-family:"IBM Plex Mono",monospace; font-variant-numeric:tabular-nums}
+td.mn{font-family:"IBM Plex Mono",monospace; font-size:.79rem; color:var(--ink-2)}
+tr.hl td{background:var(--accent-soft)}
+
+/* ---------- stat row ---------- */
+.stats{display:grid; grid-template-columns:repeat(auto-fit,minmax(148px,1fr)); gap:1px;
+  background:var(--rule); border:1px solid var(--rule); border-radius:3px; margin:22px 0 28px; overflow:hidden}
+.stat{background:var(--surface); padding:15px 16px}
+.stat .v{font-family:"IBM Plex Mono",monospace; font-size:1.6rem; font-weight:500;
+  line-height:1.1; font-variant-numeric:tabular-nums; letter-spacing:-.02em}
+.stat .k{font-size:.755rem; color:var(--ink-2); margin-top:6px; line-height:1.35}
+.stat.bad .v{color:var(--accent)}
+.stat.good .v{color:var(--ok)}
+
+/* ---------- callout ---------- */
+.note{
+  background:var(--surface); border:1px solid var(--rule); border-left:3px solid var(--orphan);
+  padding:16px 18px; margin:22px 0; border-radius:3px; font-size:.925rem;
+}
+.note .t{font-family:"IBM Plex Mono",monospace; font-size:10.5px; letter-spacing:.13em;
+  text-transform:uppercase; color:var(--orphan); font-weight:500; margin-bottom:7px}
+.note p{margin:0; max-width:none}
+.note p + p{margin-top:10px}
+.note.crit{border-left-color:var(--accent)}
+.note.crit .t{color:var(--accent)}
+
+/* ---------- options ---------- */
+.opts{display:grid; gap:14px; margin:22px 0 26px}
+@media(min-width:820px){.opts{grid-template-columns:repeat(3,1fr)}}
+.opt{background:var(--surface); border:1px solid var(--rule); border-radius:3px; padding:17px 18px}
+.opt h4{margin:0 0 4px; font-size:.95rem; font-weight:600}
+.opt .sub{font-family:"IBM Plex Mono",monospace; font-size:10px; letter-spacing:.11em;
+  text-transform:uppercase; color:var(--ink-3); margin-bottom:11px}
+.opt dl{margin:0; font-size:.845rem}
+.opt dt{font-weight:600; color:var(--ink-2); margin-top:9px; font-size:.78rem;
+  text-transform:uppercase; letter-spacing:.05em}
+.opt dd{margin:2px 0 0; color:var(--ink-2); line-height:1.5}
+.opt.pick{border-color:var(--accent); border-width:1px; box-shadow:0 0 0 1px var(--accent)}
+
+footer{margin-top:80px; padding-top:22px; border-top:1px solid var(--rule);
+  font-family:"IBM Plex Mono",monospace; font-size:11px; color:var(--ink-3); line-height:1.7}
+:focus-visible{outline:2px solid var(--accent); outline-offset:2px}
+</style>
+
+<header class="mast">
+  <div class="wrap">
+    <div class="eyebrow">Auditoria forense · Cérebro LIVE · ldrdtaibazplvrbwyrvx · read-only</div>
+    <h1>O Juiz Contido</h1>
+    <p class="dek">André Castro (<span class="mono">agente-autonomia</span>) avalia desempenho e recomenda mudanças de nível.
+    Esta auditoria pergunta uma coisa só: ele é capaz de julgar?</p>
+    <div class="meta">
+      <span><b>Data</b> 25/08/2026</span>
+      <span><b>Edge</b> agente-autonomia v58 / código v34</span>
+      <span><b>Escrituras no banco</b> 0</span>
+      <span><b>Consultas</b> 22 SELECT</span>
+    </div>
+  </div>
+</header>
+
+<div class="wrap">
+
+<!-- 1 -->
+<section id="veredito">
+  <div class="sec-head"><span class="sec-num">01</span><h2>Veredito</h2></div>
+
+  <div class="slab">
+    <div class="tag">Conclusão</div>
+    <p>André <strong>não está apto</strong> a voltar a influenciar autonomia — mas o defeito não é dele.</p>
+    <p>Em todos os 21 casos desta base cujo desfecho é conhecido por evidência histórica, o critério
+    que André consome acertou <strong>zero</strong>. Não porque erra o julgamento: porque não existe julgamento
+    para ele consumir. A cobertura de qualidade é <strong>0% em 22 dos 23 agentes ativos</strong>.</p>
+    <p>Hoje André devolve INCONCLUSIVO em 23 de 23 avaliações. Isso é abstenção correta, não competência.
+    Um juiz que se cala sempre nunca erra e nunca serve.</p>
+  </div>
+
+  <p>Três coisas ficaram provadas no LIVE, e nenhuma delas depende de acreditar no relato anterior:</p>
+  <ol>
+    <li><strong>A contenção é real.</strong> <code>EXECUCAO_AUTONOMIA_HABILITADA = false</code> na edge,
+    <code>v_execucao_habilitada CONSTANT BOOLEAN := FALSE</code> no SQL, cron 48 inativo,
+    <code>fn_avaliar_autonomia_proposta</code> declarada <span class="mono">STABLE</span> (o Postgres recusa escrita dentro dela).
+    Quatro travas independentes, todas verificadas.</li>
+    <li><strong>Os oito rebaixamentos automáticos da história seriam bloqueados hoje.</strong> Recalculei cada
+    um com a régua atual: todos dão INCONCLUSIVO, <code>nivel_proposto = NULL</code>. Nenhum passaria.</li>
+    <li><strong>André não é o juiz.</strong> 158 dos 161 julgamentos que já existiram foram escritos por
+    <code>fn_ricardo_fechar_acertos</code> — SQL determinístico do Ricardo, sem LLM, sem prompt,
+    e que <em>nenhum cron chama</em>. André é o consumidor de um veredito órfão.</li>
+  </ol>
+
+  <div class="ask">«O André consegue hoje distinguir “executou corretamente” de “tomou a decisão correta”?»</div>
+  <p class="ans"><b>Sabe que são coisas diferentes; não consegue medir a segunda.</b> O código marca
+  <code>execucao_ok</code> como imprestável para promover ou rebaixar, e o motivo de cada INCONCLUSIVO
+  diz literalmente «execucao_ok NÃO substitui qualidade_decisao». Mas a única coisa que ele tem
+  em 22 dos 23 agentes é execucao_ok. A distinção existe na regra e não existe nos dados.</p>
+</section>
+
+<!-- 2 -->
+<section id="quem">
+  <div class="sec-head"><span class="sec-num">02</span><h2>Quem é o André de verdade</h2></div>
+
+  <p>Reconstruído a partir da fonte da edge v58 e do catálogo do banco. O mapa completo:</p>
+
+  <h3 class="lab">Fluxo de decisão — elo a elo</h3>
+  <div class="chain-scroll">
+    <div class="chain">
+      <div class="link"><div class="step">01</div><div class="name">Decisão do agente</div>
+        <span class="chip c-ativo">Ativo</span>
+        <div class="impl">Agentes gravam em <span class="mono">agente_decisoes_log</span> via <span class="mono">fn_registrar_decisao_agente</span>. 97.630 linhas.</div></div>
+      <div class="link"><div class="step">02</div><div class="name">Evidência</div>
+        <span class="chip c-block">Contaminada</span>
+        <div class="impl">Trigger <span class="mono">trg_auto_acerto</span> converte <span class="mono">resultado</span> em <span class="mono">acerto</span> mecanicamente. 85.413 de 85.416 <span class="mono">executada</span> = true.</div></div>
+      <div class="link"><div class="step">03</div><div class="name">Julgamento</div>
+        <span class="chip c-orfao">Órfão</span>
+        <div class="impl"><span class="mono">fn_ricardo_fechar_acertos</span> — nenhum cron a chama. 158 dos 161 vereditos históricos.</div></div>
+      <div class="link"><div class="step">04</div><div class="name">Métrica</div>
+        <span class="chip c-ativo">Ativo</span>
+        <div class="impl"><span class="mono">fn_sinal_qualidade_decisoes</span> separa julgável de eco. Devolve cobertura 0% em 22/23.</div></div>
+      <div class="link"><div class="step">05</div><div class="name">Recomendação</div>
+        <span class="chip c-shadow">Shadow</span>
+        <div class="impl"><span class="mono">fn_avaliar_autonomia_proposta</span> (STABLE). 23 INCONCLUSIVO, 0 proposta de nível.</div></div>
+      <div class="link"><div class="step">06</div><div class="name">Política</div>
+        <span class="chip c-orfao">Órfão</span>
+        <div class="impl"><span class="mono">org_autonomia_regras</span>: 57 regras <span class="mono">ativo=true</span>, lidas por 0 funções.</div></div>
+      <div class="link"><div class="step">07</div><div class="name">Gate</div>
+        <span class="chip c-block">Quebrado</span>
+        <div class="impl">Patrícia aprova, mas 4 aprovações não viraram registro na trilha.</div></div>
+      <div class="link"><div class="step">08</div><div class="name">Alteração de nível</div>
+        <span class="chip c-off">Desligado</span>
+        <div class="impl"><span class="mono">aplicarNivel()</span> retorna sem escrever. Único caminho de escrita da edge.</div></div>
+    </div>
+  </div>
+
+  <h3 class="lab">Inventário</h3>
+  <div class="tw">
+  <table>
+    <thead><tr><th>Objeto</th><th>Papel</th><th>Estado</th><th>Prova</th></tr></thead>
+    <tbody>
+      <tr><td class="mn">edge agente-autonomia</td><td>v58 / código v34, <code>verify_jwt=false</code></td><td><span class="chip c-ativo">Ativo</span></td><td class="mn">só modo <code>relatorio</code> é aberto; demais exigem service-role</td></tr>
+      <tr><td class="mn">cron 49 · relatorio</td><td>relatório diário 20:00 UTC</td><td><span class="chip c-ativo">Ativo</span></td><td class="mn">active=t; 8 execuções desde 19/08</td></tr>
+      <tr class="hl"><td class="mn">cron 48 · avaliar</td><td>avaliação diária 09:00 UTC</td><td><span class="chip c-off">Desligado</span></td><td class="mn">active=f desde 02/08, decisão do Alessandro</td></tr>
+      <tr><td class="mn">fn_avaliar_autonomia_proposta</td><td>produz a recomendação</td><td><span class="chip c-shadow">Shadow</span></td><td class="mn">provolatile=s → escrita proibida pelo motor</td></tr>
+      <tr><td class="mn">fn_sinal_qualidade_decisoes</td><td>separa juízo de eco</td><td><span class="chip c-ativo">Ativo</span></td><td class="mn">chamada por 2 funções</td></tr>
+      <tr><td class="mn">fn_agente_elegivel_promocao</td><td>elegibilidade (escada B)</td><td><span class="chip c-ativo">Ativo</span></td><td class="mn">0 elegíveis em 23</td></tr>
+      <tr><td class="mn">fn_avaliar_rebaixamento_autonomia</td><td>legado, virou adaptador</td><td><span class="chip c-block">Bloqueado</span></td><td class="mn">out_gravado sempre false</td></tr>
+      <tr><td class="mn">fn_ricardo_fechar_acertos</td><td>escreve os vereditos</td><td><span class="chip c-orfao">Órfão</span></td><td class="mn">VOLATILE, nenhum cron a invoca</td></tr>
+      <tr><td class="mn">trg_auto_acerto</td><td>preenche <code>acerto</code> por <code>resultado</code></td><td><span class="chip c-ativo">Ativo</span></td><td class="mn">1 trigger habilitado (tgenabled='O')</td></tr>
+      <tr><td class="mn">org_autonomia_regras</td><td>política por agente (escada A)</td><td><span class="chip c-orfao">Órfão</span></td><td class="mn">57 linhas ativas, 0 funções leem</td></tr>
+      <tr><td class="mn">org_autonomia_avaliacoes</td><td>tabela de avaliações</td><td><span class="chip c-none">Vazia</span></td><td class="mn">0 linhas</td></tr>
+      <tr><td class="mn">avaliacao_agente</td><td>tabela de avaliações</td><td><span class="chip c-none">Vazia</span></td><td class="mn">0 linhas</td></tr>
+      <tr><td class="mn">autonomia_liberacoes</td><td>trilha de mudança de nível</td><td><span class="chip c-block">Incompleta</span></td><td class="mn">13 de 23 agentes sem registro do nível atual</td></tr>
+      <tr><td class="mn">agente_estado_operacional</td><td>governança de pausa</td><td><span class="chip c-ativo">Ativo</span></td><td class="mn">André = <code>desativado_deliberadamente</code>, escopo cron 48</td></tr>
+      <tr><td class="mn">avaliador semântico</td><td>produzir juízo de qualidade</td><td><span class="chip c-none">Não existe</span></td><td class="mn">nenhuma função, edge ou cron</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <div class="note crit">
+    <div class="t">O que André escreve hoje</div>
+    <p>Uma coisa só: <code>relatorio_enviado</code>. Oito decisões desde 19/08, todas do cron 49.
+    A versão v34 nunca gravou uma proposta — porque o cron que a geraria está desligado.</p>
+  </div>
+</section>
+
+<!-- 3 -->
+<section id="antes">
+  <div class="sec-head"><span class="sec-num">03</span><h2>Como ele julgava antes</h2></div>
+
+  <div class="tw">
+  <table>
+    <thead><tr><th>Versão</th><th>Janela</th><th class="num">Decisões</th><th>Definição de “acerto”</th><th>Podia executar?</th></tr></thead>
+    <tbody>
+      <tr><td class="mn">v32</td><td class="mn">23–26/05</td><td class="num">80</td><td><code>acerto=true</code> derivado de <code>resultado</code> pelo trigger</td><td><span class="chip c-ativo">Sim</span></td></tr>
+      <tr class="hl"><td class="mn">v33</td><td class="mn">27/05–18/08</td><td class="num">1.447</td><td>idem — taxa = acertos/total, sem noção de cobertura</td><td><span class="chip c-ativo">Sim</span></td></tr>
+      <tr><td class="mn">v34</td><td class="mn">19/08–hoje</td><td class="num">8</td><td>qualidade_positiva / amostra_julgável, com piso de cobertura 30%</td><td><span class="chip c-off">Não</span></td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <p>A mudança de v33 para v34 é a linha divisória. O que mudou, item por item:</p>
+  <div class="tw">
+  <table>
+    <thead><tr><th>Conceito</th><th>v32 / v33</th><th>v34</th></tr></thead>
+    <tbody>
+      <tr><td>Definição de acerto</td><td>eco do trigger sobre <code>resultado</code></td><td>juízo semântico explícito, gravado por um avaliador</td></tr>
+      <tr><td>Taxa de acerto</td><td>acertos ÷ total bruto</td><td>positivos ÷ amostra julgável</td></tr>
+      <tr><td>Cobertura mínima</td><td><span class="chip c-none">não existia</span></td><td>30% — abaixo disso, INCONCLUSIVO obrigatório</td></tr>
+      <tr><td>Amostra mínima</td><td><span class="chip c-none">não existia</span></td><td>20 brutas + 10 julgáveis</td></tr>
+      <tr><td>Promoção</td><td>proposta por WhatsApp, aguardava SIM</td><td>idem, mas exige ≥80% sobre julgáveis</td></tr>
+      <tr><td>Rebaixamento</td><td><code>UPDATE agentes</code> direto, sem gate</td><td>só proposta; escrita passa por <code>aplicarNivel()</code>, travada</td></tr>
+      <tr><td>Erros críticos</td><td>contava, mas não bloqueava</td><td>≥2 → PROPOR_REBAIXAMENTO para nível 0</td></tr>
+      <tr><td>Aprovação humana</td><td>exigida para promover, <b>não</b> para rebaixar</td><td>exigida para qualquer mudança</td></tr>
+      <tr><td>Execução automática</td><td>ativa</td><td>desligada por constante</td></tr>
+      <tr><td>Autenticação</td><td>POST vazio caía em <code>avaliar</code></td><td>default é <code>proposta</code>; outros modos exigem service-role</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <div class="note">
+    <div class="t">Por que v33 rebaixava tanto</div>
+    <p>A conta era <code>acerto=true ÷ total</code>. Decisões que ficavam em <code>pendente_aprovacao</code>
+    não recebem <code>acerto=true</code> do trigger — logo entram no denominador e não no numerador.
+    Um agente que <em>propõe muito e é pouco respondido</em> tem taxa baixa por construção.
+    Foi exatamente o que aconteceu com o Gustavo.</p>
+  </div>
+</section>
+
+<!-- 4 -->
+<section id="hoje">
+  <div class="sec-head"><span class="sec-num">04</span><h2>Como ele julga hoje</h2></div>
+
+  <p>O critério vigente, lido de <code>fn_sinal_qualidade_decisoes</code>. Uma linha só é
+  <strong>julgável</strong> quando cumpre <em>todas</em> estas condições:</p>
+  <ul>
+    <li><code>acerto IS NOT NULL</code> — há um veredito;</li>
+    <li><code>acerto IS DISTINCT FROM acerto_mecanico</code> — o veredito <em>diverge</em> do eco do trigger;</li>
+    <li><code>atribuicao_tipo IS NULL AND regra_atribuicao IS NULL</code> — não é crédito comercial por proximidade;</li>
+    <li>o feedback não é <span class="mono">'Outra decisao mais proxima…'</span> nem <span class="mono">'Atribuicao automatica via fn_atribuir…'</span>;</li>
+    <li>o feedback não contém <span class="mono">'nao e decisao real'</span>;</li>
+    <li>o feedback não é vazio.</li>
+  </ul>
+
+  <p>É um filtro honesto — recusa exatamente os cinco sinais que a auditoria pediu para não aceitar como
+  prova de qualidade. E é por isso que ele fica vazio.</p>
+
+  <div class="stats">
+    <div class="stat bad"><div class="v">0%</div><div class="k">cobertura de qualidade em 22 dos 23 agentes ativos</div></div>
+    <div class="stat bad"><div class="v">23/23</div><div class="k">avaliações que hoje retornam INCONCLUSIVO</div></div>
+    <div class="stat"><div class="v">161</div><div class="k">julgamentos em toda a história do sistema</div></div>
+    <div class="stat bad"><div class="v">3</div><div class="k">deles com juízo semântico real</div></div>
+    <div class="stat bad"><div class="v">0</div><div class="k">julgamentos semânticos <b>positivos</b>, jamais</div></div>
+  </div>
+
+  <p>O único agente com cobertura hoje é o Ricardo — 3 linhas, cobertura 100%, mas amostra bruta 3,
+  abaixo do mínimo de 20. Também dá INCONCLUSIVO.</p>
+
+  <div class="note crit">
+    <div class="t">Defeito latente · nível 0 por atalho</div>
+    <p>A cláusula <code>erros_confirmados &gt;= 2 → PROPOR_REBAIXAMENTO, nivel_proposto = 0</code> é
+    avaliada <em>antes</em> das checagens de amostra e cobertura. Um agente com 2 erros críticos e 3 decisões
+    cairia de qualquer nível direto para 0, sem exigência de cobertura nenhuma.</p>
+    <p>Hoje nenhum agente tem <code>erros_confirmados ≥ 2</code>, então isso nunca disparou. Continua armado.</p>
+  </div>
+</section>
+
+<!-- 5 -->
+<section id="historico">
+  <div class="sec-head"><span class="sec-num">05</span><h2>Histórico de promoções e rebaixamentos</h2></div>
+
+  <p>Todas as mudanças de nível que André executou sozinho — oito, entre 05/05 e 20/07/2026.
+  A coluna final recalcula cada caso com a régua de hoje, sobre os dados reais da janela de 7 dias anterior.</p>
+
+  <div class="tw">
+  <table>
+    <thead><tr>
+      <th>Data</th><th>Agente</th><th class="num">De→Para</th><th>Motivo registrado</th>
+      <th class="num">Bruta</th><th class="num">Julgável</th><th class="num">Cob.</th><th>Hoje</th>
+    </tr></thead>
+    <tbody>
+      <tr><td class="mn">05/05</td><td>Luciana <span class="mono">atribuicao</span></td><td class="num">2→1</td><td class="mn">taxa 0%</td><td class="num">17</td><td class="num">0</td><td class="num">0%</td><td><span class="chip c-block">Bloqueado</span></td></tr>
+      <tr class="hl"><td class="mn">24/05</td><td>Gustavo <span class="mono">midia</span></td><td class="num">2→1</td><td class="mn">taxa 60%</td><td class="num">6</td><td class="num">0</td><td class="num">0%</td><td><span class="chip c-block">Bloqueado</span></td></tr>
+      <tr><td class="mn">31/05</td><td>Marcos <span class="mono">fechamento</span></td><td class="num">3→2</td><td class="mn">taxa 69%</td><td class="num">22</td><td class="num">0</td><td class="num">0%</td><td><span class="chip c-block">Bloqueado</span></td></tr>
+      <tr><td class="mn">01/06</td><td>Marcos <span class="mono">fechamento</span></td><td class="num">2→1</td><td class="mn">taxa 69%</td><td class="num">22</td><td class="num">0</td><td class="num">0%</td><td><span class="chip c-block">Bloqueado</span></td></tr>
+      <tr><td class="mn">09/06</td><td>Caio <span class="mono">orquestrador</span></td><td class="num">3→2</td><td class="mn">taxa 68%</td><td class="num">134</td><td class="num">0</td><td class="num">0%</td><td><span class="chip c-block">Bloqueado</span></td></tr>
+      <tr><td class="mn">10/06</td><td>Caio <span class="mono">orquestrador</span></td><td class="num">2→1</td><td class="mn">taxa 59%</td><td class="num">134</td><td class="num">0</td><td class="num">0%</td><td><span class="chip c-block">Bloqueado</span></td></tr>
+      <tr class="hl"><td class="mn">03/07</td><td>Gustavo <span class="mono">midia</span></td><td class="num">2→1</td><td class="mn">taxa 14%</td><td class="num">25</td><td class="num">5</td><td class="num">20%</td><td><span class="chip c-block">Bloqueado</span></td></tr>
+      <tr class="hl"><td class="mn">20/07</td><td>Gustavo <span class="mono">midia</span></td><td class="num">2→1</td><td class="mn">taxa 21%</td><td class="num">49</td><td class="num">8</td><td class="num">16%</td><td><span class="chip c-block">Bloqueado</span></td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <p><strong>Oito de oito seriam INCONCLUSIVO hoje</strong> — seis por cobertura zero, dois por cobertura
+  abaixo de 30%. Em nenhum caso houve erro crítico registrado; a alegação «0 erros críticos» aparece
+  no próprio motivo de cada rebaixamento, ao lado da taxa que causou o rebaixamento.</p>
+
+  <p>Do outro lado, André nunca promoveu ninguém sozinho. Ele emitiu 31 <code>liberacao_proposta</code>
+  entre 27/05 e 25/07 — Rafael, Bruno, Julia, Marcos, Caio — e todas passaram pela Patrícia.
+  A maior parte expirou sem resposta. Toda promoção efetiva da história tem <code>aprovado_por</code>
+  humano: Alessandro, <span class="mono">alessandro_via_claude</span> ou equivalente.</p>
+
+  <div class="note">
+    <div class="t">Assimetria estrutural da v33</div>
+    <p>Promover exigia SIM do dono. Rebaixar não exigia nada. O agente que propunha promoção
+    tinha um gate humano; o mesmo agente executava rebaixamento direto no <code>UPDATE</code>.
+    Foi assim que a contenção SQL de 19/07 não segurou o rebaixamento de 20/07: a edge nunca
+    passava pela função contida.</p>
+  </div>
+</section>
+
+<!-- 6 -->
+<section id="gustavo">
+  <div class="sec-head"><span class="sec-num">06</span><h2>Caso Gustavo, completo</h2></div>
+
+  <p>Gustavo Leal = <code>agente-midia</code>. É o único agente com histórico de julgamento no sistema,
+  e o único cujo nível oscilou seis vezes. Houve, sim, um cabo de guerra — e ele tem
+  <strong>três rodadas</strong>, não uma.</p>
+
+  <div class="tw">
+  <table>
+    <thead><tr><th>Data</th><th class="num">Nível</th><th>Quem</th><th>Razão</th></tr></thead>
+    <tbody>
+      <tr><td class="mn">15/03</td><td class="num">1→2</td><td>sistema</td><td class="mn">registro retroativo</td></tr>
+      <tr class="hl"><td class="mn">24/05</td><td class="num">2→1</td><td><b>André</b></td><td class="mn">rebaixamento automático, taxa 60%</td></tr>
+      <tr><td class="mn">02/07</td><td class="num">1→2</td><td><b>Alessandro</b></td><td class="mn">sessão de auditoria: pausa protetiva de campanha autorizada</td></tr>
+      <tr class="hl"><td class="mn">03/07</td><td class="num">2→1</td><td><b>André</b></td><td class="mn">rebaixamento automático, taxa 14% — <b>no dia seguinte</b></td></tr>
+      <tr><td class="mn">19/07</td><td class="num">1→2</td><td><b>Alessandro</b></td><td class="mn">reversão corretiva explícita: «taxa calculada incorretamente… zero decisões julgáveis»</td></tr>
+      <tr class="hl"><td class="mn">20/07</td><td class="num">2→1</td><td><b>André</b></td><td class="mn">rebaixamento automático, taxa 21% — <b>no dia seguinte de novo</b></td></tr>
+      <tr><td class="mn">04/08</td><td class="num">1→2</td><td><b>Alessandro</b></td><td class="mn">teste controlado, teto R$100/dia, «NÃO baseado em taxa de acerto»</td></tr>
+      <tr><td class="mn">11/08</td><td class="num">2→1</td><td>contenção técnica</td><td class="mn">critérios podiam ser escolhidos por ordem alfabética (bug de <code>buscarCriterios</code>)</td></tr>
+      <tr><td class="mn">11/08</td><td class="num">1→2</td><td><b>Alessandro</b></td><td class="mn">restauração imediata: «manter Gustavo autônomo e corrigir as métricas»</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <p><strong>Três vezes</strong> Alessandro promoveu e André rebaixou. Duas delas em menos de 24 horas.
+  A terceira rodada (11/08) foi uma contenção técnica por outro motivo — bug de seleção de critérios,
+  não julgamento do André — e foi revertida em 5 minutos pelo dono.</p>
+
+  <h3 class="lab">Os dados que André usou</h3>
+  <p>Recuperei as 114 decisões do Gustavo que receberam veredito negativo. Todas com o mesmo texto:
+  <span class="mono">«Proposta expirou sem resposta — Ricardo: criterio ou timing incorreto»</span>.</p>
+
+  <p>Isto é o que essas decisões realmente eram:</p>
+  <div class="tw">
+  <table>
+    <thead><tr><th>Data</th><th>Ação proposta</th><th>Justificativa do Gustavo</th><th>Veredito</th></tr></thead>
+    <tbody>
+      <tr><td class="mn">18/07</td><td class="mn">pausar_campanha</td><td class="mn">ROAS 0.01x · gasto R$981 · urgência média</td><td><span class="chip c-block">Errado</span></td></tr>
+      <tr><td class="mn">17/07</td><td class="mn">pausar_campanha</td><td class="mn">ROAS 0.01x · gasto R$951</td><td><span class="chip c-block">Errado</span></td></tr>
+      <tr><td class="mn">16/07</td><td class="mn">pausar_campanha</td><td class="mn">ROAS 0.01x · gasto R$920</td><td><span class="chip c-block">Errado</span></td></tr>
+      <tr><td class="mn">14/07</td><td class="mn">pausar_campanha</td><td class="mn">ROAS 0x · gasto R$856</td><td><span class="chip c-block">Errado</span></td></tr>
+      <tr><td class="mn">14/07</td><td class="mn">pausar_campanha</td><td class="mn">ROAS 0.22x · gasto R$2.357</td><td><span class="chip c-block">Errado</span></td></tr>
+      <tr><td class="mn">13/07</td><td class="mn">pausar_campanha</td><td class="mn">ROAS 0.34x · gasto R$953</td><td><span class="chip c-block">Errado</span></td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <p>O Gustavo pediu, dia após dia, para pausar uma campanha com ROAS ~0 que já tinha queimado R$981.
+  Ninguém respondeu. A não-resposta foi gravada como <em>«critério ou timing incorreto»</em>.
+  André somou essas linhas, chegou a 14% e 21% de “acerto”, e rebaixou.</p>
+
+  <div class="note crit">
+    <div class="t">O que o critério mediu de fato</div>
+    <p>Das 76 aprovações do Gustavo na história: <strong>71 expiraram</strong>, 5 foram aprovadas,
+    0 rejeitadas. O critério de qualidade do Gustavo é, em 93% dos casos, uma medida de
+    <strong>quão rápido o Alessandro responde WhatsApp</strong>.</p>
+    <p>Nas 114 linhas negativas: 65 eram pedidos de pausa; 18 tinham ROAS &lt; 0.5 com gasto &gt; R$300,
+    somando <strong>R$22.952</strong> em verba sob campanha que o Gustavo queria parar e foi
+    julgado errado por querer. Gasto médio dessas: R$1.275.</p>
+  </div>
+
+  <p>A reversão de 19/07 do Alessandro registra a mesma leitura, de forma independente desta auditoria:
+  <em>«os rebaixamentos de 24/05 e 03/07 foram baseados, respectivamente, em taxa calculada
+  incorretamente (taxa corrigida 100% sobre 4 decisões julgáveis) e em zero decisões julgáveis
+  (25 de 25 eram pendente_aprovacao, cobertura 0%). Não houve erros críticos em nenhum dos dois casos.»</em></p>
+
+  <p><strong>Hoje o mesmo caso seria bloqueado.</strong> Recalculado: 03/07 dá cobertura 20%, 20/07 dá 16%
+  — ambos abaixo do piso de 30%, ambos INCONCLUSIVO, ambos com <code>nivel_proposto = NULL</code>.</p>
+</section>
+
+<!-- 7 -->
+<section id="produtor">
+  <div class="sec-head"><span class="sec-num">07</span><h2>Quem produz o veredito de qualidade</h2></div>
+
+  <div class="ask">«André é realmente o juiz ou é apenas o consumidor de um veredito produzido por outro mecanismo?»</div>
+  <p class="ans"><b>Consumidor.</b> André não escreve nenhum juízo de qualidade. Ele lê
+  <code>agente_decisoes_log.acerto</code> e filtra. Quem escreve é outra coisa — e essa coisa não roda.</p>
+
+  <p>O universo completo de julgamentos válidos na história do sistema — 161 linhas, todas as fontes:</p>
+
+  <div class="tw">
+  <table>
+    <thead><tr><th class="num">n</th><th>Fonte do veredito</th><th>Sobre</th><th>Polaridade</th><th>Como gera</th></tr></thead>
+    <tbody>
+      <tr><td class="num">114</td><td class="mn">Proposta expirou sem resposta</td><td>Gustavo</td><td><span class="chip c-block">Negativo</span></td><td>SQL determinístico: aprovação com <code>status='expirado'</code> ±10 min</td></tr>
+      <tr><td class="num">39</td><td class="mn">Lead não converteu em 72h</td><td>Isabela</td><td><span class="chip c-block">Negativo</span></td><td>SQL: ausência de <code>Purchase</code> em <code>pixel_events</code> na janela</td></tr>
+      <tr><td class="num">5</td><td class="mn">Proposta aprovada por Alessandro</td><td>Gustavo</td><td><span class="chip c-ativo">Positivo</span></td><td>SQL: aprovação com <code>status='aprovado'</code> ±10 min</td></tr>
+      <tr class="hl"><td class="num">3</td><td class="mn">AVALIACAO_SEMANTICA_CONFIRMADA</td><td>Ricardo</td><td><span class="chip c-block">Negativo</span></td><td>manual, escrito numa sessão de auditoria de 19/08</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <p>Respondendo item por item ao que foi pedido para cada fonte de julgamento:</p>
+
+  <div class="tw">
+  <table>
+    <thead><tr><th>Pergunta</th><th>fn_ricardo_fechar_acertos · 158 linhas</th><th>Avaliação manual · 3 linhas</th></tr></thead>
+    <tbody>
+      <tr><td>Quem gera</td><td>Ricardo (<code>agente-supervisor</code>), via função SQL</td><td>humano/Claude, sessão de 19/08</td></tr>
+      <tr><td>Usa LLM</td><td><b>Não.</b> PL/pgSQL puro</td><td>Sim</td></tr>
+      <tr><td>Qual prompt</td><td>nenhum — regras <code>IF p_agente_slug = …</code> hardcoded</td><td>não registrado no banco</td></tr>
+      <tr><td>Qual contexto recebe</td><td><code>agente_aprovacoes.status</code>, <code>pixel_events</code>, <code>acao_executada</code></td><td>a decisão e o histórico de contexto da sessão</td></tr>
+      <tr><td>Vê resultado posterior</td><td>Sim — expiração e conversão são posteriores</td><td>Sim</td></tr>
+      <tr><td>Conhece a intenção original</td><td><b>Não.</b> Nunca lê <code>decisao</code> nem <code>contexto</code></td><td>Sim</td></tr>
+      <tr><td>Pode avaliar o próprio trabalho</td><td>Não há ramo para <code>agente-supervisor</code></td><td>Avaliou justamente o Ricardo</td></tr>
+      <tr><td>Independência</td><td>Formal, mas Ricardo também recomenda promoções (SWOT)</td><td>Sim — externa ao sistema</td></tr>
+      <tr><td>Risco de circularidade</td><td><b>Sim</b> — juiz e promotor no mesmo agente</td><td>Não</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <div class="note crit">
+    <div class="t">Achado mais grave desta seção</div>
+    <p><code>fn_ricardo_fechar_acertos</code> é <strong>órfã</strong>: nenhum cron a chama, nenhuma função
+    a invoca. Os 158 vereditos existem porque alguém rodou a função à mão. O mecanismo que produz
+    o único insumo de qualidade do sistema não tem agendamento.</p>
+    <p>E ele tem três ramos apenas: Gustavo, Isabela e Caio. Os outros 20 agentes nunca tiveram,
+    e nunca poderão ter, um veredito de qualidade por esse caminho.</p>
+  </div>
+
+  <div class="note crit">
+    <div class="t">Gerador latente de falso positivo</div>
+    <p>Dois ramos da função escrevem <code>acerto = true</code> para dizer «não dá para avaliar»:</p>
+    <p><span class="mono">'Sem lead_id: nao ha como avaliar conversao — Ricardo: dados insuficientes'</span> → <code>acerto = true</code>.</p>
+    <p>O filtro de <code>fn_sinal_qualidade_decisoes</code> descarta feedbacks contendo
+    <span class="mono">'nao e decisao real'</span> — e este texto <strong>não contém essa frase</strong>.
+    Se a função for executada para a Isabela, «impossível de avaliar» entra na conta como
+    <strong>qualidade positiva</strong>. Hoje há 0 linhas assim. O caminho está aberto.</p>
+  </div>
+
+  <p>Sobre <strong>André avaliar a si mesmo</strong>: <code>fn_avaliar_autonomia_proposta</code> percorre
+  <code>FROM agentes WHERE status IN ('ativo','em_desenvolvimento')</code> — e <code>agente-autonomia</code>
+  está nessa lista. Ele aparece na própria saída, com nível 0 e máximo 3. Hoje é inofensivo
+  (amostra 8, INCONCLUSIVO), mas não há exclusão explícita.</p>
+</section>
+
+<!-- 8 -->
+<section id="calibracao">
+  <div class="sec-head"><span class="sec-num">08</span><h2>Teste de calibração</h2></div>
+
+  <p>Montei o conjunto de teste com a regra pedida: só casos cujo desfecho já é conhecido por evidência
+  histórica, sem escolher só os fáceis. O resultado mais importante do teste apareceu antes de rodá-lo.</p>
+
+  <div class="note crit">
+    <div class="t">O conjunto balanceado não pôde ser montado — e isso é o achado</div>
+    <p>Não existe, em 97.630 decisões, <strong>um único julgamento semântico positivo</strong>.
+    A classe BOM tem população zero. Os 5 positivos que existem são «Alessandro aprovou»,
+    que mede consentimento humano, não desfecho.</p>
+    <p>Sem classe BOM não há precisão para BOM, não há falso negativo mensurável de forma simétrica,
+    e não há como distinguir um juiz calibrado de um juiz que diz RUIM para tudo.</p>
+  </div>
+
+  <h3 class="lab">Conjunto efetivamente disponível</h3>
+  <div class="tw">
+  <table>
+    <thead><tr><th>Caso</th><th>Contexto na época</th><th>Desfecho conhecido</th><th>Veredito histórico</th><th>André hoje</th><th>Concordância</th></tr></thead>
+    <tbody>
+      <tr><td>Gustavo · 18 pausas de campanha</td><td class="mn">ROAS &lt; 0.5, gasto &gt; R$300, R$22.952 em jogo</td><td><span class="chip c-ativo">Bom</span> pausar era correto</td><td><span class="chip c-block">Ruim</span></td><td><span class="chip c-none">Inconclusivo</span></td><td>divergência</td></tr>
+      <tr><td>Gustavo · 49 propostas restantes</td><td class="mn">ROAS ≥ 1.0 — pausa discutível</td><td><span class="chip c-none">Indeterminado</span></td><td><span class="chip c-block">Ruim</span></td><td><span class="chip c-none">Inconclusivo</span></td><td>concordância acidental</td></tr>
+      <tr><td>Gustavo · 5 propostas aprovadas</td><td class="mn">Alessandro respondeu SIM</td><td><span class="chip c-none">Indeterminado</span></td><td><span class="chip c-ativo">Bom</span></td><td><span class="chip c-none">Inconclusivo</span></td><td>—</td></tr>
+      <tr class="hl"><td>Ricardo · 3 respostas de 19/08</td><td class="mn">diagnóstico factual, contexto de sessão</td><td><span class="chip c-block">Ruim</span> causa raiz inventada</td><td><span class="chip c-block">Ruim</span></td><td><span class="chip c-none">Inconclusivo</span></td><td>divergência</td></tr>
+      <tr><td>Isabela · 39 sugestões</td><td class="mn">lead sem <code>Purchase</code> em 72h</td><td><span class="chip c-none">Indeterminado</span> atribuição ≠ causa</td><td><span class="chip c-block">Ruim</span></td><td><span class="chip c-none">Inconclusivo</span></td><td>—</td></tr>
+      <tr><td>Diego · 4 falhas de 11–14/08</td><td class="mn">statement timeout em <code>fn_contexto_midia_ouro</code></td><td><span class="chip c-block">Ruim</span> de execução, não de decisão</td><td><span class="chip c-block">Ruim</span></td><td><span class="chip c-none">Inconclusivo</span></td><td>acerto pelo motivo errado</td></tr>
+      <tr><td>Julia · promoção 1→2 de 21/05</td><td class="mn">«98,3% de acerto em 114 decisões»</td><td><span class="chip c-none">Sem base</span> cobertura 0%</td><td><span class="chip c-ativo">Bom</span></td><td><span class="chip c-none">Inconclusivo</span></td><td>—</td></tr>
+      <tr><td>João <span class="mono">noturno</span> · 892 decisões/7d</td><td class="mn">93,8% execução ok</td><td><span class="chip c-none">Sem base</span> 0 julgamentos</td><td>nunca julgado</td><td><span class="chip c-none">Inconclusivo</span></td><td>—</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <p>Casos com desfecho defensável: <strong>21</strong> — as 18 pausas do Gustavo e as 3 avaliações do Ricardo.
+  Sobre eles:</p>
+
+  <div class="stats">
+    <div class="stat bad"><div class="v">0/21</div><div class="k">acertos do critério v33 (histórico)</div></div>
+    <div class="stat bad"><div class="v">18</div><div class="k">falsos negativos: decisão boa julgada ruim</div></div>
+    <div class="stat"><div class="v">0</div><div class="k">falsos positivos históricos</div></div>
+    <div class="stat"><div class="v">21/21</div><div class="k">abstenções do critério v34 (hoje)</div></div>
+    <div class="stat good"><div class="v">100%</div><div class="k">taxa de INCONCLUSIVO — correta pelo piso de cobertura</div></div>
+  </div>
+
+  <p><strong>Não forço estatística sobre esta amostra.</strong> 21 casos, uma única classe com verdade
+  defensável, todos concentrados em dois agentes. Acurácia, precisão e concordância calculadas aqui
+  não teriam poder. O que a amostra sustenta é uma afirmação qualitativa e forte:
+  <em>o critério antigo errou sistematicamente numa direção, e o critério novo não erra porque não opina.</em></p>
+</section>
+
+<!-- 9 -->
+<section id="fp">
+  <div class="sec-head"><span class="sec-num">09</span><h2>Falsos positivos e falsos negativos</h2></div>
+
+  <p>Para autonomia, o erro caro é o falso positivo — <em>classificar como boa uma decisão ruim e promover
+  o agente</em>. A boa notícia é estrutural; a má notícia é que ela é acidental.</p>
+
+  <h3 class="lab">Falso positivo · risco atual</h3>
+  <p>Hoje é <strong>estruturalmente impossível</strong> pelo caminho do André. PROPOR_PROMOCAO exige
+  <code>amostra_julgavel ≥ 10</code> e ≥80% positivos. Em toda a história existem 5 julgamentos positivos,
+  todos de um agente só, todos fora de janela. Nenhum agente chega perto.</p>
+  <p>Mas isso vale enquanto a base estiver vazia. Três caminhos reabrem o risco no minuto em que
+  alguém começar a produzir julgamentos:</p>
+  <ol>
+    <li><strong>«Não dá para avaliar» conta como positivo.</strong> O ramo <code>Sem lead_id</code> escreve
+    <code>acerto=true</code> e escapa do filtro de exclusão. Basta rodar a função órfã para a Isabela.</li>
+    <li><strong>Aprovação humana conta como qualidade.</strong> «Proposta aprovada por Alessandro» vira
+    positivo julgável. Um dono que aprova por confiança gera evidência de competência que não foi medida.</li>
+    <li><strong>Execução impecável de estratégia errada.</strong> <code>execucao_ok</code> chega a 100% em
+    Julia e Diego. Se o piso de cobertura cair, esse número volta a ser a métrica.</li>
+  </ol>
+
+  <h3 class="lab">Falso negativo · risco comprovado</h3>
+  <p>Já aconteceu 18 vezes de forma documentável, com R$22.952 de verba do outro lado, e custou
+  três reversões manuais do dono. É o modo de falha nativo deste desenho: qualquer sinal derivado de
+  <em>resposta humana</em> penaliza o agente pelo silêncio de quem devia responder.</p>
+
+  <h3 class="lab">Os erros mais perigosos, em ordem</h3>
+  <div class="tw">
+  <table>
+    <thead><tr><th class="num">#</th><th>Erro</th><th>Estado</th><th>Consequência</th></tr></thead>
+    <tbody>
+      <tr class="hl"><td class="num">1</td><td>«Impossível avaliar» gravado como qualidade positiva</td><td><span class="chip c-block">Armado</span></td><td>promove agente sem nenhuma evidência</td></tr>
+      <tr class="hl"><td class="num">2</td><td>2 erros críticos → nível 0, antes de qualquer checagem de amostra</td><td><span class="chip c-block">Armado</span></td><td>desliga agente competente por 2 linhas</td></tr>
+      <tr><td class="num">3</td><td>Silêncio humano lido como decisão errada</td><td><span class="chip c-block">Comprovado</span></td><td>rebaixa agente correto — 3× no Gustavo</td></tr>
+      <tr><td class="num">4</td><td>André aparece na própria lista de avaliação</td><td><span class="chip c-orfao">Latente</span></td><td>autoavaliação sem barreira formal</td></tr>
+      <tr><td class="num">5</td><td>Aprovação do dono contada como acerto</td><td><span class="chip c-orfao">Latente</span></td><td>circularidade: confiança vira prova de competência</td></tr>
+    </tbody>
+  </table>
+  </div>
+</section>
+
+<!-- 10 -->
+<section id="eloquente">
+  <div class="sec-head"><span class="sec-num">10</span><h2>Risco do juiz eloquente</h2></div>
+
+  <div class="ask">«O avaliador pode dar nota alta para uma decisão bem escrita mesmo quando ela produziu resultado ruim.»</div>
+  <p class="ans"><b>Refutada na forma literal, confirmada na forma isomorfa.</b></p>
+
+  <p>Na forma literal a hipótese é falsa: <strong>não há LLM nenhum no caminho de julgamento</strong>.
+  Nem <code>fn_ricardo_fechar_acertos</code>, nem <code>fn_sinal_qualidade_decisoes</code>, nem
+  <code>fn_avaliar_autonomia_proposta</code> chamam modelo. Não existe prompt de avaliação em lugar nenhum
+  do banco. Uma decisão bem escrita não ganha ponto nenhum por ser bem escrita, porque ninguém lê o texto.</p>
+
+  <p>Mas o risco de fundo — <em>o juiz premia a forma em vez do mérito</em> — está presente e provado.
+  Só que a forma premiada não é retórica: é <strong>procedimental</strong>. O critério pergunta
+  «isso foi aprovado? isso converteu?», nunca «isso era a coisa certa a fazer?».</p>
+
+  <p>Os cinco pares pedidos, testados contra o critério atual:</p>
+
+  <div class="tw">
+  <table>
+    <thead><tr><th>Par</th><th>Caso real na base</th><th>O critério separa?</th></tr></thead>
+    <tbody>
+      <tr class="hl"><td>Decisão bem fundamentada que deu errado</td><td class="mn">Gustavo, pausa ROAS 0.01x / R$981 — expirou</td><td><span class="chip c-block">Não</span> lê como RUIM; era certa</td></tr>
+      <tr><td>Decisão simples que deu certo</td><td class="mn">nenhum caso julgado positivamente por desfecho</td><td><span class="chip c-none">Não observável</span></td></tr>
+      <tr class="hl"><td>Execução impecável de estratégia errada</td><td class="mn">Julia: 100% execucao_ok, 691 decisões, cobertura 0%</td><td><span class="chip c-block">Não</span> marcaria 100%</td></tr>
+      <tr><td>Resultado bom por acaso</td><td class="mn">Isabela: <code>Purchase</code> em 72h ⇒ acerto, sem teste de causa</td><td><span class="chip c-block">Não</span> credita coincidência</td></tr>
+      <tr class="hl"><td>Decisão correta com execução ruim</td><td class="mn">Diego: timeout em <code>fn_contexto_midia_ouro</code>, 4×</td><td><span class="chip c-block">Não</span> vira <code>falhou</code> ⇒ acerto=false</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <p><strong>Zero de cinco.</strong> O critério não separa nenhum dos casos que distinguem qualidade de
+  decisão de qualquer outra coisa. E o piso de cobertura de 30%, que hoje protege o sistema, protege
+  porque impede o juízo — não porque melhora o juízo.</p>
+</section>
+
+<!-- 11 -->
+<section id="escadas">
+  <div class="sec-head"><span class="sec-num">11</span><h2>Duas escadas e suas divergências</h2></div>
+
+  <p>A pergunta era qual das duas manda. A resposta encontrada no LIVE é que
+  <strong>uma delas não manda em nada</strong>.</p>
+
+  <div class="note crit">
+    <div class="t">Escada A é ornamental</div>
+    <p><code>org_autonomia_regras</code> tem 57 linhas com <code>ativo = true</code>, cobrindo 20 agentes
+    com regras de promoção, rebaixamento e bloqueio. Rastreei todas as dependências:
+    <strong>zero funções</strong> a leem. As únicas referências são três views de leitura —
+    <code>vw_org_andre_scorecard</code>, <code>vw_org_andre_avaliacoes</code> e <code>vw_mapa_sistema</code>.</p>
+    <p>Nenhuma decisão de autonomia jamais consultou essa tabela. Ela documenta uma política que nunca foi aplicada.</p>
+  </div>
+
+  <h3 class="lab">Divergências, item por item</h3>
+  <div class="tw">
+  <table>
+    <thead><tr><th>Dimensão</th><th>A · org_autonomia_regras</th><th>B · funções do André</th><th>Divergem?</th></tr></thead>
+    <tbody>
+      <tr><td>Janela</td><td class="mn">por agente: 1, 2, 7, 14, 30 ou 60 dias</td><td class="mn">7 dias, fixo</td><td><span class="chip c-block">Sim</span></td></tr>
+      <tr class="hl"><td>Decisões mínimas</td><td class="mn">por agente: de 1 a 200</td><td class="mn">50 (elegibilidade) / 20 (proposta)</td><td><span class="chip c-block">Sim</span></td></tr>
+      <tr><td>Qualidade mínima</td><td class="mn">por agente: 70% a 98%</td><td class="mn">80% promover · 70% rebaixar</td><td><span class="chip c-block">Sim</span></td></tr>
+      <tr><td>Semântica da taxa</td><td class="mn"><code>taxa_acerto_minima</code> — o campo contaminado</td><td class="mn">positivos ÷ julgáveis</td><td><span class="chip c-block">Sim</span></td></tr>
+      <tr class="hl"><td>Cobertura</td><td class="mn"><span class="chip c-none">não existe</span></td><td class="mn">30% obrigatório</td><td><span class="chip c-block">Sim</span></td></tr>
+      <tr><td>Metas</td><td class="mn"><code>metas_minimas_atingidas</code>: 2 a 6</td><td class="mn"><span class="chip c-none">não avalia metas</span></td><td><span class="chip c-block">Sim</span></td></tr>
+      <tr><td>Erros críticos</td><td class="mn"><code>exige_zero_erro_critico</code> por regra</td><td class="mn">&gt;0 barra promoção; ≥2 força nível 0</td><td>parcial</td></tr>
+      <tr><td>Tempo no nível</td><td class="mn"><span class="chip c-none">não existe</span></td><td class="mn">30 dias desde <code>autonomia_liberacoes</code></td><td><span class="chip c-block">Sim</span></td></tr>
+      <tr><td>Aprovação humana</td><td class="mn"><code>exige_aprovacao_dono</code> varia por regra</td><td class="mn">sempre, via Patrícia</td><td><span class="chip c-block">Sim</span></td></tr>
+      <tr class="hl"><td>Caminho de bloqueio</td><td class="mn">20 regras <code>tipo_regra='bloqueio'</code></td><td class="mn"><span class="chip c-none">não existe</span></td><td><span class="chip c-block">Sim</span></td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <div class="ask">«Hoje, se ambas fossem ligadas, elas poderiam discordar para o mesmo agente?»</div>
+  <p class="ans"><b>Sim, e discordariam já — casos LIVE:</b></p>
+
+  <div class="tw">
+  <table>
+    <thead><tr><th>Agente</th><th>Escada A diria</th><th>Escada B diz</th><th>Conflito</th></tr></thead>
+    <tbody>
+      <tr class="hl"><td>Diego <span class="mono">insights</span> 1→2</td><td class="mn">volume OK: 36 decisões em 30d ≥ 20</td><td class="mn"><code>volume_insuficiente</code>: 10 em 7d &lt; 50</td><td>A libera a porta, B tranca</td></tr>
+      <tr><td>Renata <span class="mono">memoria</span> 1→2</td><td class="mn">exige 28 decisões em 30d — tem 35</td><td class="mn"><code>volume_insuficiente</code>: 8 em 7d</td><td>A libera, B tranca</td></tr>
+      <tr><td>Camila <span class="mono">criativo</span> 1→2</td><td class="mn">exige 10 em 30d — tem 6</td><td class="mn"><code>volume_insuficiente</code>: 1 em 7d</td><td>concordam por acaso</td></tr>
+      <tr><td>Julia <span class="mono">exploracao</span></td><td class="mn">regra existe para nível 3; está no 4</td><td class="mn"><code>sem_registro_liberacao</code></td><td>A é obsoleta, B é cega</td></tr>
+      <tr><td>Marcos <span class="mono">fechamento</span></td><td class="mn">regra existe para nível 3; está no 2</td><td class="mn"><code>volume_insuficiente</code>: 8 em 7d</td><td>A não se aplica</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <p>Além de divergir, a escada A está <strong>defasada</strong>: as regras foram escritas em 24–25/05 com
+  os níveis daquela data. Julia subiu para 4 e Marcos desceu para 2 — as regras keyed em nível 3 para os
+  dois simplesmente não se aplicam mais a ninguém.</p>
+</section>
+
+<!-- 12 -->
+<section id="opcoes">
+  <div class="sec-head"><span class="sec-num">12</span><h2>Qual escada manda — as opções</h2></div>
+
+  <p>Não escolho a política. Apresento as três com o que a evidência sustenta de cada lado.</p>
+
+  <div class="opts">
+    <div class="opt">
+      <h4>Opção A</h4>
+      <div class="sub">Regra específica é canônica</div>
+      <dl>
+        <dt>Vantagens</dt><dd>Risco por agente é diferente e A reconhece isso. Tem caminho de bloqueio, que B não tem. Tem noção de metas.</dd>
+        <dt>Riscos</dt><dd>A usa <code>taxa_acerto_minima</code> — o campo que a auditoria provou constante. Não tem piso de cobertura: ligá-la reabre exatamente o defeito de 2026.</dd>
+        <dt>Inconsistências</dt><dd>57 regras nunca executadas, escritas contra níveis de maio. Julia e Marcos já não batem.</dd>
+        <dt>Impacto real</dt><dd>Diego e Renata passariam no volume sem nenhuma evidência de qualidade.</dd>
+      </dl>
+    </div>
+    <div class="opt">
+      <h4>Opção B</h4>
+      <div class="sub">Limites gerais do André são canônicos</div>
+      <dl>
+        <dt>Vantagens</dt><dd>É o único caminho que roda. Tem piso de cobertura e recusa explicitamente <code>execucao_ok</code>. Já bloqueia os 8 rebaixamentos históricos.</dd>
+        <dt>Riscos</dt><dd>Um único limiar para 23 agentes com raios de dano de R$0 a R$2.000/dia. Não tem caminho de bloqueio nem de meta.</dd>
+        <dt>Inconsistências</dt><dd>Exige 50 decisões em 7d, o que exclui permanentemente todo agente de baixo volume — inclusive os mais seguros.</dd>
+        <dt>Impacto real</dt><dd>0 elegíveis em 23. Também exclui 13 agentes por <code>sem_registro_liberacao</code>.</dd>
+      </dl>
+    </div>
+    <div class="opt pick">
+      <h4>Opção C</h4>
+      <div class="sub">Uma política, outra guardrail</div>
+      <dl>
+        <dt>Vantagens</dt><dd>B vira piso inegociável que só sabe <em>barrar</em>; A vira política por agente que só pode ser <em>mais restritiva</em>. Nenhuma sozinha promove.</dd>
+        <dt>Riscos</dt><dd>Dois lugares para manter. Se A não for rebaseada, continua obsoleta e engana quem a lê.</dd>
+        <dt>Inconsistências</dt><dd>Exige antes redefinir <code>taxa_acerto_minima</code> de A sobre qualidade, não sobre <code>acerto</code>.</dd>
+        <dt>Impacto real</dt><dd>Hoje: ninguém promovido, ninguém rebaixado — mesmo estado, com a razão registrada.</dd>
+      </dl>
+    </div>
+  </div>
+
+  <p><strong>A evidência favorece C, com uma ressalva.</strong> O motivo não é elegância: é que A e B
+  falham de formas complementares e comprovadas. A tem a granularidade de risco que B não tem, e nunca
+  rodou. B tem o piso de cobertura que impediu os 8 rebaixamentos errados, e é cega ao raio de dano.
+  A ressalva: C só faz sentido depois que existir um sinal de qualidade — enquanto a cobertura for 0%,
+  as três opções produzem o mesmo resultado, que é nada.</p>
+</section>
+
+<!-- 13 -->
+<section id="diego">
+  <div class="sec-head"><span class="sec-num">13</span><h2>Diego como candidato</h2></div>
+
+  <div class="stats">
+    <div class="stat"><div class="v">36</div><div class="k">decisões em 30d</div></div>
+    <div class="stat"><div class="v">10</div><div class="k">decisões em 7d</div></div>
+    <div class="stat bad"><div class="v">0</div><div class="k">decisões julgadas, sempre</div></div>
+    <div class="stat bad"><div class="v">4</div><div class="k">falhas de execução em 11–14/08</div></div>
+    <div class="stat"><div class="v">R$0</div><div class="k">limite financeiro no nível 2</div></div>
+    <div class="stat"><div class="v">113</div><div class="k">dias no nível 1</div></div>
+  </div>
+
+  <p><strong>Volume real e evolução.</strong> Estável em ~8 decisões/semana desde 25/05, com picos de 13–14.
+  Todas <code>analise_shadow</code> ou <code>analisar_performance</code>, sempre <code>resultado='executada'</code>,
+  sempre <code>acerto=true</code> por trigger. Zero feedback em 100% delas.</p>
+
+  <p><strong>Falhas recentes.</strong> Quatro consecutivas, 11 a 14/08. Três por
+  <code>statement timeout</code> em <code>fn_contexto_midia_ouro</code>, uma por dependência de shadow run
+  inexistente. Recuperou em 15/08 e está limpo desde então. São falhas de <em>infraestrutura de leitura</em>,
+  não de decisão — mas o log as grava como <code>acerto=false</code>, que é o mesmo campo usado para julgar
+  qualidade. É o par «decisão correta com execução ruim» acontecendo ao vivo.</p>
+
+  <p><strong>Descarte de trabalho.</strong> Nas 4 falhas, <code>decisao = {}</code> — o trabalho do ciclo
+  foi perdido inteiro, sem retomada.</p>
+
+  <p><strong>Capacidades no próximo nível.</strong> De <em>Proposta</em> para <em>Executor Limitado</em>:
+  ganha <code>criar_alerta_automatico</code>. Só isso. Continua precisando de aprovação para
+  <code>alterar_dashboard</code> e passa a precisar para <code>remover_indicador</code>.
+  Limite financeiro permanece <strong>R$0</strong>.</p>
+
+  <p><strong>Raio de dano e reversibilidade.</strong> O pior caso é alertas automáticos ruidosos.
+  Nada externo, nada financeiro, nada irreversível — desligar o alerta desfaz. É o menor raio de dano
+  entre todos os agentes que ainda podem subir de nível.</p>
+
+  <div class="ask">«Diego é realmente o candidato mais seguro para o primeiro ciclo ou existe agente melhor?»</div>
+  <p class="ans"><b>É o mais seguro, e mesmo assim é o candidato errado para o primeiro ciclo.</b>
+  Um ciclo com o Diego não prova nada: cobertura 0%, 10 decisões em 7d, e André daria INCONCLUSIVO
+  no primeiro passo. Ele reprova nas duas escadas hoje — em A por qualidade não computável,
+  em B por volume. Testar o juiz num réu sem provas não testa o juiz.</p>
+
+  <h3 class="lab">Ranking dos 3 melhores candidatos</h3>
+  <div class="tw">
+  <table>
+    <thead><tr><th class="num">#</th><th>Agente</th><th class="num">Dec/30d</th><th>Salto</th><th>Ganha</th><th>Raio de dano</th><th>Bloqueio hoje</th></tr></thead>
+    <tbody>
+      <tr class="hl"><td class="num">1</td><td>Diego <span class="mono">insights</span></td><td class="num">36</td><td class="num">1→2</td><td class="mn">criar_alerta_automatico</td><td><span class="chip c-ativo">Mínimo</span> R$0, reversível</td><td class="mn">volume + cobertura</td></tr>
+      <tr><td class="num">2</td><td>Renata <span class="mono">memoria</span></td><td class="num">35</td><td class="num">1→2</td><td class="mn">consolidação interna</td><td><span class="chip c-ativo">Mínimo</span> sem efeito externo</td><td class="mn">volume + cobertura</td></tr>
+      <tr><td class="num">3</td><td>Rafael <span class="mono">pipeline</span></td><td class="num">1.003</td><td class="num">2→3</td><td class="mn">ações de CRM</td><td><span class="chip c-orfao">Médio</span> escreve no CRM</td><td class="mn">sem registro de trilha</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <p>Rafael entra em terceiro por um motivo diferente dos outros dois: é o único candidato com
+  <strong>volume suficiente para produzir amostra</strong> (1.003 decisões em 30d). Se o objetivo do
+  primeiro ciclo for testar o juiz em vez de promover alguém, o volume importa mais que o raio de dano.
+  Descartei Felipe (8.747 decisões) e Larissa (4.407) apesar do volume: ambos escrevem para fora —
+  direct e comentário público — e o raio de dano de um erro é imediato e visível ao cliente.</p>
+</section>
+
+<!-- 14 -->
+<section id="criterio">
+  <div class="sec-head"><span class="sec-num">14</span><h2>Critério para o André voltar a julgar</h2></div>
+
+  <p>Um teste falsificável, com limiares derivados da amostra que existe — não números escolhidos.
+  A pré-condição não é sobre o André.</p>
+
+  <div class="note crit">
+    <div class="t">Pré-condição · sem isto o teste não é aplicável</div>
+    <p>Precisa existir um corpus com <strong>as duas polaridades</strong>. Hoje a classe BOM tem população
+    zero, o que torna impossível distinguir um juiz calibrado de um que diz RUIM para tudo.
+    Mínimo derivado: <strong>≥30 decisões com juízo semântico</strong> para o agente-alvo, das quais
+    <strong>≥8 BOM e ≥8 RUIM</strong>. O piso de 8 vem do binomial: acertar 7 de 8 numa classe tem
+    p ≈ 0,035 contra cara-ou-coroa. Abaixo disso o resultado não é distinguível de sorte.</p>
+  </div>
+
+  <p>Cumprida a pré-condição, André só volta a emitir recomendação confiável se, num teste cego contra
+  esse corpus, cumprir <strong>todas</strong>:</p>
+
+  <div class="tw">
+  <table>
+    <thead><tr><th class="num">#</th><th>Critério</th><th>Limiar</th><th>De onde vem</th><th>Hoje</th></tr></thead>
+    <tbody>
+      <tr class="hl"><td class="num">1</td><td>Zero falso positivo com dinheiro em jogo</td><td class="mn">0 casos com <code>impacto_financeiro &gt; 0</code> classificados BOM sendo RUIM</td><td class="mn">é o erro que promove agente ruim; não admite tolerância</td><td><span class="chip c-none">Não testável</span></td></tr>
+      <tr><td class="num">2</td><td>Concordância na classe RUIM</td><td class="num">≥ 85%</td><td class="mn">7 de 8 é o menor resultado significativo; 85% é o piso acima disso</td><td><span class="chip c-none">Não testável</span></td></tr>
+      <tr><td class="num">3</td><td>Concordância na classe BOM</td><td class="num">≥ 70%</td><td class="mn">mais frouxo de propósito: errar para o lado conservador não promove ninguém</td><td><span class="chip c-none">Não testável</span></td></tr>
+      <tr class="hl"><td class="num">4</td><td>Não repetir o caso Gustavo</td><td class="mn">0 das 18 pausas de ROAS&lt;0.5 classificadas como RUIM</td><td class="mn">é o falso negativo já comprovado, com R$22.952 de contexto</td><td><span class="chip c-none">Não testável</span></td></tr>
+      <tr><td class="num">5</td><td>Sabe dizer INCONCLUSIVO</td><td class="mn">100% quando cobertura &lt; 30%</td><td class="mn">invariantes I1 e I2 do contrato</td><td><span class="chip c-ativo">Passa 23/23</span></td></tr>
+      <tr><td class="num">6</td><td>Separa execução de qualidade</td><td class="mn">correlação com <code>execucao_ok</code> não explica o veredito</td><td class="mn">Julia e Diego têm 100% de execucao_ok e qualidade desconhecida</td><td><span class="chip c-orfao">Parcial</span></td></tr>
+      <tr><td class="num">7</td><td>Não usa atribuição contaminada</td><td class="mn"><code>atribuicao_tipo</code> e <code>regra_atribuicao</code> nulos</td><td class="mn">9.044 linhas contaminadas na base</td><td><span class="chip c-ativo">Passa</span></td></tr>
+      <tr class="hl"><td class="num">8</td><td>Não avalia a si mesmo</td><td class="mn"><code>agente-autonomia</code> fora da própria saída</td><td class="mn">hoje ele aparece na lista</td><td><span class="chip c-block">Falha</span></td></tr>
+      <tr><td class="num">9</td><td>Explica a evidência usada</td><td class="mn">motivo cita amostra, cobertura e contagem</td><td class="mn">já implementado no <code>format()</code></td><td><span class="chip c-ativo">Passa</span></td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <p>Placar atual: <strong>3 passa, 1 parcial, 1 falha, 4 não testáveis</strong>. Os quatro não testáveis
+  são justamente os que decidem se ele sabe julgar. Enquanto forem não testáveis, religar o cron 48
+  não muda o estado do sistema — só o disfarça.</p>
+</section>
+
+<!-- 15 -->
+<section id="loop">
+  <div class="sec-head"><span class="sec-num">15</span><h2>Simulação do loop completo</h2></div>
+
+  <p>Simulado com Diego (<code>agente-insights</code>), nível 1, alvo 2. Nenhuma escrita.
+  O circuito percorrido elo a elo, com o valor real de cada um:</p>
+
+  <div class="tw">
+  <table>
+    <thead><tr><th class="num">Elo</th><th>Etapa</th><th>Resultado real</th><th>Passa?</th></tr></thead>
+    <tbody>
+      <tr><td class="num">1</td><td>Decisão</td><td class="mn">10 decisões em 7d, todas <code>analise_shadow</code></td><td><span class="chip c-ativo">Sim</span></td></tr>
+      <tr><td class="num">2</td><td>Resultado observado</td><td class="mn"><code>resultado='executada'</code> → trigger grava <code>acerto=true</code></td><td><span class="chip c-orfao">Eco, não observação</span></td></tr>
+      <tr class="hl"><td class="num">3</td><td>Julgamento</td><td class="mn"><code>fn_ricardo_fechar_acertos</code> não tem ramo para <code>agente-insights</code></td><td><span class="chip c-none">Não existe</span></td></tr>
+      <tr><td class="num">4</td><td>Métrica</td><td class="mn">amostra 10, julgável 0, cobertura 0%</td><td><span class="chip c-ativo">Calcula</span></td></tr>
+      <tr><td class="num">5</td><td>Recomendação André</td><td class="mn">INCONCLUSIVO · «amostra bruta 10 &lt; mínimo 20»</td><td><span class="chip c-block">Para aqui</span></td></tr>
+      <tr><td class="num">6</td><td>Política</td><td class="mn">A não é consultada; B devolve <code>volume_insuficiente</code></td><td><span class="chip c-block">Barra</span></td></tr>
+      <tr><td class="num">7</td><td>Patrícia / gate</td><td class="mn">nenhuma aprovação criada — <code>nivel_proposto=NULL</code></td><td><span class="chip c-off">Não acionado</span></td></tr>
+      <tr><td class="num">8</td><td>Mudança de nível</td><td class="mn"><code>aplicarNivel()</code> retorna <code>bloqueado_por_contencao</code></td><td><span class="chip c-off">Travado</span></td></tr>
+      <tr><td class="num">9</td><td>Nova observação</td><td class="mn">nada mudou; próximo ciclo é idêntico</td><td><span class="chip c-block">Não fecha</span></td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <p><strong>O circuito não fecha, e o elo faltante não é a contenção.</strong> Mesmo removendo as quatro
+  travas, ele pararia no elo 3: não existe quem produza julgamento para o Diego.</p>
+
+  <div class="note crit">
+    <div class="t">Segunda quebra, independente da primeira</div>
+    <p>Mesmo que André recomendasse e Patrícia aprovasse, o loop ainda não fecharia.
+    <code>vw_integridade_ciclo_autonomia</code> reporta <strong>4 aprovações com status <code>aprovado</code>
+    sem registro correspondente em <code>autonomia_liberacoes</code></strong> e
+    <strong>3 com decisão humana sem data registrada</strong>.</p>
+    <p>A consequência é permanente: <strong>13 dos 23 agentes ativos não têm registro de trilha do próprio
+    nível atual</strong> — Julia no 4, Bruno no 2, Rafael no 2, Felipe, Larissa, João, Isabela, Vera, Dora,
+    Tiago, Patrícia, André e GO. Para todos eles <code>fn_agente_elegivel_promocao</code> devolve
+    <code>sem_registro_liberacao</code> e devolverá para sempre, porque o gate aprova sem escrever na trilha.</p>
+  </div>
+
+  <p>São duas quebras em série: <strong>o juiz não tem prova</strong> (elo 3) e
+  <strong>o gate não deixa rastro</strong> (elo 7→8). Consertar uma sem a outra não fecha o circuito.</p>
+</section>
+
+<!-- 16 -->
+<section id="necessario">
+  <div class="sec-head"><span class="sec-num">16</span><h2>André é necessário ou redundante?</h2></div>
+
+  <div class="ask">«Precisamos mesmo do André como agente separado?»</div>
+
+  <h3 class="lab">Tentativa de refutação — funções + avaliador + Patrícia bastam</h3>
+  <p>A tese se sustenta bem. Todo o juízo já mora no SQL:</p>
+  <ul>
+    <li><code>fn_sinal_qualidade_decisoes</code> separa juízo de eco;</li>
+    <li><code>fn_avaliar_autonomia_proposta</code> produz a recomendação inteira, e é <span class="mono">STABLE</span>
+    — o Postgres garante que ela não pode escrever, garantia que a edge não tem;</li>
+    <li><code>fn_agente_elegivel_promocao</code> aplica elegibilidade;</li>
+    <li>Patrícia faz o gate;</li>
+    <li>Ricardo produz o veredito.</li>
+  </ul>
+  <p>Retire a edge e nenhuma capacidade de julgamento se perde. Pior: a auditoria de 19/08 mostrou que
+  a edge era o <em>ponto fraco</em> — a contenção SQL de 19/07 não segurou o rebaixamento de 20/07
+  justamente porque a edge tinha um caminho de escrita paralelo que a função contida não alcançava.
+  O agente separado foi o que furou a contenção.</p>
+
+  <h3 class="lab">Tentativa contrária — André adiciona capacidade real</h3>
+  <p>Também tem lastro, mas fora do julgamento:</p>
+  <ul>
+    <li>entrega por WhatsApp e o relatório diário (cron 49, funcionando);</li>
+    <li>respeita <code>agente_estado_operacional</code> — registra quando está pausado em vez de fingir que avaliou;</li>
+    <li>é o ponto único onde a trava de execução vive e pode ser auditada;</li>
+    <li>a camada de autenticação, que a função SQL não tem.</li>
+  </ul>
+
+  <div class="slab">
+    <div class="tag">Escolha pelo sistema, não pela narrativa</div>
+    <p><strong>Como juiz, André é redundante hoje.</strong> O julgamento inteiro é SQL; a edge é transporte,
+    relatório e trava.</p>
+    <p>Mas «redundante» não é «removível». A trava de execução e o respeito ao estado operacional moram nela,
+    e removê-la agora reabriria o caminho de escrita paralelo que causou o problema. A capacidade que
+    falta ao sistema — <strong>um avaliador semântico</strong> — não é o André e não seria criada
+    reativando o André.</p>
+  </div>
+</section>
+
+<!-- 17 -->
+<section id="existe">
+  <div class="sec-head"><span class="sec-num">17</span><h2>O que já existe e está desligado</h2></div>
+
+  <div class="tw">
+  <table>
+    <thead><tr><th>Item</th><th>Estado</th><th>Por quê</th><th>Ligar resolve?</th></tr></thead>
+    <tbody>
+      <tr><td class="mn">cron 48 · agente-autonomia-avaliar</td><td><span class="chip c-off">Desligado</span></td><td class="mn">decisão do Alessandro, 02/08, registrada em <code>agente_estado_operacional</code></td><td>Não — geraria 23 INCONCLUSIVO</td></tr>
+      <tr><td class="mn">EXECUCAO_AUTONOMIA_HABILITADA</td><td><span class="chip c-block">false</span></td><td class="mn">contenção da v34 após auditoria de 19/08</td><td>Não — não há recomendação para executar</td></tr>
+      <tr><td class="mn">v_execucao_habilitada (SQL)</td><td><span class="chip c-block">FALSE</span></td><td class="mn">migration de 19/07, função virou adaptador</td><td>Não</td></tr>
+      <tr class="hl"><td class="mn">fn_ricardo_fechar_acertos</td><td><span class="chip c-orfao">Órfã</span></td><td class="mn">nunca teve cron; foi sempre chamada à mão</td><td>Não — e ligar como está piora: gera falso positivo</td></tr>
+      <tr class="hl"><td class="mn">org_autonomia_regras · 57 regras</td><td><span class="chip c-orfao">Órfã</span></td><td class="mn">nenhuma função lê; só 3 views</td><td>Não — usa a métrica contaminada e está defasada</td></tr>
+      <tr><td class="mn">org_autonomia_avaliacoes</td><td><span class="chip c-none">Vazia</span></td><td class="mn">tabela criada, nunca populada</td><td>Não há nada para ligar</td></tr>
+      <tr><td class="mn">avaliacao_agente</td><td><span class="chip c-none">Vazia</span></td><td class="mn">idem</td><td>Não há nada para ligar</td></tr>
+      <tr><td class="mn">fn_teste_contrato_autonomia</td><td><span class="chip c-ativo">Funciona</span></td><td class="mn">9 casos; 7 PASS, 2 FAIL</td><td>Já ligado — ver nota</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <div class="note">
+    <div class="t">Os 2 FAIL do contrato são notícia boa</div>
+    <p><code>H1</code> e <code>H2</code> falham porque encontraram <strong>3 linhas com juízo semântico</strong>
+    entre as <code>executada</code> — as avaliações do Ricardo de 19/08. Os casos foram escritos quando
+    esse número era zero e afirmam «100% true, campo constante». Hoje são 85.413 de 85.416.</p>
+    <p>Ou seja: os testes acusam a chegada da primeira evidência real de qualidade da história do sistema.
+    O invariante que eles protegiam continua verdadeiro na prática — 3 linhas em 85 mil não mudam nada.</p>
+  </div>
+</section>
+
+<!-- 18 -->
+<section id="falta">
+  <div class="sec-head"><span class="sec-num">18</span><h2>O que realmente falta</h2></div>
+
+  <p>Em ordem de dependência. Cada item só faz sentido depois do anterior.</p>
+
+  <div class="tw">
+  <table>
+    <thead><tr><th class="num">#</th><th>Falta</th><th>Sem isso</th></tr></thead>
+    <tbody>
+      <tr class="hl"><td class="num">1</td><td><strong>Um avaliador semântico</strong> que produza as duas polaridades, veja a intenção original e o desfecho posterior, e seja independente de quem julga</td><td>cobertura fica 0%, André abstém para sempre, nenhuma escada funciona</td></tr>
+      <tr class="hl"><td class="num">2</td><td><strong>Um corpus rotulado</strong> com desfecho conhecido, ≥8 casos por classe</td><td>não há como testar se o juiz julga ou chuta</td></tr>
+      <tr><td class="num">3</td><td><strong>Escrita na trilha quando o gate aprova</strong></td><td>13 agentes ficam permanentemente inelegíveis por <code>sem_registro_liberacao</code></td></tr>
+      <tr><td class="num">4</td><td><strong>Exclusão do André da própria avaliação</strong></td><td>autoavaliação sem barreira formal</td></tr>
+      <tr><td class="num">5</td><td><strong>Fechar o ramo «impossível avaliar» = positivo</strong></td><td>falso positivo armado no minuto em que a função órfã rodar</td></tr>
+      <tr><td class="num">6</td><td><strong>Mover a checagem de erro crítico para depois da checagem de amostra</strong></td><td>2 linhas derrubam qualquer agente para nível 0</td></tr>
+      <tr><td class="num">7</td><td><strong>Decidir a escada</strong> (opções A/B/C)</td><td>uma política documentada que nunca foi aplicada continua enganando quem a lê</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <p>Nada nesta lista é «religar o cron». O cron é o item que só importa depois dos seis primeiros.</p>
+</section>
+
+<!-- next -->
+<section id="proximo">
+  <div class="sec-head"><span class="sec-num">→</span><h2>Próximo passo único</h2></div>
+
+  <div class="slab">
+    <div class="tag">Um passo, read-only, falsificável</div>
+    <p>Rotular semanticamente 40 decisões do Gustavo cujo desfecho já é conhecido — fora do banco — e
+    medir o critério atual contra esses rótulos.</p>
+    <p>Composição: as <strong>18 pausas com ROAS &lt; 0,5 e gasto &gt; R$300</strong> (classe BOM, verdade
+    ancorada em R$22.952 de verba), mais <strong>22 sorteadas</strong> entre as 49 propostas com ROAS ≥ 1,0
+    e as 5 aprovadas (classes RUIM e INCONCLUSIVO). É o único agente do sistema com evidência de desfecho
+    suficiente para formar as duas classes.</p>
+    <p>O resultado é binário e não admite narrativa: ou o critério recupera as 18 pausas como boas,
+    ou está provado que ele não sabe separar decisão correta de decisão respondida — e aí a frente
+    seguinte é construir o avaliador, não religar o André.</p>
+  </div>
+
+  <p>Não fiz nenhuma alteração no LIVE. Banco, edge, funções, crons, políticas, níveis de autonomia,
+  agentes e prompts estão exatamente como estavam. As 22 consultas foram todas <code>SELECT</code>.</p>
+</section>
+
+<footer>
+  Auditoria read-only · Cérebro LIVE <span class="mono">ldrdtaibazplvrbwyrvx</span> · 25/08/2026<br>
+  Fontes: edge <span class="mono">agente-autonomia</span> v58 · <span class="mono">pg_proc</span> ·
+  <span class="mono">cron.job</span> · <span class="mono">agente_decisoes_log</span> (97.630) ·
+  <span class="mono">autonomia_liberacoes</span> (36) · <span class="mono">org_autonomia_regras</span> (57) ·
+  <span class="mono">agente_aprovacoes</span> · <span class="mono">vw_integridade_ciclo_autonomia</span> ·
+  <span class="mono">fn_teste_contrato_autonomia</span>
+</footer>
+
+</div>
