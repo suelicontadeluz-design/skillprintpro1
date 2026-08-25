@@ -1,0 +1,311 @@
+--- baseline_v174.ts	2026-08-25 05:54:47.022012133 +0000
++++ candidato.ts	2026-08-25 06:04:39.251995337 +0000
+@@ -198,13 +198,26 @@
+ // transporte suprime a resposta velha SEM carimbar nada, deixando o joao-sweep-2min
+ // recolher o lote inteiro. Zero alteracao em preco, Pix, frete, catalogo, TTS ou prompt.
+ // Rollback: redeploy do v4.30.0 (Edge 172, index.ts sha256 6c3c90bf...b024764).
+-const V = 'agente-noturno-v4.32.0';
++//
++// v4.33.0 (25/08/2026) P0 — IDENTIFICADOR FINANCEIRO INTERNO VAZANDO COMO PIX.
++// Rollback: redeploy do v4.32.0 (Edge 174, index.ts sha256 ff71708ee81856cd36d7e2793391
++// b678b6e52dbc6ff609b8a576558c61c47db4). Nao ha migracao nem estado novo: reverter a Edge
++// restaura o comportamento anterior por completo.
++const V = 'agente-noturno-v4.33.0';
+ const MODEL = 'claude-haiku-4-5-20251001';
+ const ASSINATURA = '*Jo\u00e3o Barros:*\n';
+ const ASSINATURA_JULIA = '*Julia Bitencourt:*\n';
+ const SITE_LOJA = 'https://skillprintestamparia.com.br';
+ const INSTA = 'instagram.com/skillprintestamparia';
+-const PIX_CHAVE = '30248650000111';
++// v4.33.0 P0: CHAVE PIX MANUAL DESATIVADA POR FALTA DE PROVENIENCIA.
++// O proprietario informou que este CNPJ NAO e a chave Pix operacional (a correta e uma
++// chave aleatoria). Procurada fonte canonica em sistema_config, atendimento_config,
++// julia_config, skillprint_base_conhecimento e vault.secrets: NAO EXISTE nenhuma.
++// Sem prova, nao se inventa chave e nao se reaproveita UUID interno: o fallback manual
++// sai de circulacao e a falha de cobranca passa a ser FECHADA. A constante permanece
++// apenas para RECONHECER e BLOQUEAR o numero, nunca mais para emiti-lo.
++const PIX_CHAVE_DESATIVADA = '30248650000111';
++const PIX_CHAVE = PIX_CHAVE_DESATIVADA;
+ const PIX_DESCRICAO = 'chave CNPJ: 30248650000111 (Bradesco, Alessandro Luciano Alves)';
+ const BANCO_DADOS = 'Bradesco, Ag\u00eancia 2405, Conta 61795-4, em nome de Alessandro Luciano Alves';
+ const DEBOUNCE_MS = 8000;
+@@ -786,7 +799,7 @@
+   catch (e: any) { L('shadow_slots_obs_falhou', { erro: String(e?.message ?? e).slice(0, 120) }); }
+ }
+ 
+-async function executarTool(name: string, input: any, ctx: { leadId: string | null; autorizacoes: any[]; cobrancaPendente: any | null; permiteMudanca: boolean; freteJa: any | null; arteParaCalculo?: { largura_cm: number; altura_cm: number; copias: number } | null; phone?: string; pixGerado?: any }): Promise<string> {
++async function executarTool(name: string, input: any, ctx: { leadId: string | null; autorizacoes: any[]; cobrancaPendente: any | null; permiteMudanca: boolean; freteJa: any | null; arteParaCalculo?: { largura_cm: number; altura_cm: number; copias: number } | null; phone?: string; pixGerado?: any; holdArte?: boolean }): Promise<string> {
+   try {
+     if (name === 'consultar_catalogo') {
+       const termo = String(input?.termo || '').toLowerCase().trim();
+@@ -1068,6 +1081,11 @@
+     if (name === 'gerar_pix') {
+       const operationId = String(input?.operation_id || '').trim();
+       if (!operationId) return JSON.stringify({ ok: false, erro: 'operation_id_ausente', acao: 'Chame a ferramenta de calculo e use o operation_id que ela devolver.' });
++      // v4.33.0 P0: o cliente condicionou o pagamento a aprovar a arte NESTE turno.
++      if (ctx.holdArte === true) {
++        await logErro('gerar_pix_suspenso_hold_arte', { lead: ctx.leadId });
++        return JSON.stringify({ ok: false, erro: 'aguardando_aprovacao_da_arte', acao: 'O cliente disse que so finaliza o pagamento depois de ver a arte. NAO gere cobranca agora e NAO escreva Pix, chave, codigo nem link. Confirme que a arte vem primeiro para aprovacao e que a cobranca sai logo apos o aceite dele.' });
++      }
+       // v4.21.1: id INVENTADO tem tratamento proprio. Antes caia no erro generico
+       // 'autorizacao_invalida' com a instrucao "recalcule", que nao ajuda: ele recalculava,
+       // recebia um id novo, e inventava outro. 10 de 10 falhas em 14 dias eram isto.
+@@ -1084,7 +1102,9 @@
+         const vAtual = Math.round(Number(ctx.cobrancaPendente.valor) * 100) / 100;
+         return JSON.stringify({ ok: false, erro: 'ja_existe', display_data: { valor_ja_enviado: vAtual.toFixed(2) }, acao: `JA EXISTE cobranca de R$${vAtual.toFixed(2).replace('.', ',')}. NAO gere outra.` });
+       }
+-      if (!ctx.leadId) return JSON.stringify({ ok: false, erro: 'lead_nao_identificado', acao: 'Feche pelo fluxo manual: chave Pix ' + PIX_CHAVE + '.' });
++      // v4.33.0 P0: era aqui que a chave manual entrava na conversa. Sem lead nao existe
++      // cobranca possivel e NAO existe chave manual provada: falha FECHADA.
++      if (!ctx.leadId) return JSON.stringify({ ok: false, erro: 'lead_nao_identificado', acao: 'Nao ha cadastro para emitir a cobranca. NAO envie chave, codigo nem link. Peca o dado que falta para identificar o pedido.' });
+ 
+       let operacaoConsumida = false;
+       try {
+@@ -1204,8 +1224,8 @@
+ 4. gerar_pix com o operation_id que a ferramenta de calculo devolveu em financial_authorizations. Voce NUNCA informa valor ao gerar_pix. Se o total for produto + frete, chame compor_total antes e use o operation_id do total. Se devolver ja_existe: N\u00c3O gere outro.
+    - PIX: fechamento + c\u00f3digo NO FINAL, sozinho na linha. Confirma AUTOMATICAMENTE.
+    - CART\u00c3O: mande o link at\u00e9 3x.
+-5. Erro -> Pix manual na ${PIX_DESCRICAO} + comprovante.
+-N\u00c3O EXISTE: pagamento na entrega, boleto, desconto fora da tabela. Chave manual SOMENTE ${PIX_CHAVE}.
++5. Erro -> NAO improvise cobranca. Diga que esta finalizando o pedido no sistema e conclua o dado que falta.
++N\u00c3O EXISTE: pagamento na entrega, boleto, desconto fora da tabela. N\u00c3O EXISTE chave Pix manual, chave avulsa nem link de pagamento fora do Mercado Pago: TODA cobran\u00e7a sai de gerar_pix. NUNCA escreva um identificador, c\u00f3digo ou UUID de sistema para o cliente.
+ 
+ FICHA T\u00c9CNICA SAGRADA:
+ - COPO T\u00c9RMICO inox 473ml que N\u00d3S vendemos: LISO ou PERSONALIZADO, use calcular_copo. Personalizado R$35,90 abaixo de 10 e R$29,90 a partir de 10.
+@@ -1614,7 +1634,126 @@
+     // recebeu o cardapio (01/08 20:05). Agora nome precedido de palavra de LUGAR nao conta.
+     !/(?<!\b(?:s[\u00e3a]o|santo|santa|jardim|jd\.?|vila|vl\.?|rua|r\.|av|avenida|bairro|parque|pq\.?|residencial|conjunto|estrada|travessa|alameda|pra[\u00e7c]a)\s)\b(Tamires|Alessandro|Julia|Marcos|Bruno)\b/i.test(m))
+   && !(ehPerguntaDireta && /logo cedo a equipe te responde/i.test(m));
+-const validarPix = (m: string) => { const semQr = m.replace(/000201[\w\W]{50,}/, ''); const chaves = semQr.match(/\b\d{14}\b/g) || []; return chaves.every(c => c === PIX_CHAVE); };
++// v4.33.0 P0: antes esta guarda LIBERAVA o CNPJ 30248650000111 como chave valida. Ele nao
++// e a chave operacional, entao nenhuma chave de 14 digitos pode mais atravessar.
++const validarPix = (m: string) => { const semQr = m.replace(/000201[\w\W]{50,}/, ''); const chaves = semQr.match(/\b\d{14}\b/g) || []; return chaves.length === 0; };
++
++
++// ── v4.33.0 P0: EGRESSO DE IDENTIFICADOR FINANCEIRO INTERNO ─────────────────────────
++// DEFEITO PROVADO. 25/08/2026 02:19:01 UTC, lead b77c4808-a3e0-4240-90af-967c845190bc:
++// Joao enviou "Perfeito! Segue o Pix:" e, na linha seguinte, o UUID
++// 02d22212-8e17-4dfb-9fa4-1c184b7ac1b9 — que e operacoes_financeiras.id, kind=produto,
++// amount=101.18, status=ativa, emitido 6 segundos antes por calcular_rendimento_uv.
++// Nao e payment_id e nao existia cobranca mp_pix_cobrancas desse lead. O cliente recebeu
++// um identificador INTERNO como se fosse Pix.
++//
++// INCIDENCIA MEDIDA em fact_conversations outbound (deduplicando o eco joao/zapi, que
++// duplica 2x cada mensagem): 8 linhas brutas => 4 vazamentos distintos, 4 telefones:
++//   04/08 01:00 tel 0059 — pedido_total R$64,52, id dentro de code block markdown ```
++//   08/08 20:20 tel 1308 — pedido_total R$41,83, id dentro de https://pay.smartpag.com.br/<id>
++//   23/08 22:15 tel 9530 — produto R$233,61, id solto apos "Cartao certo?"
++//   25/08 02:19 tel 5163 — produto R$101,18, id apos "Segue o Pix:"
++// Os quatro formatos da REGRA (solto, apos frase de Pix, em markdown, dentro de URL)
++// aconteceram de verdade. Nao e caso isolado e a frequencia subiu em agosto.
++//
++// CAUSA ESTRUTURAL. lerExecucoes injeta AUTORIZACOES ATIVAS com operation_id no contexto e
++// financial_authorizations devolve operation_id — as duas coisas sao NECESSARIAS para o
++// modelo chamar gerar_pix. O defeito nunca foi a entrada: e a ausencia de qualquer barreira
++// na SAIDA. validarPix so olhava chave CNPJ de 14 digitos; a extracao deterministica do Pix
++// so reconhecia linha comecando em '000201'; a guarda de URL tinha um furo proprio (abaixo).
++// Uma frase como "Segue o Pix: <uuid>" atravessava inteira.
++//
++// A PROTECAO E POR PROVENIENCIA, NAO POR FORMATO. Nao se bloqueia todo UUID: uma chave Pix
++// aleatoria legitima tambem tem formato UUID. Bloqueia-se o UUID que EXISTE em
++// operacoes_financeiras — onde vivem TODOS os ids internos em jogo: as autorizacoes lidas por
++// lerExecucoes, os operation_id do envelope, o id novo devolvido por compor_total e o
++// ctx.pixGerado.operation_id. Um UUID que nao esta la nao e identificador interno e passa.
++const RX_UUID_G = /[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}/g;
++const RX_UUID_EXATO = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
++
++// Ids internos que este turno JA conhece sem ir ao banco. Serve de atalho e de rede de
++// seguranca: se a leitura do banco falhar, o que esta aqui ja basta para fechar a porta.
++function colherIdsInternosDoCtx(ctx: any): Set<string> {
++  const s = new Set<string>();
++  const add = (v: unknown) => { const x = String(v ?? '').trim().toLowerCase(); if (RX_UUID_EXATO.test(x)) s.add(x); };
++  for (const a of (Array.isArray(ctx?.autorizacoes) ? ctx.autorizacoes : [])) { add(a?.operation_id); add(a?.id); }
++  add(ctx?.pixGerado?.operation_id);
++  return s;
++}
++
++// Remove do texto A SER AUDITADO apenas os QR EMV de proveniencia PROVADA, para que uma chave
++// Pix aleatoria legitima DENTRO do payload oficial 000201... nao seja confundida com id
++// interno. Nao basta "comecar com 000201": so o codigo EXATO devolvido pelo provider (ou lido
++// de mp_pix_cobrancas.qr_code) e exempto — senao bastaria prefixar 000201 para escapar.
++// O QR oficial em si nao e tocado por esta funcao: ele atravessa intacto para o cliente.
++function textoSemQrProvado(t: string, qrsProvados: Array<string | null | undefined>): string {
++  let out = String(t || '');
++  for (const qr of qrsProvados) {
++    const s = String(qr || '').trim();
++    if (s.length >= 40) out = out.split(s).join(' ');
++  }
++  return out;
++}
++
++// Devolve os UUIDs do texto que sao identificadores financeiros INTERNOS.
++// Nao filtra por lead: um operation_id de OUTRO lead tambem e interno e tambem nao pode sair.
++// Erro de leitura FECHA a porta — na duvida, nao entrega.
++async function idsInternosNoTexto(texto: string, ctx: any, qrsProvados: Array<string | null | undefined>): Promise<string[]> {
++  const limpo = textoSemQrProvado(texto, qrsProvados);
++  const achados = Array.from(new Set((limpo.match(RX_UUID_G) || []).map((u: string) => u.toLowerCase())));
++  if (achados.length === 0) return [];
++  const conhecidos = colherIdsInternosDoCtx(ctx);
++  const jaInternos = achados.filter((u: string) => conhecidos.has(u));
++  const restantes = achados.filter((u: string) => !conhecidos.has(u));
++  if (restantes.length === 0) return jaInternos;
++  try {
++    const { data, error } = await sb.from('operacoes_financeiras').select('id').in('id', restantes);
++    if (error) throw new Error(String(error.message || 'erro_leitura'));
++    const doBanco = (data || []).map((r: any) => String(r.id).toLowerCase());
++    return Array.from(new Set([...jaInternos, ...doBanco]));
++  } catch (e: any) {
++    await logErro('guardrail_egresso_leitura_falhou', { erro: String(e?.message ?? e).slice(0, 150), candidatos: restantes.slice(0, 3) });
++    return Array.from(new Set([...jaInternos, ...restantes]));
++  }
++}
++
++// Expurga os ids internos do texto: soltos, em markdown ou dentro de URL. A URL INTEIRA cai —
++// um link inventado que carrega o id nao pode virar "link sem id", que continuaria quebrado.
++function expurgarIdsInternos(texto: string, ids: string[]): string {
++  let out = String(texto || '');
++  for (const id of ids) out = out.replace(new RegExp('\\S*' + id + '\\S*', 'gi'), '');
++  return out
++    .replace(/```\s*```/g, '')
++    .replace(/^[ \t]*[`>*_-]+[ \t]*$/gm, '')
++    .replace(/[ \t]{2,}/g, ' ')
++    .replace(/\n{3,}/g, '\n\n')
++    .trim();
++}
++
++// GUARDA DE TRANSPORTE. Roda imediatamente antes de a mensagem sair, em TODO caminho de saida
++// (resposta do fluxo principal e _direct_message). Nao confia no texto do modelo nem no texto
++// ditado: pergunta ao banco se aquele UUID e um identificador financeiro interno.
++async function guardaEgressoFinanceiro(
++  texto: string, ctx: any, qrsProvados: Array<string | null | undefined>, phone: string, origem: string,
++): Promise<{ bloqueou: boolean; texto: string; ids: string[] }> {
++  const ids = await idsInternosNoTexto(texto, ctx, qrsProvados);
++  if (ids.length === 0) return { bloqueou: false, texto, ids: [] };
++  await logErro('guardrail_identificador_financeiro_interno', {
++    phone, origem, ids: ids.slice(0, 4),
++    trecho: String(texto || '').replace(/\n/g, ' ').slice(0, 180),
++  });
++  L('guardrail_identificador_financeiro_interno', { phone: String(phone || '').slice(-4), origem, qtd: ids.length });
++  return { bloqueou: true, texto: expurgarIdsInternos(texto, ids), ids };
++}
++
++// ── v4.33.0 P0: CLIENTE CONDICIONOU O PAGAMENTO A APROVACAO DA ARTE ─────────────────
++// No caso de 25/08 o cliente escreveu "Ok fico no aguardo da art para finalizacao e pagamento"
++// e o Pix saiu 3 segundos depois. A politica comercial NAO muda: pagamento continua ANTES da
++// producao. O que muda e so o TURNO: quando o proprio cliente condiciona explicitamente o
++// pagamento a ver a arte, a sequencia dele e arte -> aprovacao -> finalizacao -> pagamento ->
++// producao, e cobrar naquele turno atropela o que ele acabou de dizer. Vale so para o turno em
++// que a frase aparece — nao vira regra geral de "pagar depois".
++const RX_HOLD_ARTE_PAGAMENTO = /\b(?:aguard\w*|esper\w*|assim que|depois que|quando|ap[oó]s)\b[^.!?\n]{0,60}\b(?:arte|art|layout|mockup|prova)\b[^.!?\n]{0,60}\b(?:pag\w*|finaliza\w*|fech\w*)\b|\b(?:arte|art|layout|mockup)\b[^.!?\n]{0,40}\b(?:antes d[eo]|primeiro)\b[^.!?\n]{0,30}\b(?:pag\w*|fech\w*)\b/i;
+ 
+ async function processarLostCanonico(conversationId: string | null, leadId: string | null, mensagem: string, decisionId: string | null, dryRun: boolean): Promise<any> {
+   if (!conversationId || !leadId) return { ok: true, aplicado: false, motivo: 'identidade_incompleta' };
+@@ -1968,7 +2107,7 @@
+   const arteParaCalculo = !pediuMetrosDiretos && larguraCtx > 0 && alturaCtx > 0 && copiasCtx > 0
+     ? { largura_cm: larguraCtx, altura_cm: alturaCtx, copias: copiasCtx } : null;
+   // v84: valores conversacionais nao autorizam cobranca. Somente operation_id tipado.
+-  const ctx: any = { leadId, phone, autorizacoes: [] as any[], precosAutorizados: [] as any[], rendimentosAutorizados: [] as any[], rendimentosAuxiliares: [] as number[], cobrancaPendente: execucoes.cobrancaPendente, permiteMudanca: pediuMudanca, freteJa: execucoes.freteJa, arteParaCalculo, pixGerado: null };
++  const ctx: any = { leadId, phone, autorizacoes: [] as any[], precosAutorizados: [] as any[], rendimentosAutorizados: [] as any[], rendimentosAuxiliares: [] as number[], cobrancaPendente: execucoes.cobrancaPendente, permiteMudanca: pediuMudanca, freteJa: execucoes.freteJa, arteParaCalculo, pixGerado: null, holdArte: RX_HOLD_ARTE_PAGAMENTO.test(mensagem) };
+   // v4.26.0: fonte canonica CalcMe, somente extracao validada e vigente.
+   let calcmeVigente: any = null;
+   try {
+@@ -2557,12 +2696,22 @@
+   // a mensagem dela era "Vou ficar com o sedex" e a promessa partiu DELE ("Total R$52,70.
+   // Vou gerar o Pix pra voce agora"). Nada verificou, e a venda saiu por chave manual.
+   // Agora a guarda olha os DOIS lados: o pedido do cliente E a promessa do agente.
+-  const pediuPix = /\b(pix|pode ser pix|manda o pix|gera o pix|quero pagar)\b/i.test(mensagem);
+-  const prometeuPix = /(vou|vamos|j[a\u00e1] vou|deixa eu|posso) (gerar|mandar|enviar|passar|criar|fazer)\s+(o |seu |a |sua )?(pix|c[o\u00f3]digo|cobran[c\u00e7]a|chave)|(gero|mando|envio|passo|crio)\s+(o |seu )?pix|pix (vai |ja |j[a\u00e1] )?(sai|segue|vem)|te mando o pix/i.test(resposta);
++  // v4.33.0 P0: o cliente condicionou o pagamento a ver a arte. Nesse turno o pedido de Pix
++  // dele nao arma a maquinaria de cobranca — a frase seguinte dele e que manda.
++  const holdArtePagamento = RX_HOLD_ARTE_PAGAMENTO.test(mensagem);
++  const pediuPix = /\b(pix|pode ser pix|manda o pix|gera o pix|quero pagar)\b/i.test(mensagem) && !holdArtePagamento;
++  // v4.33.0 P0: prometeuPix so enxergava promessa em FUTURO ("vou gerar o pix"). O vazamento
++  // de 25/08 usou o PRESENTE — "Segue o Pix:" — que nao casava com nada e, por isso, nao
++  // acionava nem a guarda de promessa nem o reenvio da cobranca pendente. Agora a afirmacao
++  // de ENTREGA conta como promessa: se ele diz que esta entregando Pix, tem de existir Pix.
++  const RX_ENTREGA_PIX = /(segue|segui|aqui (?:est[a\u00e1]|vai|v\u00e3o)|te (?:envio|mando|passo)|vou te (?:enviar|mandar|passar))\s+(?:o |a |seu |sua )?(?:pix|c[o\u00f3]digo|chave|cobran[c\u00e7]a)\b|\b(?:c[o\u00f3]digo|chave)\s+pix\b|\bpix\s*:/i;
++  const prometeuPix = /(vou|vamos|j[a\u00e1] vou|deixa eu|posso) (gerar|mandar|enviar|passar|criar|fazer)\s+(o |seu |a |sua )?(pix|c[o\u00f3]digo|cobran[c\u00e7]a|chave)|(gero|mando|envio|passo|crio)\s+(o |seu )?pix|pix (vai |ja |j[a\u00e1] )?(sai|segue|vem)|te mando o pix/i.test(resposta)
++    || RX_ENTREGA_PIX.test(resposta);
+   const pediuCartao = /\b(cart[a\u00e3]o|cr[e\u00e9]dito|parcel(?:a|ado|amento|ar)|at[e\u00e9]\s*3x)\b/i.test(mensagem);
+   const prometeuCartao = /(?:link|checkout).{0,45}(?:cart[a\u00e3]o|pagamento)|(?:cart[a\u00e3]o|cr[e\u00e9]dito).{0,45}(?:link|checkout)|https?:\/\/\S+/i.test(resposta)
+     && /cart[a\u00e3]o|cr[e\u00e9]dito|parcel|pagamento|checkout/i.test(resposta);
+-  const temCodigoPix = /000201/.test(resposta) || resposta.includes(PIX_CHAVE);
++  // v4.33.0 P0: a chave manual saiu de circulacao, entao ela nao prova mais "tem Pix".
++  const temCodigoPix = /000201/.test(resposta);
+   // v4.21.2 INVARIANTE 3: a condicao passa a ser "o Pix EXISTE?", nao "a tool foi chamada?".
+   // A v4.21.1 exigia !toolsUsadas.includes('gerar_pix') — e o caso REAL medido em 10 de 10
+   // falhas e ele CHAMAR a tool com id inventado e ela recusar. Nesse caso a tool estava em
+@@ -2650,7 +2799,12 @@
+         resposta = 'Ainda nao consegui criar o link oficial do Mercado Pago. Para gerar a cobranca correta, preciso primeiro concluir o valor do pedido.';
+       }
+     }
+-  } else if (temUrlPagamento && !urlsResposta.some((u: string) => checkoutMercadoPago(u) === checkoutOficial)) {
++  // v4.33.0 P0: FURO CORRIGIDO. checkoutMercadoPago devolve null para host que nao e do
++  // Mercado Pago; sem checkout oficial, checkoutOficial tambem e null, e a comparacao
++  // null === null dava 'URL autorizada' para QUALQUER link inventado. Foi por aqui que
++  // https://pay.smartpag.com.br/<operation_id> saiu em 08/08. Sem checkout oficial
++  // PROVADO, nenhuma URL de pagamento atravessa.
++  } else if (temUrlPagamento && !(checkoutOficial && urlsResposta.some((u: string) => checkoutMercadoPago(u) === checkoutOficial))) {
+     await logErro('link_pagamento_nao_autorizado', { phone, urls_modelo: urlsResposta.slice(0, 3), tools: toolsUsadas });
+     resposta = resposta.replace(/https?:\/\/[^\s<>]+/gi, '').replace(/\n{3,}/g, '\n\n').trim();
+   }
+@@ -3214,6 +3368,42 @@
+     // O modelo escreveu um codigo e NAO existe cobranca. Nao envia codigo nenhum.
+     await logErro('codigo_pix_sem_cobranca', { phone, trecho: linhasResp[idxPix].trim().slice(0, 40) });
+   }
++  // ── v4.33.0 P0: CLIENTE CONDICIONOU PAGAMENTO A APROVAR A ARTE ─────────────────────
++  // Menor protecao deterministica possivel: nao muda politica, nao adia pagamento como
++  // regra, so impede que ESTE turno empurre cobranca contra o que o cliente acabou de
++  // dizer. A ordem que ele pediu (arte -> aprovacao -> finalizacao -> pagamento) e
++  // confirmada em voz alta, e o pagamento segue antes da producao.
++  if (holdArtePagamento && decisao.responde === true && (prometeuPix || prometeuCartao || temCodigoPix || codigoPixEnviado)) {
++    await logErro('cobranca_suspensa_hold_arte', { phone, tema: decisao.tema, tools: toolsUsadas, resposta_original: String(resposta).slice(0, 250) });
++    resposta = 'Combinado! Primeiro a arte vem aqui para voc\u00ea aprovar. Assim que voc\u00ea aprovar, eu te envio a cobran\u00e7a para finalizar e a\u00ed entra na produ\u00e7\u00e3o.';
++    codigoPixEnviado = '';
++  }
++
++  // ── v4.33.0 P0: INVARIANTE DE TRANSPORTE ───────────────────────────────────────────
++  // Ultima barreira antes do transporte. Entre este ponto e entregarComoJoao nenhuma linha
++  // volta a escrever em `resposta`: a barreira de frescor so pode SUPRIMIR o envio.
++  // Os QRs de proveniencia provada entram como isentos para que a chave aleatoria que vive
++  // DENTRO do payload 000201... nao seja confundida com identificador interno.
++  const egresso = await guardaEgressoFinanceiro(resposta, ctx, [codigoPixEnviado, ctx.pixGerado?.qr_code, execucoes.cobrancaPendente?.qr_code], phone, 'resposta_noturna');
++  if (egresso.bloqueou) {
++    resposta = egresso.texto;
++    if (codigoPixEnviado) {
++      // A cobranca e REAL e o codigo vem de fonte provada; so o texto estava contaminado.
++      // O id interno ja foi expurgado do texto e o Pix legitimo continua saindo.
++      if (resposta.length < 5) resposta = 'Segue seu Pix copia e cola logo abaixo. O pagamento confirma automaticamente.';
++    } else {
++      // Nao existe cobranca provada. FALHA FECHADA: nenhum UUID, nenhuma chave inventada,
++      // nenhum link improvisado. E melhor pedir o dado que falta do que entregar um
++      // identificador interno vestido de Pix.
++      resposta = 'Para gerar a cobran\u00e7a correta eu preciso fechar o pedido no sistema. Me confirma a quantidade e se \u00e9 retirada ou entrega que eu finalizo agora.';
++    }
++  }
++  // Rede de seguranca do SEGUNDO envio: o codigo copiavel e um payload EMV, nunca um UUID.
++  if (codigoPixEnviado && RX_UUID_EXATO.test(codigoPixEnviado.trim().toLowerCase())) {
++    await logErro('guardrail_identificador_financeiro_interno', { phone, origem: 'codigo_pix_uuid', ids: [codigoPixEnviado.trim()] });
++    codigoPixEnviado = '';
++  }
++
+   const turnId = crypto.randomUUID();
+   const executionId = crypto.randomUUID();
+   // v4.31.0 P0: owned_inbound_ids viaja no contexto que ja existe da decisao. Nao ha
+@@ -3334,6 +3524,16 @@
+   if (!phone) return new Response(JSON.stringify({ ok: false, motivo: 'campos' }), { status: 400 });
+ 
+   if (directMessage) {
++    // ── v4.33.0 P0: _direct_message tem caminho PROPRIO de transporte e nao passava por
++    // nenhuma guarda. Texto ditado tambem nao e fonte financeira: se carrega identificador
++    // interno, nada sai. Aqui a falha e FECHADA e explicita — quem ditou e um operador
++    // humano, que recebe o erro e reenvia certo; nao ha risco de silencio para o cliente.
++    const idsDmInternos = await idsInternosNoTexto(directMessage, null, []);
++    if (idsDmInternos.length > 0) {
++      await logErro('guardrail_identificador_financeiro_interno', { phone, origem: 'direct_message', ids: idsDmInternos.slice(0, 4), trecho: directMessage.replace(/\n/g, ' ').slice(0, 180) });
++      L('guardrail_identificador_financeiro_interno', { phone: phone.slice(-4), origem: 'direct_message', qtd: idsDmInternos.length });
++      return new Response(JSON.stringify({ ok: false, motivo: 'guardrail_identificador_financeiro_interno', detalhe: 'A mensagem contem identificador financeiro interno (operacoes_financeiras.id). Nada foi enviado.' }), { status: 422 });
++    }
+     const assinar = String(body._assinar_como || 'joao').toLowerCase() === 'julia' ? ASSINATURA_JULIA : ASSINATURA;
+     const sourceTag = assinar === ASSINATURA_JULIA ? 'julia_ditado' : 'joao';
+     let codigoDm = ''; let msgDm = directMessage;
