@@ -1,0 +1,27 @@
+-- ROLLBACK R18 — duas partes independentes.
+--
+-- PARTE A — remover a funcao de calculo do desfecho. Provado em transacao.
+-- Nenhum objeto referencia fn_exp001_resultado; nenhum cron a chama.
+-- ATENCAO: sem ela nao existe calculo canonico do desfecho, e a metrica volta
+-- a ser apenas texto. Nao ha "versao anterior" para voltar: a funcao e nova.
+--
+-- DROP FUNCTION IF EXISTS public.fn_exp001_resultado(integer, timestamptz);
+--
+-- PARTE B — desfazer a correcao do contrato dentro de fn_exp001_coorte.
+-- 195f25dadb6370a297d4c400beec34e1 -> 4390732e59e29c7b0b63bceca2215828
+-- ATENCAO: isso restaura o texto ERRADO, que conta opt-out como retomada.
+-- Provado em transacao que reconstroi o baseline byte-exato.
+--
+-- DO $do$
+-- DECLARE v_def text; v_novo text; v_src text;
+-- BEGIN
+--   SELECT pg_get_functiondef(p.oid) INTO v_def FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
+--    WHERE n.nspname='public' AND p.proname='fn_exp001_coorte';
+--   v_novo := replace(v_def,
+--     ', EXCLUINDO o inbound registrado como opt-out de whatsapp em crm_contact_optouts. Calculo canonico: fn_exp001_resultado(p_horas, p_t0_controle). Opt-out NUNCA conta como retomada.', '');
+--   EXECUTE v_novo;
+--   SELECT prosrc INTO v_src FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
+--    WHERE n.nspname='public' AND p.proname='fn_exp001_coorte';
+--   IF md5(v_src) <> '4390732e59e29c7b0b63bceca2215828' THEN
+--     RAISE EXCEPTION 'ROLLBACK NAO RECONSTROI: %', md5(v_src); END IF;
+-- END $do$;
