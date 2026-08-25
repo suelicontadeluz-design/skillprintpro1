@@ -1,27 +1,19 @@
--- PROPOSTA — NAO PUBLICADA (R11, 2026-08-25)
---
--- Gate de opt-out de WhatsApp especifico para OUTBOUND.
---
--- Baseline LIVE em 2026-08-25: md5(prosrc) = 716eace2fa6a736752496c8fe30de97e (3429 bytes)
---
--- POR QUE NAO FOI PUBLICADA:
---   fn_agente_automatico_pode_atender e guarda COMPARTILHADA de 4 sites, 2 deles INBOUND
---   (agente-conversacao modoReativo, agente-fechamento modoReativo). Ver
---   docs/cerebro/OPTOUT_OUTBOUND_R11_DIAGNOSTICO.md.
---   Com p_checar_optout_whatsapp DEFAULT false este patch e INERTE: nenhum dos 4 sites
---   passa o parametro. Ativar exige 1 linha no whatsapp-executor (deploy de edge,
---   fora do escopo da rodada). Publicar so o SQL criaria aparencia de protecao.
---
--- DIFF vs LIVE: +1 parametro na assinatura, +8 linhas de corpo. Nada mais muda.
+-- R12 2026-08-25 — gate de opt-out WhatsApp SO para OUTBOUND
+-- baseline  md5(prosrc) = 716eace2fa6a736752496c8fe30de97e (3429 bytes)
+-- candidato md5(prosrc) = d22ac0fd2e6d57c4fd183c717272ae59 (4058 bytes, +629)
+-- DROP+CREATE e obrigatorio: CREATE OR REPLACE com 7 args cria OVERLOAD e as
+-- chamadas de 6 args nomeados das 4 edges quebram com 42725 'is not unique'.
 
-CREATE OR REPLACE FUNCTION public.fn_agente_automatico_pode_atender(
+DROP FUNCTION IF EXISTS public.fn_agente_automatico_pode_atender(uuid,text,integer,boolean,boolean,boolean);
+
+CREATE FUNCTION public.fn_agente_automatico_pode_atender(
   p_lead_id uuid,
   p_phone text DEFAULT NULL::text,
   p_janela_humano_min integer DEFAULT 90,
   p_checar_recorrente boolean DEFAULT true,
   p_checar_purchase boolean DEFAULT true,
   p_respeitar_julia_pausa boolean DEFAULT true,
-  p_checar_optout_whatsapp boolean DEFAULT false   -- NOVO: off por padrao
+  p_checar_optout_whatsapp boolean DEFAULT false
 )
 RETURNS jsonb
 LANGUAGE plpgsql
@@ -57,11 +49,11 @@ BEGIN
     END IF;
   END IF;
 
-  -- Guarda 1.5 (NOVA, opt-in): opt-out de WhatsApp.
-  -- Escopo canal='whatsapp' apenas: hard bounce de email NAO bloqueia WhatsApp.
-  -- Sem filtro de finalidade: recusa transacional cobre marketing com folga.
+  -- Guarda 1.5 (NOVA, opt-in): opt-out de WhatsApp. SO vale para OUTBOUND.
+  -- p_checar_optout_whatsapp DEFAULT false => inbound (agente-conversacao
+  -- modoReativo, agente-fechamento modoReativo) nao ativa esta guarda.
+  -- Escopo canal='whatsapp': hard bounce de email NAO bloqueia WhatsApp.
   -- revogado_em IS NULL: opt-out revogado deixa de valer.
-  -- Antes da Guarda 2 porque vontade do cliente precede heuristica de estado.
   IF p_checar_optout_whatsapp AND EXISTS (
     SELECT 1 FROM crm_contact_optouts o
     WHERE o.lead_id = p_lead_id
@@ -136,5 +128,6 @@ BEGIN
   END IF;
 
   RETURN jsonb_build_object('pode', true, 'motivo', 'ok');
-END
-$function$;
+END $function$;
+
+GRANT EXECUTE ON FUNCTION public.fn_agente_automatico_pode_atender(uuid,text,integer,boolean,boolean,boolean,boolean) TO anon, authenticated, service_role;
