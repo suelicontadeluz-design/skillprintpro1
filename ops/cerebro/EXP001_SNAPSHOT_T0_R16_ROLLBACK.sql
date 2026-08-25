@@ -1,0 +1,45 @@
+-- ROLLBACK R16 — duas partes independentes. Rodar so a que for necessaria.
+--
+-- PARTE A — desfazer a guarda de braco (volta ao md5 4b3c979b...).
+-- ATENCAO: sem a guarda, um lead de CONTROLE volta a poder ser registrado
+-- e, com a campanha aprovada, enfileirado. So reverter com intencao explicita.
+--
+-- DO $do$
+-- DECLARE v_def text; v_novo text; v_src text; ins text;
+-- BEGIN
+--   SELECT prosrc INTO v_src FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
+--    WHERE n.nspname='public' AND p.proname='fn_exp001_registrar_intervencao';
+--   IF md5(v_src) <> 'f18172cd15b57676e77e0940e3618a0e' THEN
+--     RAISE EXCEPTION 'LIVE inesperado: %', md5(v_src); END IF;
+--   ins := $q$
+--   -- GUARDA DE BRACO: o CONTROLE do EXP-001 nunca entra na audiencia nem na fila.
+--   -- O braco e derivado da MESMA formula deterministica usada por fn_exp001_coorte,
+--   -- entao nao depende de flag mutavel, de status nem de disciplina humana.
+--   IF (get_byte(decode(md5(p_lead_id::text || c_slug),'hex'),0) & 1) <> 1 THEN
+--     RETURN jsonb_build_object('ok', false, 'erro', 'lead_e_do_braco_controle',
+--       'experiment_id', c_slug, 'braco', 'CONTROLE', 'enfileirado', false);
+--   END IF;
+-- $q$;
+--   SELECT pg_get_functiondef(p.oid) INTO v_def FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
+--    WHERE n.nspname='public' AND p.proname='fn_exp001_registrar_intervencao';
+--   v_novo := replace(v_def, ins, '');
+--   EXECUTE v_novo;
+--   SELECT prosrc INTO v_src FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
+--    WHERE n.nspname='public' AND p.proname='fn_exp001_registrar_intervencao';
+--   IF md5(v_src) <> '4b3c979bf5adf5484f302d5631d85b29' THEN
+--     RAISE EXCEPTION 'ROLLBACK NAO RECONSTROI BASELINE: %', md5(v_src); END IF;
+-- END $do$;
+--
+-- PARTE B — apagar o snapshot T0. DESTRUTIVO E IRREVERSIVEL.
+-- O snapshot e a unica prova de quem participou do EXP-001 em T0
+-- (hash_divisao 865e8672701086630817a1a3c6119f42, 456 leads).
+-- fn_exp001_coorte NAO consegue reconstrui-lo: a janela e movel.
+-- Apagar so com intencao explicita de descartar o experimento inteiro.
+--
+-- delete from lab_atribuicoes a using lab_experimentos le
+--   where le.id=a.experimento_id and le.agente_slug='cerebro-exp001'
+--     and le.dominio='exp001_reaquecimento';
+-- delete from lab_experimentos where agente_slug='cerebro-exp001' and dominio='exp001_reaquecimento';
+-- delete from crm_campaign_audiences a using crm_campaigns c
+--   where c.id=a.campaign_id and c.slug='EXP-001-REAQUECIMENTO-31-45D';
+-- delete from crm_campaigns where slug='EXP-001-REAQUECIMENTO-31-45D';
