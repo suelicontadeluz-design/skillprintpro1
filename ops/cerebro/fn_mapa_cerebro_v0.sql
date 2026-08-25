@@ -17,16 +17,17 @@
 --   para expor contradicao - nunca como verdade).
 -- ============================================================================
 -- ============================================================================
--- PROVA DE DEPLOY (25/08/2026)
---   Publicado em: projeto ldrdtaibazplvrbwyrvx, migration fn_mapa_cerebro_v0
+-- PROVA DE DEPLOY v2 (25/08/2026) - patch U9
+--   Migration: fn_mapa_cerebro_v0_patch_u9 (projeto ldrdtaibazplvrbwyrvx)
 --   Catalogo LIVE: LANGUAGE sql | STABLE | SECURITY INVOKER | search_path=public
---   prosrc LIVE: 29855 chars, 497 linhas
---   Identidade candidato x publicado (comentarios removidos, espacos colapsados):
---     md5 = 81fe1d3e29aebdca7e5e7c14aed6d6a9 / 27354 chars  -> BATE nos dois lados
---   Diferenca remanescente arquivo x LIVE: apenas comentarios de secao e 5 linhas
---   em branco, que a normalizacao remove e que nao afetam execucao.
---   Testes T1..T10: todos passaram (inclusive T9 - pg_current_xact_id_if_assigned()
---   permanece NULL apos a chamada, logo nenhuma escrita ocorreu).
+--   prosrc LIVE: 40.181 chars
+--   Identidade arquivo x LIVE (comentarios removidos, espacos colapsados):
+--     md5 = c913e606796b755b193e557f209e90a0 / 36.683 chars -> BATE nos dois lados
+--   Baseline substituida: md5 norm 81fe1d3e29aebdca7e5e7c14aed6d6a9 (v1)
+--   Testes T1..T14: todos passaram. T9 confirmado por
+--     pg_current_xact_id_if_assigned() = NULL apos a chamada.
+--   Performance: 1a chamada ~13s (cache frio de fact_conversations, 268k linhas);
+--     chamadas seguintes ~0,03s. Nenhum indice foi criado.
 -- ============================================================================
 
 CREATE OR REPLACE FUNCTION public.fn_mapa_cerebro_v0()
@@ -72,10 +73,64 @@ ads_prev as (
   from meta_ads_insights a, p
   where a.date >= (p.mes_ini - interval '1 month')::date and a.date < p.mes_ini
 ),
+-- FONTE CANONICA DE CONTATO (corrigida em 25/08/2026 pelo teste U9):
+-- fact_conversations cobre desde 30/03/2026. mensagem_envio so existe desde 12/08/2026,
+-- entao a janela de "30 dias" media 13 dias e subestimava a cobertura em ate 12x.
+-- mensagem_envio permanece em uso APENAS como prova de envio por provider, nunca como cobertura.
+agente_nome as (
+  select a.slug, lower(unaccent(split_part(a.nome,' ',1))) pn
+  from agentes a
+),
+fc as (
+  select f.lead_id,
+    count(*) filter (where f.direction='inbound')  inb30,
+    count(*) filter (where f.direction='outbound') out30,
+    min(f."timestamp") filter (where f.direction='outbound') primeiro_out
+  from fact_conversations f cross join p
+  where f."timestamp" > p.d30 and f.lead_id is not null
+  group by 1
+),
+fc_agente as (
+  select m.slug, count(*) outbounds30, count(distinct f.lead_id) leads30, max(f."timestamp") ult
+  from fact_conversations f
+  join agente_nome m on m.pn = split_part(f.source,'_',1)
+  cross join p
+  where f.direction='outbound' and f."timestamp" > p.d30
+  group by 1
+),
+fc_aut as (
+  select count(*) outbounds30,
+    count(*) filter (where m.slug is not null) aut_agente,
+    count(*) filter (where m.slug is null and f.source is not null and f.source <> 'humano') aut_canal,
+    count(*) filter (where f.source = 'humano') aut_humano,
+    count(*) filter (where f.source is null) aut_desconhecida,
+    count(*) filter (where f.lead_id is not null) com_lead_id
+  from fact_conversations f
+  left join agente_nome m on m.pn = split_part(f.source,'_',1)
+  cross join p
+  where f.direction='outbound' and f."timestamp" > p.d30
+),
 toc as (
-  select distinct m.lead_id from mensagem_envio m, p
-  where m.criado_em > p.d30 and m.autor_tipo='agente'
-    and m.provider_message_id is not null and m.lead_id is not null
+  select f.lead_id from fc f where f.out30 > 0
+),
+eng_j as (
+  select coalesce(jsonb_agg(jsonb_build_object(
+    'faixa', faixa, 'leads', leads, 'com_outbound_30d', com_out,
+    'pct_com_outbound', round(100.0*com_out/nullif(leads,0),1)
+  ) order by ord),'[]'::jsonb) j
+  from (
+    select case when coalesce(g.inb30,0)=0 then 'SEM_CONVERSA'
+                when g.inb30 between 1 and 4 then 'BAIXO_ENGAJAMENTO'
+                when g.inb30 between 5 and 19 then 'MEDIO_ENGAJAMENTO'
+                else 'ALTO_ENGAJAMENTO' end faixa,
+           case when coalesce(g.inb30,0)=0 then 1
+                when g.inb30 between 1 and 4 then 2
+                when g.inb30 between 5 and 19 then 3 else 4 end ord,
+           count(*) leads,
+           count(*) filter (where coalesce(g.out30,0)>0) com_out
+    from lead_score_comercial s left join fc g on g.lead_id = s.lead_id
+    group by 1,2
+  ) x
 ),
 funil as (
   select coalesce(l.classificacao,'sem_classificacao') classe, count(*) leads,
@@ -157,22 +212,24 @@ cap_ag as (
       'dry_run', coalesce(a.dry_run_ativo,false),
       'ultima_decisao', d.ult),
     'comprovada', jsonb_build_object(
-      'valor', (coalesce(e.envios30,0)>0 or coalesce(d.ef30,0)>0 or coalesce(pr.n,0)>0),
-      'fonte', 'mensagem_envio.provider_message_id | agente_decisoes_log.efeito_externo | prova de canal',
-      'envios_reais_30d', coalesce(e.envios30,0),
-      'leads_tocados_30d', coalesce(e.leads30,0),
+      'valor', (coalesce(fa.outbounds30,0)>0 or coalesce(e.envios30,0)>0 or coalesce(d.ef30,0)>0 or coalesce(pr.n,0)>0),
+      'fonte', 'fact_conversations(outbound por autoria) | mensagem_envio.provider_message_id | agente_decisoes_log.efeito_externo | prova de canal',
+      'outbounds_reais_30d', coalesce(fa.outbounds30,0),
+      'leads_tocados_30d', coalesce(fa.leads30, e.leads30, 0),
+      'envios_com_provider_30d', coalesce(e.envios30,0),
       'efeito_externo_log_30d', coalesce(d.ef30,0),
       'prova_canal', case when pr.slug is null then null
                           else jsonb_build_object('fonte', pr.fonte, 'execucoes_30d', pr.n) end,
       'nota', case
-        when coalesce(e.envios30,0)>0 and coalesce(d.ef30,0)=0
-          then 'efeito_externo=0 no log, mas ha envio real com provider_message_id: o campo esta subnotificado'
-        when coalesce(d.dec30,0)>0 and coalesce(e.envios30,0)=0 and coalesce(d.ef30,0)=0 and coalesce(pr.n,0)=0
+        when coalesce(fa.outbounds30,0)>0 and coalesce(d.ef30,0)=0
+          then 'efeito_externo=0 no log, mas ha outbound real em fact_conversations: o campo esta subnotificado'
+        when coalesce(d.dec30,0)>0 and coalesce(fa.outbounds30,0)=0 and coalesce(e.envios30,0)=0
+             and coalesce(d.ef30,0)=0 and coalesce(pr.n,0)=0
           then 'decide mas nao ha prova independente de efeito externo em 30d'
         else null end),
     'conversoes_vinculadas_30d', coalesce(d.conv30,0),
     'confianca', case
-      when coalesce(e.envios30,0)>0 then 'alta'
+      when coalesce(fa.outbounds30,0)>0 or coalesce(e.envios30,0)>0 then 'alta'
       when coalesce(d.ef30,0)>0 or coalesce(pr.n,0)>0 then 'media'
       when coalesce(d.dec30,0)>0 then 'baixa'
       else 'desconhecida' end
@@ -181,6 +238,7 @@ cap_ag as (
   left join dcs d on d.slug = a.slug
   left join env e on e.slug = a.slug
   left join prova pr on pr.slug = a.slug
+  left join fc_agente fa on fa.slug = a.slug
 ),
 cap_infra as (
   select jsonb_build_array(
@@ -252,10 +310,9 @@ esp as (
   from frentes_espera where encerrada_em is null
 ),
 aut as (
-  select count(*) total30,
-         count(*) filter (where autor_tipo='agente') com_agente,
-         count(*) filter (where autor_tipo is distinct from 'agente') sem_autor
-  from mensagem_envio m, p where m.criado_em > p.d30
+  select outbounds30 total30, aut_agente com_agente, aut_canal canal_generico,
+         aut_humano humano, aut_desconhecida desconhecida, com_lead_id
+  from fc_aut
 ),
 midia_dec as (select coalesce(dec30,0) n from dcs where slug='agente-midia'),
 garg_raw as (
@@ -272,8 +329,8 @@ garg_raw as (
   select 'G2','Oportunidades quentes/fechamento sem cobertura comprovada',
     jsonb_build_object('quentes',f.q_leads,'quentes_tocados',f.q_toc,
       'fechamento',f.f_leads,'fechamento_tocados',f.f_toc),
-    'lead_score_comercial x mensagem_envio(provider_message_id)','alta','media',
-    'lead qualificado sem contato nao converte; impacto financeiro NAO estimado (conversao quente->venda nao medida, ver U9)',
+    'lead_score_comercial (classificacao ATUAL, nao historica) x fact_conversations(outbound, 30d)','media','media',
+    'lead sem contato no periodo; impacto financeiro NAO estimado. O teste U9 (25/08) refutou o efeito causal do contato no estrato SEM_CONVERSA (tocado 0,09% x nao tocado 0,28%), entao esta lacuna NAO deve ser convertida em receita esperada. Ver U9b.',
     (coalesce(f.q_toc,0) < coalesce(f.q_leads,0) or coalesce(f.f_toc,0) < coalesce(f.f_leads,0))
   from funil_j f
   union all
@@ -303,12 +360,17 @@ garg_raw as (
     (e.humanas > 0)
   from esp e
   union all
-  select 'G6','Autoria de envio perdida',
-    jsonb_build_object('envios_30d',u.total30,'com_autor_agente',u.com_agente,'sem_autor',u.sem_autor,
-      'pct_sem_autor',round(100.0*u.sem_autor/nullif(u.total30,0),0)),
-    'mensagem_envio.autor_tipo','alta','alta',
-    'impossivel atribuir resultado a capacidade; tambem faz a cobertura de contato (G2) parecer pior do que talvez seja',
-    (u.sem_autor * 2 > u.total30)
+  select 'G6','Autoria de outbound apenas no nivel de canal',
+    jsonb_build_object('outbounds_30d',u.total30,
+      'autoria_agente',u.com_agente,'autoria_canal_generica',u.canal_generico,
+      'humano',u.humano,'desconhecida',u.desconhecida,
+      'pct_autoria_agente',round(100.0*u.com_agente/nullif(u.total30,0),1),
+      'pct_canal_generico',round(100.0*u.canal_generico/nullif(u.total30,0),1),
+      'com_lead_id',u.com_lead_id,
+      'pct_com_lead_id',round(100.0*u.com_lead_id/nullif(u.total30,0),1)),
+    'fact_conversations.source x agentes.nome','media','alta',
+    'a maior parte do outbound sai identificada apenas pelo canal (zapi), nao por quem escreveu: da para saber QUE houve contato e com QUAL lead, mas nao a QUEM creditar. Nota: nenhuma linha e verdadeiramente sem origem, e 97,5% tem lead_id - e lacuna de autoria, nao de rastreio.',
+    (u.canal_generico * 2 > u.total30)
   from aut u
   union all
   select 'G7','Margem desconhecida em familia de receita relevante',
@@ -330,9 +392,11 @@ garg as (
 rel as (
   select jsonb_build_array(
     jsonb_build_object('origem','meta_ads.campanha','destino','lead',
-      'tipo','parcial','fonte','meta_ads_insights + leads_marketing',
-      'prova','volume de gasto e volume de leads existem, mas nao ha chave confiavel campanha->lead (tabelas atribuicao_* vazias)',
-      'confianca','baixa'),
+      'tipo','parcial','fonte','leads_marketing.utm_campaign_id x meta_ads_insights.campaign_id',
+      'prova','a chave existe e resolve: 72,4% dos leads de 120d tem utm_campaign_id, 2.119 tem ctwa_clid, 1.458 sao organicos e NENHUM lead esta sem origem. Corrigido em 25/08: a versao anterior afirmava que a chave nao existia.',
+      'leads_120d',(select count(*) from leads_marketing where created_at > now()-interval '120 days'),
+      'pct_leads_com_campaign_id',(select round(100.0*count(*) filter (where utm_campaign_id is not null)/nullif(count(*),0),1) from leads_marketing where created_at > now()-interval '120 days'),
+      'confianca','media'),
     jsonb_build_object('origem','criativo','destino','campanha',
       'tipo','hipotese','fonte','canva_arte_exportacoes + dim_ads',
       'prova','nenhum vinculo persistido entre arte exportada e anuncio publicado',
@@ -340,13 +404,27 @@ rel as (
     jsonb_build_object('origem','lead','destino','lead_score_comercial',
       'tipo','comprovada','fonte','leads_marketing + lead_score_comercial',
       'prova','vinculo por lead_id','confianca','alta'),
-    jsonb_build_object('origem','lead_score_comercial','destino','atendimento',
-      'tipo','comprovada','fonte','mensagem_envio',
-      'prova','vinculo por lead_id com provider_message_id (prova de envio real)','confianca','alta'),
+    jsonb_build_object('origem','lead','destino','atendimento',
+      'tipo','comprovada','fonte','fact_conversations (desde 30/03/2026)',
+      'prova','vinculo por lead_id em 97,5% dos outbounds; direcao e horario registrados, o que permite exigir ordem temporal',
+      'confianca','alta'),
+    jsonb_build_object('origem','atendimento','destino','conversa_ativa',
+      'tipo','comprovada','fonte','fact_conversations (inbound + outbound)',
+      'prova','inbound e outbound contados por lead na janela de 30 dias',
+      'confianca','alta'),
+    jsonb_build_object('origem','meta_ads.campanha','destino','venda',
+      'tipo','parcial','fonte','leads_marketing.utm_campaign_id x pixel_events.Purchase',
+      'prova','em 120 dias, 132 de 382 compradores (34,6%) tem campaign_id e 102 dessas campanhas resolvem em meta_ads_insights. Receita atribuivel R$ 85.071,96 de R$ 396.005,57 = 21,5%. O restante e majoritariamente organico/recorrencia.',
+      'pct_receita_atribuivel',21.5,
+      'confianca','media'),
     jsonb_build_object('origem','atendimento','destino','venda',
-      'tipo','hipotese','fonte','mensagem_envio + pixel_events',
-      'prova','apenas precedencia temporal; nenhum vinculo causal persistido',
+      'tipo','hipotese','fonte','fact_conversations + pixel_events',
+      'prova','REFUTADA como causalidade pelo teste U9 (25/08/2026). Coorte de 4.067 leads: tocados convertem 5,15% e nao tocados 0,27%, MAS estratificando por conversa o efeito some e inverte - no estrato SEM_CONVERSA, tocados 0,09% x nao tocados 0,28%. O grupo de controle e formado por leads que nunca falaram com a empresa (2,7% com inbound, contra 66,8% dos tocados). Nao ha contrafactual no estrato de alto engajamento.',
       'confianca','baixa'),
+    jsonb_build_object('origem','conversa_ativa','destino','venda',
+      'tipo','parcial','fonte','fact_conversations(inbound) + pixel_events',
+      'prova','ASSOCIACAO OBSERVADA e forte: leads com 20+ inbounds convertem 36,36% (160 de 440) contra 0,09% no estrato sem conversa. CAUSALIDADE NAO PROVADA: nao existe celula "alto engajamento e nao tocado" para comparar, porque quem manda 20 mensagens sempre recebe resposta.',
+      'confianca','media'),
     jsonb_build_object('origem','venda','destino','receita_observada',
       'tipo','comprovada','fonte','pixel_events.Purchase -> meta_comercial',
       'prova','fn_atualizar_meta_comercial le exatamente pixel_events_br Purchase',
@@ -386,20 +464,30 @@ inc as (
     jsonb_build_object('id','U6','pergunta','Qual o contrato confiavel de efeito externo?',
       'por_que_importa','agente_decisoes_log.efeito_externo e subnotificado e nao serve como medida unica',
       'confianca_atual','media','fonte_faltante','definicao unica de efeito por canal, preenchida por todos os agentes',
-      'acao_minima_para_descobrir','comparar efeito_externo com prova de canal por agente (ja exposto no bloco capacidades)'),
-    jsonb_build_object('id','U7','pergunta','Quem enviou as mensagens sem autor?',
-      'por_que_importa','sem autoria nao se atribui resultado a capacidade, e a cobertura de contato fica distorcida',
-      'confianca_atual','baixa','fonte_faltante','carimbo de autoria no ingest do canal',
-      'acao_minima_para_descobrir','medir a lacuna por canal antes de atribuir qualquer resultado',
-      'envios_sem_autor_30d',(select sem_autor from aut)),
+      'acao_minima_para_descobrir','comparar efeito_externo com prova de canal por agente (ja exposto no bloco capacidades)',
+      'nota','desde 25/08 a prova primaria e fact_conversations(outbound por autoria), nao o campo efeito_externo'),
+    jsonb_build_object('id','U7','pergunta','Quem escreveu os outbounds que saem identificados so pelo canal?',
+      'por_que_importa','sem autoria nao se credita resultado a capacidade nenhuma',
+      'confianca_atual','media','fonte_faltante','carimbo de autor no ingest do zapi',
+      'acao_minima_para_descobrir','carimbar autor na origem; o vinculo com o lead ja existe e nao precisa ser reconstruido',
+      'outbounds_so_com_canal_30d',(select canal_generico from aut),
+      'nota','reformulada em 25/08: a lacuna e de AUTORIA, nao de rastreio. 97,5% dos outbounds tem lead_id e nenhum e verdadeiramente sem origem. A leitura anterior (80,5% sem autor) vinha da fonte curta mensagem_envio.'),
     jsonb_build_object('id','U8','pergunta','Os crons ativos produzem efeito de negocio?',
       'por_que_importa','execucao tecnica bem sucedida nao prova missao cumprida',
       'confianca_atual','baixa','fonte_faltante','log de negocio por job',
       'acao_minima_para_descobrir','nao concluir nada hoje: sucesso tecnico e silencio sao indistinguiveis'),
-    jsonb_build_object('id','U9','pergunta','Qual a atribuicao campanha -> lead -> venda?',
-      'por_que_importa','e a cadeia causal central do negocio e a unica que permitiria estimar impacto de rota',
-      'confianca_atual','baixa','fonte_faltante','vinculo persistido de atribuicao ponta a ponta',
-      'acao_minima_para_descobrir','medir taxa de conversao quente->venda antes de escolher rota'),
+    jsonb_build_object('id','U9a','pergunta','Qual a COBERTURA da atribuicao campanha -> lead -> venda?',
+      'estado','PARCIALMENTE RESOLVIDA em 25/08/2026 pelo teste U9',
+      'por_que_importa','define quanto do resultado pode ser explicado por midia paga',
+      'o_que_ja_esta_provado','72,4% dos leads de 120d tem utm_campaign_id; 0 leads sem origem; 102 campanhas de compradores resolvem em meta_ads_insights; 21,5% da receita (R$ 85.071,96 de R$ 396.005,57) e atribuivel ponta a ponta; ~70% e organica/recorrencia',
+      'confianca_atual','media','fonte_faltante','atribuicao para os 65,4% de compradores sem campaign_id e para a receita organica',
+      'acao_minima_para_descobrir','medir por que 65,4% dos compradores perdem o campaign_id entre o lead e a venda'),
+    jsonb_build_object('id','U9b','pergunta','Contatar causa venda, ou apenas acompanha uma conversa que ja existia?',
+      'estado','ABERTA - a pergunta que realmente bloqueia a escolha de rota',
+      'por_que_importa','sem isso nao existe valor esperado para nenhuma rota de ataque a lead',
+      'o_que_ja_foi_refutado','o diferencial agregado (5,15% x 0,27%) e artefato de selecao: no estrato SEM_CONVERSA o contato nao ajuda (0,09% x 0,28%)',
+      'confianca_atual','baixa','fonte_faltante','contrafactual - um grupo de leads comparavel que deliberadamente nao foi contatado',
+      'acao_minima_para_descobrir','reter aleatoriamente uma fracao pequena de leads elegiveis por um periodo curto e comparar; NAO estimar por observacao'),
     jsonb_build_object('id','U10','pergunta','A variacao de gasto de midia causou variacao de receita?',
       'por_que_importa','e a decisao de maior valor financeiro observavel no periodo',
       'confianca_atual','baixa','fonte_faltante','contrafactual / experimento controlado',
@@ -416,10 +504,10 @@ contr as (
       'resolucao_adotada','meta_comercial e a verdade do V0; metas_crescimento nao e usada'),
     jsonb_build_object('codigo','C2','descricao','efeito_externo=0 no log para agentes com envio real comprovado',
       'agentes',(select coalesce(jsonb_agg(a.slug order by a.slug),'[]'::jsonb)
-                 from agentes a join env e on e.slug=a.slug
+                 from agentes a join fc_agente fa on fa.slug=a.slug
                  left join dcs d on d.slug=a.slug
-                 where coalesce(e.envios30,0)>0 and coalesce(d.ef30,0)=0),
-      'resolucao_adotada','comprovada nao depende de efeito_externo; usa prova independente por canal'),
+                 where coalesce(fa.outbounds30,0)>0 and coalesce(d.ef30,0)=0),
+      'resolucao_adotada','comprovada nao depende de efeito_externo; usa fact_conversations e prova independente por canal'),
     jsonb_build_object('codigo','C3','descricao','agente decide sem edge_function cadastrada: o cadastro nao descreve como executa',
       'agentes',(select coalesce(jsonb_agg(a.slug order by a.slug),'[]'::jsonb)
                  from agentes a join dcs d on d.slug=a.slug
@@ -429,7 +517,12 @@ contr as (
       'org_metas_ativas',(select count(*) from org_metas where ativo),
       'org_metas_ativas_vencidas',(select count(*) from org_metas where ativo and periodo_fim < current_date),
       'org_meta_resultados',(select count(*) from org_meta_resultados),
-      'resolucao_adotada','org_metas fora do V0')
+      'resolucao_adotada','org_metas fora do V0'),
+    jsonb_build_object('codigo','C5',
+      'descricao','a classificacao atual e pos-evento em parte dos casos e nao deve ser usada isoladamente para inferir conversao futura',
+      'prova','fn_classificar_score(p_score_total, p_has_purchase_30d) retorna cliente_ativo sempre que houve compra em 30d; 100% dos compradores rotulados cliente_ativo tiveram o score gravado depois da compra',
+      'efeito','as classes de ataque (quente/morno/frio/fechamento) somam zero vendas em 30d por construcao, nao por desempenho',
+      'resolucao_adotada','classificacao mantida como estado atual e rotulada classificacao_atual_nao_historica; decisao deve usar engajamento_conversa')
   ) j
 ),
 fontes as (
@@ -440,7 +533,7 @@ fontes as (
     'meta_ads_insights',(select sync from ads),
     'lead_score_comercial',(select ult from sc),
     'agente_decisoes_log',(select max(ult) from dcs),
-    'mensagem_envio',(select max(ult) from env),
+    'fact_conversations',(select max(ult) from fc_agente),
     'frentes',(select ult from fr)
   ) vivas,
   jsonb_build_object(
@@ -448,12 +541,13 @@ fontes as (
     'agente_aprovacoes_ultima_aprovacao',(select ult_aprovado from apr),
     'org_metas','nao usada no V0 (metas ativas com periodo vencido)',
     'sistema_mapa','nao usada no V0 (ultima_revisao congelada, cobre ~7% das edges)',
-    'metas_crescimento','nao usada como verdade (apenas exposta em contradicoes)'
+    'metas_crescimento','nao usada como verdade (apenas exposta em contradicoes)',
+    'mensagem_envio','rebaixada em 25/08: so existe desde 12/08/2026; usada apenas como prova de envio por provider, nunca como cobertura'
   ) stale
 )
 
 select jsonb_build_object(
-  'versao','fn_mapa_cerebro_v0/1',
+  'versao','fn_mapa_cerebro_v0/2',
   'atualizado_em', now(),
 
   'objetivos', jsonb_build_object(
@@ -500,9 +594,15 @@ select jsonb_build_object(
        'fonte','meta_ads_insights','atualizado_em',sync,'confianca','alta',
        'ressalva','variacao entre meses e correlacao; causa nao estabelecida (U10)') from ads),
     'funil_cobertura', (select jsonb_build_object('distribuicao',j,
-       'fonte','lead_score_comercial x mensagem_envio(provider_message_id), janela 30d',
+       'fonte','lead_score_comercial x fact_conversations(outbound), janela 30d',
        'atualizado_em',(select ult from sc),'confianca','media',
-       'ressalva','cobertura conta apenas envios com autor_tipo=agente; envios sem autoria (U7) podem subestima-la') from funil_j),
+       'semantica_da_classificacao','classificacao_atual_nao_historica',
+       'ressalva','a classificacao e o estado ATUAL do lead, nao o estagio em que ele estava quando foi contatado. cliente_ativo e atribuido POR DEFINICAO a quem comprou nos ultimos 30 dias (fn_classificar_score), entao esta distribuicao NAO pode ser usada para inferir conversao. Use engajamento_conversa para decisao.') from funil_j),
+    'engajamento_conversa', (select jsonb_build_object('faixas',j,
+       'fonte','fact_conversations (inbound/outbound por lead, 30d) x lead_score_comercial',
+       'regra','SEM_CONVERSA=0 inbound; BAIXO=1-4; MEDIO=5-19; ALTO=20+ (faixas fixas, herdadas do teste U9 de 25/08/2026)',
+       'confianca','alta',
+       'nota','ASSOCIACAO OBSERVADA no teste U9: 20+ inbounds converteram 36,36% e 0 inbound converteu 0,09%. CAUSALIDADE NAO PROVADA - ver U9b. Este e o unico preditor que sobreviveu a estratificacao.') from eng_j),
     'margem_por_familia', (select jsonb_build_object('familias',j,
        'familias_sem_custo',sem_custo,'receita_sem_margem',receita_sem_custo,'receita_coberta',receita_total,
        'fonte','vw_margem_por_produto','confianca','media',
@@ -522,15 +622,41 @@ select jsonb_build_object(
     'fontes_vivas',(select vivas from fontes),
     'fontes_stale',(select stale from fontes),
     'contradicoes',(select j from contr),
+    'auto_refutacao', jsonb_build_array(
+      jsonb_build_object('data','2026-08-25','origem','teste U9 read-only',
+        'item','fonte de contato',
+        'antes','mensagem_envio era a fonte de cobertura de contato',
+        'depois','fact_conversations passou a ser a fonte canonica',
+        'motivo','mensagem_envio so existe desde 12/08/2026: a janela de 30 dias media 13 dias'),
+      jsonb_build_object('data','2026-08-25','origem','teste U9 read-only',
+        'item','cobertura de contato (G2)',
+        'antes','quente 33,1% / morno 29,7% / frio 3,2% / cliente_ativo 14,8%',
+        'depois','recalculada sobre fact_conversations; a subestimacao chegava a 12x no frio',
+        'motivo','fonte curta'),
+      jsonb_build_object('data','2026-08-25','origem','teste U9 read-only',
+        'item','classificacao como estagio de funil',
+        'antes','classificacao usada para segmentar conversao',
+        'depois','marcada como classificacao_atual_nao_historica e excluida de inferencia de conversao',
+        'motivo','fn_classificar_score atribui cliente_ativo a quem comprou em 30d: medir conversao por ela e tautologia'),
+      jsonb_build_object('data','2026-08-25','origem','teste U9 read-only',
+        'item','campanha -> lead',
+        'antes','declarada inexistente (sem chave confiavel)',
+        'depois','PARCIAL com cobertura medida: 72,4% dos leads com campaign_id, 21,5% da receita atribuivel',
+        'motivo','a chave utm_campaign_id existia e resolve em meta_ads_insights'),
+      jsonb_build_object('data','2026-08-25','origem','teste U9 read-only',
+        'item','autoria de contato (U7/G6)',
+        'antes','80,5% dos envios sem autor',
+        'depois','79,2% com autoria apenas de canal, 0% sem origem, 97,5% com lead_id',
+        'motivo','a lacuna e de autoria, nao de rastreio; o numero antigo vinha da fonte curta')),
     'lacunas_criticas', jsonb_build_array(
       'receita e proxy de pixel, nao caixa (U1)',
-      'nenhuma taxa de conversao medida entre etapa do funil e venda (U9)',
-      'nenhuma cadeia causal economica persistida ponta a ponta',
+      'causalidade contato -> venda refutada como leitura ingenua e ainda sem contrafactual (U9b)',
+      'atribuicao de campanha cobre 21,5% da receita; o resto e organico/recorrencia (U9a)',
       'metade da operacao (producao/estoque/fiscal/caixa) fora deste projeto'),
     'cobertura_estimativa', jsonb_build_object(
-      'blocos_com_fonte_viva',5,'blocos_totais',6,
-      'bloco_sem_fonte','relacoes: nenhuma aresta economica causal persistida; publicadas com rotulo de prova',
-      'perguntas_do_mapa_respondidas_com_prova',3,'perguntas_do_mapa',9),
+      'blocos_com_fonte_viva',6,'blocos_totais',6,
+      'nota','relacoes deixou de ser o bloco sem fonte: campanha->lead, lead->atendimento e conversa_ativa passaram a ter fonte medida; o que falta e causalidade, nao dado',
+      'perguntas_do_mapa_respondidas_com_prova',5,'perguntas_do_mapa',9),
     'confianca_global','media',
     'veredito','MAPA_PARCIAL'
   )
