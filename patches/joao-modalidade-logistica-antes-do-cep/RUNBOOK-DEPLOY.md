@@ -1,7 +1,33 @@
 # Runbook de publicação — v4.34.0
 
-> **NÃO PUBLICADO ATÉ AQUI.** Produção segue na Edge **176** (`agente-noturno-v4.33.0`).
-> A publicação exige decisão humana explícita.
+> **PUBLICADO.** Decisão humana dada em 26/08/2026: publicar pelo shim, com push em
+> `skillprintpro1`. Executado às **22:30:47 UTC**.
+
+## Publicação executada — registro
+
+| item | valor |
+|---|---|
+| commit do candidato | `99e2c35d5eaa153769efc12905a2bcd75d7bf1c4` (`suelicontadeluz-design/skillprintpro1`, branch `claude/joao-modalidade-logistica-antes-do-cep`) |
+| `sha256` do arquivo servido | `c8fd20f16f32c7bd851a6cddb88cfbf68d2386cac2285782a1654935b117ba70` |
+| pré-flight da URL bruta | `HTTP 200`, 307.320 bytes, hash conferido **antes** do deploy |
+| Edge resultante | **version 177**, `ACTIVE`, `verify_jwt=false`, `ezbr_sha256 f689a586d880128fbea32b6e4db8d8251c6eb50ef2546749c58f382d9cbc4dc6` |
+| prova de boot | `POST {}` → `HTTP 400 {"ok":false,"motivo":"campos"}` — módulo de 307KB buscado, avaliado, `Deno.serve` registrado |
+
+### Prova comportamental pós-deploy (dry-run, zero escrita)
+
+Três execuções contra a Edge 177, todas com `_dry_run:true` e telefone sem lead — portanto
+`emitirAutorizacao` devolve `null` e **nenhuma linha financeira nasce** (conferido:
+`operacoes_financeiras` +0, `joao_envios` +0, `agente_noturno_estado` +0).
+
+| entrada | `modalidade_logistica` | resposta |
+|---|---|---|
+| DDD 11 · "14 metros… Forma de retirada: retirada presencial. Pode já gerar a cobrança?" | `retirada` | `Para gerar a cobrança correta, me confirma só a forma de pagamento: Pix ou cartão?` — **sem CEP, sem PAC/Sedex** |
+| DDD 11 · "Meu CEP é 05893-000. **Mas** a forma de retirada é retirada presencial…" | `retirada` | idem — **o CEP presente foi ignorado; `calcular_frete` não foi chamada** |
+| DDD 31 · "14 metros, quanto fica com envio?" | `envio` | `…R$ 698,60… Agora me passa seu CEP com 8 dígitos para calcular o frete.` |
+
+As duas primeiras passaram pelo `promessa_sem_conclusao_bloqueada_terminal` — exatamente o
+ponto onde vivia a lista fixa `quantidade, medida, CEP ou forma de retirada?` que travou a
+Carolina. O texto novo saiu correto nas duas.
 
 ## Como a Edge é publicada hoje (mecanismo real, verificado)
 

@@ -4,6 +4,11 @@
 **Trilha:** `conversao_joao` · **claim:** `claude-20260826-joao-modalidade-logistica-01`
 **Edge:** `agente-noturno` (projeto `ldrdtaibazplvrbwyrvx`)
 
+> **PUBLICADO em 26/08/2026 22:30:47 UTC — Edge version 177, `ACTIVE`, `verify_jwt=false`.**
+> Shim: `.../skillprintpro1/99e2c35d5eaa153769efc12905a2bcd75d7bf1c4/patches/joao-modalidade-logistica-antes-do-cep/candidato/index.ts`
+> `ezbr_sha256` do shim: `f689a586d880128fbea32b6e4db8d8251c6eb50ef2546749c58f382d9cbc4dc6`.
+> A frente **não fecha por deploy**: falta canário orgânico (ver RUNBOOK).
+
 ## Âncora na fonte EXATAMENTE viva
 
 | item | valor |
