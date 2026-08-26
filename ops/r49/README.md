@@ -327,14 +327,18 @@ saem primeiro, porque a FK e `RESTRICT`.
 **R50 — backfill dos 8 deals da Vanessa.** Agora que a identidade e unica, os 8
 deixaram de ser bloqueados por ambiguidade. Gates obrigatorios, herdados da R44:
 
-- reancorar os 8 na RD ao vivo — **hoje impossivel, a RD esta retornando 401**;
+- reancorar os 8 na RD ao vivo — **feito na R50: 8/8 HTTP 200, 8/8 `won`**
+  (a R48/R49 dizia que a RD estava fora; era erro meu de endpoint, ver `ops/r50/`);
 - decidir a qual dos dois leads cada Purchase se ancora (a pessoa e unica, o lead
   historico nao — e o `lead_id` continua sendo a coluna real de `pixel_events`);
 - gate obrigatorio de `fn_cancelar_disparos_apos_compra` e
   `fn_trigger_feedback_purchase`, que agem por `lead_id` **sem filtro de data**;
 - zero atribuicao fabricada.
 
-Enquanto a RD nao voltar, a R50 nao comeca.
+~~Enquanto a RD nao voltar, a R50 nao comeca.~~ **Corrigido pela R50:** a RD
+nunca esteve fora. O 401 vinha de eu estar consultando `crm.rdstation.com`,
+um produto que esta conta nao usa. O endpoint real e `api.rd.services/crm/v2`
+com `Bearer`, e sempre respondeu 200.
 
 Nao trabalhado, registrado: os 22 SEM_LEAD; o par duplicado da Igreja
 (`466,68` / `466,80`); o par de R$1.799,79 do Kleberson; os ~52 outros grupos de
