@@ -3,6 +3,29 @@
 Mesmo mecanismo de shim já usado pela Edge atual: a Edge importa o candidato por URL bruta,
 fixada por commit, de `suelicontadeluz-design/skillprintpro1` (público).
 
+## Publicação executada — registro
+
+| item | valor |
+|---|---|
+| commit do candidato | `81527b80e85677d5df2c5a6b2b5e359f51bc17ce` (`skillprintpro1`, branch `claude/joao-modalidade-logistica-antes-do-cep`) |
+| `sha256` do arquivo servido | `33a4ec1287c97f20bd60b9565029f1a7152b4e1a4180a273a249052a487b7311` |
+| pré-flight | `HTTP 200`, 327.776 bytes, hash conferido **antes** do deploy, `v4.35.0` presente |
+| Edge resultante | **version 178**, `ACTIVE`, `verify_jwt=false`, `ezbr_sha256 cb95ef866f34a6beeb81748475122c4608ca5169ad44e80597afd61ec9c71d1c` |
+| prova de boot | `POST {}` → `HTTP 400 {"ok":false,"motivo":"campos"}` |
+
+### Prova comportamental pós-deploy (dry-run contra o cadastro REAL do ERP)
+
+Dois telefones que **de fato** têm pessoa com CEP no ERP. Zero escrita: `pessoas` do ERP
+**+0 linhas alteradas**, `operacoes_financeiras` +0, `agente_noturno_estado` +0, `cep_*` erros +0.
+
+| telefone | cadastro | resposta da Edge 178 | tools |
+|---|---|---|---|
+| DDD 11, CEP `…7530` | `cep_origem: pessoas`, `cep_confirmado_para_envio: false` | **"Claro, pode ser! Vai ser enviado para o mesmo CEP final 7530?"** | `[]` |
+| DDD 35 (MG), CEP `…0000` | `cep_origem: pessoas`, `cep_confirmado_para_envio: false` | **"Vai ser enviado para o mesmo CEP final 0000?"** | `[]` |
+
+`tools: []` nos dois é a prova do enforcement: `calcular_frete` **não roda** antes da
+confirmação, e o CEP inteiro nunca é pedido nem exposto.
+
 ## Passos
 
 1. `sha256sum candidato/index.ts` → deve ser
