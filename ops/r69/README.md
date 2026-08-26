@@ -69,7 +69,7 @@ Mas ela é o **gate 4**, e nenhuma campanha chega lá.
 
 | primeiro gate que barra | campanhas | fila elegível |
 |---|---|---|
-| **8 — mensagem sem "responda SAIR"** | **13** | 617 |
+| **8 — mensagem sem "responda SAIR"** | **13** | 686 |
 | 5 — mensagem `sequencia=1` ausente | 4 | 43 |
 | 6 — canal `email` (a função só aceita whatsapp) | 2 | 91 |
 | 1 — `criado_por` inválido (`cerebro-exp001`, `agente-campanhas-crm / auditoria-manual`) | 2 | 245 |
@@ -187,7 +187,7 @@ não é o que segura a fila: mesmo revertida, nada sairia. O que segura é conte
 
 **Depende de SISTEMA** (registrado em `gap_do_mapa`, sem criar frente):
 - corrigir o gerador de mensagem do `agente-campanhas-crm` para sempre incluir a instrução de
-  opt-out — desbloqueia 13 campanhas e 617 leads;
+  opt-out — desbloqueia 13 campanhas e 686 leads;
 - decidir o caminho de e-mail: `fn_tiago_autorizar_e_enfileirar` só trata whatsapp e não existe
   função de enfileiramento para e-mail;
 - prover invocação (cron ou chamada) para a função de autorização;
