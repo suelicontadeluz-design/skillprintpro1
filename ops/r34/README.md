@@ -111,6 +111,14 @@ UPDATE pixel_events p
 - Jessica — deal sem telefone em nenhuma fonte, R$274,50
 - 8 casos AMBIGUO, hoje ja corretos
 - duplicacoes economicas (mesmo deal, mais de uma linha)
-- `mv_qualidade_campanha` — **NAO refreshada**, esta desatualizada; refresh
-  precisa de autorizacao propria
+- `mv_qualidade_campanha` — nao refreshada, e **nao precisa ser** por causa
+  desta correcao. Correcao registrada em 26/08 (R36): os 37 tem `campaign_id`
+  NULL e `event_time` maximo 13/04, entao nao entram na base da MV (que exige
+  campanha e 90 dias); e como o subquery `compraram` exige
+  `pe2.event_time > pe.event_time`, uma venda de fev-abr nunca conta para uma
+  linha-base posterior a 28/05. Efeito da R35 sobre a MV: ZERO.
+  A MV envelhece sozinha pela janela movel de 90 dias, o que e independente
+  desta frente. `REFRESH ... CONCURRENTLY` e seguro (SELECT puro sobre
+  pixel_events, sem funcao de usuario, sem trigger, indice unico em
+  campaign_id)
 - `lead_score_comercial` — 11 linhas afetadas, drenam sozinhas pelo cron 144
