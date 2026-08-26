@@ -1,0 +1,2 @@
+{ "compilerOptions": { "target":"ES2022","module":"NodeNext","moduleResolution":"NodeNext","strict":false,"skipLibCheck":true,"outDir":"../out","rootDir":".","allowJs":false },
+  "include": ["node_shim.d.ts","harness.ts","harness_base.ts","testes.ts","testes_base.ts"] }
