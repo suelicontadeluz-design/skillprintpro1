@@ -1,0 +1,41 @@
+conjunto;decision_id;timestamp;campanha;acao;roas;gasto_brl;resultado;acerto_db;via_procedimental;label_criterio;label_humano;justificativa_humana;motivo_original
+BOM_ANCHOR;ba747c4a;2026-05-04 20:02;470257;pausar_campanha;0.05;2799;pendente_aprovacao;false;expirou;RUIM;BOM;ROAS 0.05 com R$2.799 gastos: cada R$1 adicional retorna R$0,05. Pausar e dominante e reversivel.;ROAS 0.05x com R$2798.8 gastos
+BOM_ANCHOR;0ef9b982;2026-05-04 20:02;470257;pausar_campanha;0;2799;pendente_aprovacao;false;expirou;RUIM;BOM;ROAS 0 com R$2.799 gastos: retorno nulo sobre verba alta. Pausar e correto.;ROAS 0x com R$2798.8 gastos
+BOM_ANCHOR;6d79ee1c;2026-05-04 20:02;970257;pausar_campanha;0;2418;pendente_aprovacao;false;expirou;RUIM;BOM;ROAS 0 com R$2.418. Atribuicao comprovadamente funciona nesta campanha (pico 2.11x): zero e real.;ROAS 0x com R$2417.83 gastos
+BOM_ANCHOR;ef380695;2026-05-04 20:02;910257;pausar_campanha;0;2840;pendente_aprovacao;false;expirou;RUIM;BOM;ROAS 0 com R$2.840. Atribuicao comprovada nesta campanha (pico 8.61x): zero e real.;ROAS 0x com R$2840.14 gastos
+BOM_ANCHOR;983e654a;2026-05-04 20:02;230052;pausar_campanha;0;2467;pendente_aprovacao;false;expirou;RUIM;BOM;ROAS 0 com R$2.467. Atribuicao comprovada (pico 4.33x): zero e real.;ROAS 0x com R$2466.54 gastos
+BOM_ANCHOR;2511f231;2026-05-04 20:02;230052;pausar_campanha;0;2467;pendente_aprovacao;false;expirou;RUIM;BOM;Idem 983e654a. Emissao duplicada no mesmo segundo.;ROAS 0x com R$2466.54 gastos
+BOM_ANCHOR;f7b30188;2026-05-04 20:02;970257;pausar_campanha;0;2418;pendente_aprovacao;false;expirou;RUIM;BOM;Idem 6d79ee1c. Emissao duplicada.;ROAS 0x com R$2417.83 gastos
+BOM_ANCHOR;376bcff5;2026-05-04 20:02;970257;pausar_campanha;0;2418;pendente_aprovacao;false;expirou;RUIM;BOM;Idem 6d79ee1c. Emissao duplicada.;ROAS 0x com R$2417.83 gastos
+BOM_ANCHOR;ab5fb8dd;2026-05-04 20:02;910257;pausar_campanha;0;2840;pendente_aprovacao;false;expirou;RUIM;BOM;Idem ef380695. Emissao duplicada.;ROAS 0x com R$2840.14 gastos
+BOM_ANCHOR;e400e90d;2026-05-04 20:02;230052;pausar_campanha;0;2467;pendente_aprovacao;false;expirou;RUIM;BOM;Idem 983e654a. Emissao duplicada.;ROAS 0x com R$2466.54 gastos
+BOM_ANCHOR;36159b9b;2026-06-15 09:00;090257;pausar_campanha;0;605;pendente_aprovacao;false;expirou;RUIM;BOM;ROAS 0 com R$605. Primeiro aviso da serie; pausar e correto e reversivel.;ROAS 0x | gasto R$605
+BOM_ANCHOR;e3d118b1;2026-06-16 18:00;090257;pausar_campanha;0;634;pendente_aprovacao;false;expirou;RUIM;BOM;Reiteracao apos R$29 adicionais queimados sem retorno.;ROAS 0x | gasto R$634
+BOM_ANCHOR;778a2e1c;2026-06-18 09:00;090257;pausar_campanha;0;696;pendente_aprovacao;false;expirou;RUIM;BOM;Terceira reiteracao; R$91 queimados desde o primeiro aviso ignorado.;ROAS 0x | gasto R$696
+BOM_ANCHOR;1aed152e;2026-07-03 09:00;910257;pausar_campanha;0.17;2056;pendente_aprovacao;false;expirou;RUIM;BOM;ROAS 0.17 com R$2.056. Atribuicao comprovada na campanha: perda real.;ROAS 0.17x | gasto R$2056
+BOM_ANCHOR;ca6e2365;2026-07-10 09:00;560257;pausar_campanha;0;722;pendente_aprovacao;false;expirou;RUIM;BOM;ROAS 0 com R$722 e crescendo. Pausar e correto sob dado disponivel.;ROAS 0x | gasto R$722
+BOM_ANCHOR;6c52480d;2026-07-13 09:00;470257;pausar_campanha;0.34;953;pendente_aprovacao;false;expirou;RUIM;BOM;ROAS 0.34 com R$953: bem abaixo do breakeven.;ROAS 0.34x | gasto R$953
+BOM_ANCHOR;021191bc;2026-07-16 09:00;560257;pausar_campanha;0.01;920;pendente_aprovacao;false;expirou;RUIM;BOM;ROAS 0.01 com R$920. Sexto aviso da serie.;ROAS 0.01x | gasto R$920
+BOM_ANCHOR;ef0683d5;2026-07-17 10:00;560257;pausar_campanha;0.01;951;pendente_aprovacao;false;expirou;RUIM;BOM;ROAS 0.01 com R$951. Setimo aviso; R$326 queimados desde o primeiro.;ROAS 0.01x | gasto R$951
+S2;0d5a85a9;2026-05-27 10:00;470257;pausar_campanha;0.68;1005;pendente_aprovacao;null;sem_veredito;INCONCLUSIVO;INCONCLUSIVO;ROAS 0.68 e abaixo do breakeven mas recuperavel; pausar vs otimizar e juizo aberto sem margem conhecida.;ROAS 0.68x | gasto R$1005
+S2;e70b40a3;2026-06-03 09:00;470257;pausar_campanha;0.69;995;pendente_aprovacao;false;expirou;RUIM;INCONCLUSIVO;Idem. Sem evidencia posterior do desfecho.;ROAS 0.69x | gasto R$995
+S2;f1ced945;2026-06-04 10:00;470257;pausar_campanha;0.69;988;pendente_aprovacao;false;expirou;RUIM;INCONCLUSIVO;Idem. Zona ambigua entre 0.5 e 1.0.;ROAS 0.69x | gasto R$988
+S2;926f1cfd;2026-06-09 18:00;470257;pausar_campanha;0.68;997;pendente_aprovacao;false;expirou;RUIM;INCONCLUSIVO;Idem. Sem margem de contribuicao nao ha verdade economica.;ROAS 0.68x | gasto R$997
+S3;20c6dfa1;2026-05-28 10:00;970257;escalar_orcamento;1.7;-;pendente_aprovacao;true;aprovada;BOM;BOM;ROAS 1.7 acima do threshold declarado 1.3 e acima do breakeven. Rotulo economico, NAO por ter sido aprovada.;ROAS 1.7x | 3 clientes | 225 leads | threshold 1.3x
+S3;a0766400;2026-05-28 10:00;230052;escalar_orcamento;4.07;-;pendente_aprovacao;true;aprovada;BOM;BOM;ROAS 4.07 com 4 clientes. Escalar vencedor e claramente correto. Rotulo economico.;ROAS 4.07x | 4 clientes | 325 leads | threshold 1.3x
+S4;f900a5b6;2026-06-03 09:00;910257;escalar_orcamento;5.23;-;pendente_aprovacao;false;expirou;RUIM;BOM;ROAS 5.23 com 12 clientes, muito acima do threshold 2.5. Escalar e correto.;ROAS 5.23x | 12 clientes | threshold 2.5x
+S4;c8a5e94c;2026-06-09 18:00;230052;escalar_orcamento;4.2;-;pendente_aprovacao;false;expirou;RUIM;BOM;ROAS 4.2 com 6 clientes acima do threshold 2.0. Escalar e correto.;ROAS 4.2x | 6 clientes | threshold 2.0x
+S4;94a791f8;2026-06-17 18:00;910257;escalar_orcamento;4.18;-;pendente_aprovacao;false;expirou;RUIM;BOM;ROAS 4.18 com 13 clientes acima do threshold 2.5. Escalar e correto.;ROAS 4.18x | 13 clientes | threshold 2.5x
+S4;53361825;2026-06-25 18:00;230052;escalar_orcamento;3.78;-;pendente_aprovacao;false;expirou;RUIM;BOM;ROAS 3.78 com 6 clientes. Escalar e correto.;ROAS 3.78x | 6 clientes | threshold 1.3x
+S5;261693da;2026-06-24 18:00;970257;escalar_orcamento;1.68;-;pendente_aprovacao;false;expirou;RUIM;INCONCLUSIVO;Marginalmente acima do threshold 1.6; margem de contribuicao desconhecida.;ROAS 1.68x | threshold 1.6x
+S5;899c3bf0;2026-06-25 18:00;970257;escalar_orcamento;1.65;-;pendente_aprovacao;false;expirou;RUIM;INCONCLUSIVO;ROAS caindo e threshold baixado de 1.6 para 1.3 no mesmo periodo. Sinal ambiguo.;ROAS 1.65x | threshold 1.3x
+S5;8a236f96;2026-06-30 18:00;970257;escalar_orcamento;1.61;-;pendente_aprovacao;false;expirou;RUIM;INCONCLUSIVO;ROAS 1.61 com threshold ja rebaixado para 1.0. Escalar em tendencia de queda e discutivel.;ROAS 1.61x | threshold 1.0x
+S6;38e87408;2026-05-29 11:00;-;criar_publico;-;-;pendente_aprovacao;null;sem_veredito;INCONCLUSIVO;INCONCLUSIVO;Manutencao de publico expirado. Sem dado economico nem efeito observavel.;Publico 02/67 expirado
+S6;bfb5481a;2026-06-01 18:00;-;criar_publico;-;-;pendente_aprovacao;null;sem_veredito;INCONCLUSIVO;INCONCLUSIVO;Idem. Rotina de baixo risco sem evidencia de efeito.;Publico 02/40 expirado
+S6;62c33842;2026-07-01 18:00;-;criar_publico;-;-;pendente_aprovacao;null;sem_veredito;INCONCLUSIVO;INCONCLUSIVO;Idem.;Publico 02/114 expirado
+S6;97167e09;2026-07-24 18:00;-;criar_publico;-;-;pendente_aprovacao;null;sem_veredito;INCONCLUSIVO;INCONCLUSIVO;Idem.;Publico 02/133 expirado
+S7;85f4760b;2026-06-10 23:32;910257;escalar_orcamento;4.8;-;proposta;true;dry_run;INCONCLUSIVO;INCONCLUSIVO;Simulacao em dry_run: nao e decisao real, nao deve pontuar em nenhuma direcao.;ROAS 4.8x dry_run
+S8;280893d0;2026-06-11 10:00;-;avaliacao_input_diego;-;-;executada;true;sem_veredito;INCONCLUSIVO;INCONCLUSIVO;Consumo de input do Diego. Sem consequencia economica observavel.;avaliacao_input_diego
+S8;edab783f;2026-06-13 09:00;-;nenhum;-;-;executada;true;sem_veredito;INCONCLUSIVO;INCONCLUSIVO;Abstencao em dia nao util. Correta por construcao mas sem contrafactual.;dia_nao_util
+S8;fbb3390b;2026-08-07 09:00;-;nao_proposto;-;-;executada;true;sem_veredito;INCONCLUSIVO;INCONCLUSIVO;Abstencao por ausencia de necessidade comercial. Sem dado para julgar.;sem_necessidade_comercial
+S8;5f67c3ba;2026-08-22 09:00;-;nenhum;-;-;executada;true;sem_veredito;INCONCLUSIVO;INCONCLUSIVO;Abstencao em dia nao util.;dia_nao_util
