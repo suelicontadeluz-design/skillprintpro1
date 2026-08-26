@@ -1,66 +1,116 @@
-# R34 — venda certa -> cliente errado (rd_won_*)
+# R34/R35 — venda certa -> cliente errado (rd_won_*)
 
-Rodada de 2026-08-26. **Nenhuma escrita foi aplicada.** O gate do item 6 do
-protocolo disparou antes da mutacao.
+Frente concluida em 2026-08-26. **37 eventos corrigidos e verificados.**
 
-## O que foi provado
+## O problema
 
-Replay da regra LIVE v56 (`rd-won-pixel-sync`, telefone do `deal.name`,
-DDD + 8 ultimos digitos, resolucao unica ou nada) sobre os 361 `Purchase`
-com `event_id like 'rd_won_%'`, reancorado na API da RD (1331 deals won do
-pipeline `63191f7dd02b2e000cb1805b`).
+`rd-won-pixel-sync` v55 resolvia o lead por `lead_identificadores`
+(`deal_rdstation_id` / `contact_rdstation_id`), chaves que nao sao unicas.
+Resultado: 41 vendas ligadas ao cliente errado, 27 delas concentradas num
+unico lead (Juliana) que recebeu negocios de 7 clientes distintos.
 
-| classe | eventos | receita |
+A v56 (LIVE desde 25/08) passou a resolver pelo telefone do `deal.name`,
+fechando a torneira. Esta frente corrigiu o historico.
+
+## Reconciliacao do split R33 (37/4) x R34 (39/2)
+
+Causa provada, nao inferida: o SQL da R33 esta nos `postgres_logs` de
+25/08 20:34 e 20:47. Ela montou o universo de deals a partir de caches
+locais congelados (`propostas_rd` U `crm_deal_snapshot` U `crm_deals_cache`),
+nunca da API da RD.
+
+Dois deals (Otacilio, Kleberson) nao existem em nenhum cache local, entao a
+R33 nao tinha o nome deles, nao tinha telefone, e os classificou SEM_LEAD.
+Reproduzindo a R33 com a fonte dela: **37 CORRIGIVEL + 4 SEM_LEAD, exato.**
+
+Hipotese descartada: truncamento por `closed_at`. Os dois extras estao nas
+posicoes 659 e 706, dentro de qualquer janela de 1195.
+
+## Semantica de `pixel_events.state`
+
+`state` NAO e observacao independente de UF. E projecao derivada, gravada
+pelo trigger `pixel_events_normalize_nulls_trigger`
+(`BEFORE INSERT OR UPDATE`):
+
+```sql
+IF NEW.state IS NULL AND NEW.lead_id IS NOT NULL THEN
+  SELECT lm.st INTO NEW.state FROM leads_marketing lm
+   WHERE lm.lead_id = NEW.lead_id LIMIT 1;
+END IF;
+```
+
+E `leads_marketing.st` e derivado do DDD do telefone por
+`fn_corrigir_st_por_ddd_leads_marketing()`. Cadeia:
+`state` <- lead vinculado <- DDD do telefone.
+
+Como o trigger so preenche quando o valor e NULL, a correcao usou
+`state = NULL` e deixou o sistema rederivar pela propria regra. Nenhuma UF
+foi escrita a mao.
+
+**`state` segue DESQUALIFICADO como prova de UF**, mesmo agora coerente.
+Para UF confiavel use CEP (`leads_marketing.zip_code`).
+
+## Execucao (2026-08-26 12:19:08 UTC)
+
+```sql
+UPDATE pixel_events p
+   SET lead_id = r.lead_id_novo, state = null
+  FROM public._r35_rollback r
+ WHERE p.event_id = r.event_id
+   AND p.event_name = 'Purchase'
+   AND p.lead_id = r.lead_id_antigo;
+```
+
+Guardas, todas aprovadas em transacao unica:
+
+| guarda | resultado |
+|---|---|
+| rowcount | 37 |
+| lead_id aplicado | 37 |
+| state rederivado pelo trigger | 37 |
+| dos 37 com state NULL restante | 0 |
+| nulls fora do alvo (antes -> depois) | 1 -> 1 |
+| total Purchase (antes -> depois) | 1617 -> 1617 |
+| value/event_time/campaign alterados | 0 |
+
+Ensaio em transacao revertida executado antes, com o mesmo resultado.
+
+## Antes x depois
+
+| | antes | depois |
 |---|---:|---:|
-| JA_CORRETO | 311 | 98.036,30 |
-| CORRIGIVEL_PROVADO | 39 | 12.046,48 |
-| AMBIGUO (hoje ja corretos) | 8 | 2.022,52 |
-| SEM_LEAD (errados, irresolviveis) | 2 | 723,83 |
-| SEM_TELEFONE_NO_NOME (indeterminado) | 1 | 274,50 |
+| rd_won_ corretos | 311 | 348 |
+| rd_won_ errados | 39 | 2 |
+| Juliana: eventos | 33 | 6 |
+| Juliana: receita | R$6.831,59 | R$992,32 |
 
-Conjunto comprovadamente errado = 39 + 2 = **41**, identico ao da R33.
-O split, porem, e 39/2 e nao 37/4.
+Campanha dos 37: R$5.839,27 saem da campanha IG da Juliana
+(`120239742720480257`). 35 eventos ficam sem campanha, 1 vai para
+`120238920638970257`, 1 para `120219836609290257`.
 
-## Por que nao escrevemos
+Divergencia global `state` x `st` do lead permanece em 17 linhas, a mesma
+de antes: a correcao nao introduziu incoerencia nova.
 
-1. **Split divergente e nao explicado por deriva.** Nenhum dos 39 leads-alvo
-   nasceu depois da R33; nenhum dos 27 leads tocados depois da R33 e alvo.
-2. **Gate do item 6.** `pixel_events.state` dos 37 e igual ao `st` do lead
-   ERRADO em 37/37 e bate com o lead certo em apenas 9/37. Trocar so
-   `lead_id` deixaria 28 eventos com estado contradizendo o novo dono.
+## Rollback
 
-## Artefatos (somente leitura, no banco)
-
-- `public._r34_rd_deals_live` — espelho live dos deals won da RD
-- `public._r34_replay` — classificacao dos 361 eventos
-- `public._r34_alvo` — os 37 congelados (rollback: coluna `lead_atual`)
-
-## SQL — aplicar (SO com GO explicito do dono)
+`public._r35_rollback` (37 linhas, PK `event_id`).
 
 ```sql
-begin;
-update pixel_events p set lead_id = a.lead_esperado
-from public._r34_alvo a
-where p.event_id = a.event_id and p.event_name = 'Purchase'
-  and p.lead_id = a.lead_atual;
--- exigir exatamente 37; qualquer outro numero => rollback
-commit;
-refresh materialized view public.mv_qualidade_campanha;
+UPDATE pixel_events p
+   SET lead_id = r.lead_id_antigo, state = r.state_antigo
+  FROM public._r35_rollback r
+ WHERE p.event_id = r.event_id AND p.event_name = 'Purchase';
+-- esperar rowcount 37
 ```
 
-## SQL — rollback
+## Deliberadamente NAO tocado
 
-```sql
-update pixel_events p set lead_id = a.lead_atual
-from public._r34_alvo a
-where p.event_id = a.event_id and p.event_name = 'Purchase'
-  and p.lead_id = a.lead_esperado;
-```
-
-Prova em transacao revertida (2026-08-26): update=37, aplicados=37,
-rollback=37, colaterais fora do alvo=0.
-
-## Fora de escopo desta rodada
-
-As 44 duplicacoes economicas (mesmo deal -> mais de uma linha) continuam
-abertas. Esta rodada trata apenas venda certa -> cliente errado.
+- Otacilio (`rd_won_69f8a16c...`) — PROVAVEL, fonte unica, R$119,80
+- Kleberson (`rd_won_69fcd9d7...`) — duplicata de lead, e merge, R$371,10
+- Amanda e Alean — SEM_LEAD, R$723,83
+- Jessica — deal sem telefone em nenhuma fonte, R$274,50
+- 8 casos AMBIGUO, hoje ja corretos
+- duplicacoes economicas (mesmo deal, mais de uma linha)
+- `mv_qualidade_campanha` — **NAO refreshada**, esta desatualizada; refresh
+  precisa de autorizacao propria
+- `lead_score_comercial` — 11 linhas afetadas, drenam sozinhas pelo cron 144
