@@ -1,0 +1,72 @@
+--- base435.ts	2026-08-27 00:20:12.967426575 +0000
++++ candidato436.ts	2026-08-27 00:20:49.934335082 +0000
+@@ -297,7 +297,31 @@
+ //   3 o cliente declarou EXPLICITAMENTE que e o novo padrao;
+ //   4 a guarda de coerencia de endereco acima permite.
+ //   Nunca cria pessoa. Nunca escreve outro campo alem de cep. Nunca grava sob retirada/motoboy.
+-const V = 'agente-noturno-v4.35.0';
++//
++// v4.36.0 (27/08/2026) P0 — "ENVIAR" COM O CLIENTE COMO REMETENTE NAO E MODALIDADE.
++// Rollback: redeploy do v4.35.0 (Edge 178, index.ts sha256 33a4ec1287c97f20bd60b9565029f1a
++// 7152b4e1a4180a273a249052a487b7311). Sem migracao, sem estado novo.
++//
++// DEFEITO ENCONTRADO PELO CANARIO ORGANICO DA PROPRIA v4.35.0 — e a telemetria nova foi o
++// que o tornou visivel. Lead 5511994088967 (Vitor, DDD 11, Grande SP) escreveu as 12:04:
++//     "posso enviar 300 agora ? e o restante daqui a 5 dias?"
++// Isso e o cliente falando de DINHEIRO: pagar 300 agora e o resto em 5 dias. RX_LOG_ENVIO
++// casou o verbo "enviar" e declarou modalidade_logistica=envio no nivel 2. Com isso o
++// bloqueio de Grande SP da v4.34.0 caiu, e as 23:54 o Joao escreveu:
++//     "Pagamento confirmado. Qual e o seu CEP para a gente calcular o frete dos 300 adesivos?"
++// — pediu CEP a um cliente da Grande SP sem nunca ter perguntado retirada ou envio. E a MESMA
++// familia de defeito do caso Carolina, entrando por outra porta.
++//
++// A CAUSA NASCEU NA v4.34.0, nao na v4.35.0: RX_LOG_ENVIO ja era assim. Rollback NAO corrige.
++//
++// CORRECAO: o verbo sozinho deixa de decidir.
++//   SINAL FORTE (correios, sedex, pac, transportadora, frete, postagem) -> envio, sempre.
++//   VERBO de envio -> envio SO SE o cliente nao for o remetente e o objeto nao for dinheiro,
++//   arquivo, arte ou comprovante. "Pode enviar?" e "voces enviam?" continuam valendo;
++//   "posso enviar 300", "vou enviar o arquivo", "ja mandei o comprovante" nao valem mais.
++// Nada mais muda: modalidade continua vindo antes do CEP, o fluxo de CEP canonico da v4.35.0
++// fica intacto, e nenhuma regra financeira e tocada.
++const V = 'agente-noturno-v4.36.0';
+ const MODEL = 'claude-haiku-4-5-20251001';
+ const ASSINATURA = '*Jo\u00e3o Barros:*\n';
+ const ASSINATURA_JULIA = '*Julia Bitencourt:*\n';
+@@ -598,7 +622,26 @@
+ // Motoboy e retirada POR PROCURACAO: o cliente manda alguem buscar. Nao gera frete Correios.
+ const RX_LOG_MOTOBOY = /\b(motoboy|moto\s?boy|motoqueiro|lalamove|uber\s?flash|99\s?(?:entregas?|flash)|mensageiro|portador)\b/i;
+ const RX_LOG_RETIRADA = /\b(retirad[ao]s?|retirar|retiro|retiramos|retirei|presencial(?:mente)?)\b|\bem\s+m[a\u00e3]os\b|\b(?:busc(?:ar|o|amos)|peg(?:ar|o|amos)|pass(?:ar|o|amos))\s+(?:a[i\u00ed]|l[a\u00e1]|no\s+local|na\s+loja|pessoalmente|o\s+pedido|o\s+material)\b|\bvou\s+a[i\u00ed]\b|\bno\s+local\b|\bna\s+loja\b/i;
+-const RX_LOG_ENVIO = /\b(envi(?:ar|o|a|am|amos|em|ei|ou|ado[s]?)|correios?|sedex|pac|transportadora|frete|postagem|postar)\b|\bentreg(?:ar|a|ue)\s+(?:em\s+casa|no\s+meu|no\s+endere[c\u00e7]o)\b|\breceber\s+em\s+casa\b|\bmandar?\s+(?:pelo|por|via)\b/i;
++// v4.36.0: o sinal de envio passa a ter DOIS niveis, porque o verbo sozinho mentia.
++// FORTE nomeia o meio de transporte — nao importa quem e o sujeito da frase.
++const RX_LOG_ENVIO_FORTE = /\b(correios?|sedex|pac|transportadora|postagem|postar|frete)\b/i;
++// VERBO e apenas candidato. Precisa passar pelos dois filtros abaixo.
++const RX_LOG_ENVIO_VERBO = /\b(envi(?:ar|o|a|am|amos|em|ei|ou|ado[s]?))\b|\bmandar?\s+(?:pelo|por|via|pra|para)\b|\bentreg(?:ar|a|ue)\s+(?:em\s+casa|no\s+meu|no\s+endere[c\u00e7]o)\b|\breceber\s+em\s+casa\b/i;
++// O CLIENTE como REMETENTE. "posso enviar 300 agora", "vou mandar o comprovante", "ja enviei
++// a arte" — nada disso e forma de entrega. Foi por aqui que o caso 5511994088967 entrou.
++const RX_ENVIO_REMETENTE_CLIENTE = /\b(posso|poderia|vou|irei|consigo|acabei\s+de|estou|t[o\u00f4]|j[a\u00e1]|eu)\s+(?:te\s+|lhe\s+|j[a\u00e1]\s+)?(?:envi|mand)/i;
++// Objeto que nao e mercadoria: dinheiro, arquivo, arte, comprovante, numero solto.
++const RX_ENVIO_OBJETO_NAO_LOGISTICO = /(?:envi|mand)\w*\s+(?:o\s+|a\s+|os\s+|as\s+|um\s+|uma\s+|meu\s+|minha\s+|mais\s+)?(?:arquivo|arte|foto|imagem|print|comprovante|pix|pagamento|dinheiro|valor|dep[o\u00f3]sito|r?\$?\s*\d)/i;
++// Mantido para compatibilidade de leitura: a uniao dos dois niveis, sem os filtros.
++const RX_LOG_ENVIO = new RegExp(RX_LOG_ENVIO_FORTE.source + '|' + RX_LOG_ENVIO_VERBO.source, 'i');
++// Decide envio numa sentenca. Negacao continua sendo tratada por termoPositivo.
++function envioPositivoNaSentenca(s: string): boolean {
++  if (termoPositivo(s, RX_LOG_ENVIO_FORTE)) return true;
++  if (!termoPositivo(s, RX_LOG_ENVIO_VERBO)) return false;
++  if (RX_ENVIO_REMETENTE_CLIENTE.test(s)) return false;
++  if (RX_ENVIO_OBJETO_NAO_LOGISTICO.test(s)) return false;
++  return true;
++}
+ // Negacao curta ANTES do termo, dentro da mesma sentenca: "nao vou retirar", "sem frete".
+ const RX_LOG_NEGACAO = /\b(n[a\u00e3]o|sem|nem|nada\s+de)\b/i;
+ // "Forma de retirada: envio pelos Correios" — o ROTULO nao pode contar como declaracao.
+@@ -636,7 +679,7 @@
+   for (const s of sentencasLogisticas(texto)) {
+     if (motoboy === null && termoPositivo(s, RX_LOG_MOTOBOY)) motoboy = s;
+     if (retirada === null && termoPositivo(s, RX_LOG_RETIRADA)) retirada = s;
+-    if (envio === null && termoPositivo(s, RX_LOG_ENVIO)) envio = s;
++    if (envio === null && envioPositivoNaSentenca(s)) envio = s;
+   }
+   if (motoboy !== null) return { modalidade: 'motoboy', trecho: motoboy.slice(0, 120) };
+   if (retirada !== null && envio === null) return { modalidade: 'retirada', trecho: retirada.slice(0, 120) };
