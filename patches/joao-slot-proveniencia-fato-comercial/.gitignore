@@ -5,3 +5,5 @@ base435.ts
 base.ts
 provas/package.json
 provas/replay_organico.json
+cand_tc.ts
+shim_tc.d.ts
