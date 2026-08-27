@@ -1,4 +1,4 @@
 { "compilerOptions": { "target":"ES2022","module":"NodeNext","moduleResolution":"NodeNext","strict":false,"skipLibCheck":true,"outDir":"../out","rootDir":".","allowJs":false },
-  "include": ["node_shim.d.ts","proveniencia_gerado.ts","testes_proveniencia.ts","replay.ts",
+  "include": ["node_shim.d.ts","proveniencia_gerado.ts","testes_proveniencia.ts","replay_escrita.ts",
               "modalidade_gerado.ts","harness_modalidade.ts","testes_modalidade.ts",
               "testes_modalidade_base.ts","testes_cep.ts","testes_envio_remetente.ts"] }

@@ -352,20 +352,13 @@ const BOT_BASE = 'https://backend.botconversa.com.br/api/v1/webhook';
 //   modalidade_logistica/envio_retirada saem das maos do modelo de vez: quem escreve e
 //   o resolvedor deterministico (estadoLog), porque resolverModalidadeLogistica le esse
 //   slot do estado SALVO — um palpite do modelo viraria "fonte" no turno seguinte.
-//
-// SEGUNDA METADE DO CONTRATO — o fato tambem nao pode ser DITO.
-// A porta acima impede o fato de virar ESTADO, mas `decisao.mensagem` nasce ANTES dela:
-// o modelo ainda podia FALAR "os 300 adesivos". Entra entao uma guarda de SAIDA, no
-// mesmo ponto onde ja moram as guardas de preco, rendimento e identificador financeiro:
-// uma afirmacao de pedido (numero colado em substantivo de mercadoria) so sai se tiver
-// lastro em `slotsNovos` — o snapshot que a porta ja aprovou. NUNCA em decisao.slots cru.
-// Sem lastro: retry explicito -> revalida -> poda cirurgica (a mesma da v4.34.0) ->
-// texto neutro. Prefere-se resposta neutra a mentira comercial; nunca silencio.
-// Frase de tabela ("a partir de 10 unidades") nao e afirmacao de pedido e nao e tocada.
-//
 // Nada financeiro e tocado: Pix, CalcMe, autorizacoes, TTS, debounce, LOST e handoff
-// seguem byte-identicos. A correcao logistica da v4.36.0 fica intacta e e REUSADA aqui:
-// a guarda de CEP/frete da v4.34.0 continua sendo quem decide pedido de CEP.
+// seguem byte-identicos. A correcao logistica da v4.36.0 fica intacta e e REUSADA aqui.
+//
+// ESCOPO DESTA PUBLICACAO (FASE 1): SO a porta de ESCRITA. O modelo continua podendo
+// FALAR fato errado no texto — isso e ESPERADO aqui e e tratado na frente seguinte
+// (guarda de saida, v4.38.0). O que esta publicacao garante e que o texto errado NAO
+// contamina agente_noturno_estado.
 const V = 'agente-noturno-v4.37.0';
 const MODEL = 'claude-haiku-4-5-20251001';
 const ASSINATURA = '*Jo\u00e3o Barros:*\n';
@@ -1318,7 +1311,12 @@ function normalizarProdutoMacro(v: any): string | null {
 // ══ v4.37.0 P0: PROVENIENCIA OBRIGATORIA PARA FATO COMERCIAL ═══════════════
 // O modelo PROPOE. So vira FATO com fonte verificavel. Slot critico = o que
 // vira pedido, cobranca ou logistica.
-const SLOTS_CRITICOS = ['produto', 'quantidade', 'arte', 'cep', 'pagamento', 'grade'];
+// 'arte' NAO entra. MEDIDO em 1.273 turnos: 66 recusas, praticamente todas legitimas.
+// Arte nasce de IMAGEM ou AUDIO do cliente ("[imagem]", "[audio]") ou de descricao em
+// conversa — coisa que uma checagem de TEXTO nunca consegue lastrear. Gatear arte so
+// gera falso positivo, e arte sozinha nao cria pedido errado: quem cria e produto,
+// quantidade e modalidade, e esses estao gateados.
+const SLOTS_CRITICOS = ['produto', 'quantidade', 'cep', 'pagamento', 'grade'];
 // Escritos SO pelo resolvedor deterministico. O modelo nunca escreve modalidade.
 const SLOTS_SO_DETERMINISTICOS = ['modalidade_logistica', 'envio_retirada'];
 
@@ -1374,6 +1372,27 @@ function evidenciaDeQuantidade(valor: any, textos: string[]): { ok: boolean; evi
   return { ok: false, evidencia: null };
 }
 
+// Familias que a FALA DO CLIENTE admite. Existe para ACEITAR, nunca para recusar:
+// so acrescenta caminho de aceitacao, entao nao enfraquece nenhuma guarda.
+// MEDIDO: produtoNaMensagem perde sinal legitimo do cliente por vocabulario —
+// "camisas" (so conhece "camiseta") e "Eu tenho uma de caneca" (a regra de peca
+// propria exige "que tenho"/"ja tenho"). Copo/caneca emitem copo E dtf_uv porque a
+// fala e compativel com os dois e quem escolhe entre eles e o modelo.
+// normalizarProdutoMacro e produtoNaMensagem seguem INTOCADOS: gating de tool igual.
+const FAMILIAS_FALA: Array<[RegExp, string[]]> = [
+  [/t[eê]xtil|tecido|malha|pel[ií]cula|filme|prensa/i, ['dtf_textil']],
+  [/uv|adesivo|r[oó]tulo|etiqueta|vidro|metal|madeira|mdf|acr[ií]lico/i, ['dtf_uv']],
+  [/copo|caneca|garrafa|cuia|t[eé]rmic/i, ['copo', 'dtf_uv']],
+  [/camiseta|camisa|blusa|moletom|regata|baby\s?look|polo|jaleco|uniforme|colete|bon[eé]/i, ['camiseta']],
+  [/pack|estampas?\s+pronta|anime|streetwear/i, ['pack']],
+];
+function familiasFaladasPeloCliente(texto: string): string[] {
+  const t = semAcento(texto);
+  const out: string[] = [];
+  for (const [rx, fams] of FAMILIAS_FALA) if (rx.test(t)) out.push(...fams);
+  return out;
+}
+
 // De onde veio este produto? null = de lugar nenhum verificavel.
 function evidenciaDeProduto(valor: any, textos: string[], macroCanonico: string | null, macroAnterior: string | null): { fonte: string | null; macro: string | null } {
   const macro = normalizarProdutoMacro(valor);
@@ -1388,6 +1407,7 @@ function evidenciaDeProduto(valor: any, textos: string[], macroCanonico: string 
       if (t && produtoNaMensagem(t) === macro) return { fonte: 'mensagem_cliente', macro };
     }
   }
+  if (macro && familiasFaladasPeloCliente(texto).includes(macro)) return { fonte: 'mensagem_cliente', macro };
   if (macro && macroCanonico && macro === macroCanonico) return { fonte: 'canonico', macro };
   if (macro && macroAnterior && macro === macroAnterior) return { fonte: 'estado_anterior', macro };
   return { fonte: null, macro };
@@ -1406,148 +1426,11 @@ function somaGrade(grade: any): number | null {
   return t > 0 ? t : null;
 }
 
-// ── GUARDA DE SAIDA: fato comercial AFIRMADO ao cliente ────────────────────
-// Uma afirmacao de pedido e um numero colado num substantivo de mercadoria:
-// "300 adesivos", "16 camisetas", "12 un". Mencao solta de produto NAO conta —
-// o Joao precisa poder oferecer catalogo sem ser bloqueado.
-function fatosDePedidoNoTexto(texto: string): Array<{ num: string; unidade: string; trecho: string }> {
-  const out: Array<{ num: string; unidade: string; trecho: string }> = [];
-  // (?<![\d.,]) e (?:[.,]\d+)? porque "116,6 metros" e UM numero. Sem isso o extrator
-  // lia "6 metros" e acusava divergencia onde nao havia. MEDIDO no replay organico.
-  const rx = new RegExp('(?<![\\d.,])(\\d{1,6}(?:[.,]\\d+)?)\\s*(?:x\\s*)?(' + NOMES_MERCADORIA + ')', 'gi');
-  let m: RegExpExecArray | null;
-  while ((m = rx.exec(String(texto || ''))) !== null) out.push({ num: m[1], unidade: m[2], trecho: m[0] });
-  return out;
-}
-// Todos os numeros que a grade ja confirma: o total E cada tamanho. "Fica 17 unidades
-// no tamanho M" e lastreado por grade.M=17, nao pela soma.
-function numerosDaGrade(grade: any): number[] {
-  const out: number[] = [];
-  const s = somaGrade(grade);
-  if (s !== null) out.push(s);
-  for (const item of (Array.isArray(grade) ? grade : [])) {
-    const tam = item?.tamanhos || {};
-    for (const k of Object.keys(tam)) { const n = Number(tam[k]); if (Number.isFinite(n) && n > 0) out.push(n); }
-  }
-  return out;
-}
-// O numero AFIRMADO nasceu da fala de DINHEIRO do cliente? E o inverso exato de
-// evidenciaDeQuantidade: aparece na fala dele, mas so em frase de dinheiro ou de
-// remessa dele proprio. Foi assim que "300" (entrada em R$) virou "300 adesivos".
-// ADJACENCIA, nao a frase inteira. MEDIDO: a versao por frase acusava "18" em
-// "o valor pedido para dar a entrada, sobre a questao do 19 blusas e 18 kits" —
-// a frase tem "entrada", mas o 18 esta colado em "kits", que e mercadoria que o
-// vocabulario nao conhece. Exigir o marcador de dinheiro GRUDADO no numero mata
-// essa classe inteira de falso positivo sem precisar crescer o vocabulario.
-const RX_DINHEIRO_ANTES = /(?:r\$|entrada|sinal|adiantamento|dep[o\u00f3]sito|pagar|paguei|pago|pagamento|transferir|transferi|metade|dou|deposito)\s*(?:de\s+|uns\s+|em\s+|uma\s+)?$/i;
-const RX_DINHEIRO_DEPOIS = /^\s*(?:reais|conto|pila|paus)\b/i;
-function numeroVeioDeDinheiroDoCliente(valor: string, textos: string[]): boolean {
-  const n = String(valor ?? '').replace(/\D/g, '');
-  if (!n) return false;
-  if (evidenciaDeQuantidade(n, textos).ok) return false;   // tem lastro de unidade: nao e dinheiro
-  for (const t of (textos || [])) {
-    const s = String(t || '');
-    const rx = new RegExp('(?:^|[^\\d])' + n + '(?![\\d])', 'g');
-    let m: RegExpExecArray | null;
-    while ((m = rx.exec(s)) !== null) {
-      const idx = m.index + m[0].length - n.length;
-      const antes = s.slice(Math.max(0, idx - 28), idx);
-      const depois = s.slice(idx + n.length, idx + n.length + 12);
-      if (RX_DINHEIRO_ANTES.test(antes)) return true;
-      if (RX_DINHEIRO_DEPOIS.test(depois)) return true;
-      // O cliente como REMETENTE grudado no numero: "posso enviar 300".
-      if (RX_ENVIO_REMETENTE_CLIENTE.test(antes + ' ' + n)) return true;
-    }
-  }
-  return false;
-}
-
-// O que a resposta afirma que NAO tem lastro no estado verificado.
-// `verificado` e o snapshot ja filtrado pela porta de escrita — nunca decisao.slots cru.
-//
-// DUAS regras, ambas estreitadas contra trafego organico real (284 turnos):
-//  1. QUANTIDADE — so acusa quando o numero afirmado nasceu de fala de DINHEIRO do
-//     cliente. Numero de tabela de preco, de orcamento, de ferramenta ou de grade tem
-//     origem legitima e NAO e acusado. A versao ampla desta regra bloqueava 47,7% do
-//     trafego normal: tabela por metro, KIT do catalogo, grade por tamanho.
-//  2. PRODUTO — so acusa CONTRADICAO: o texto nomeia um produto diferente do que o
-//     pedido verificado (ou a fonte canonica) diz, e o cliente nunca o nomeou.
-// TODAS as familias presentes num texto, nao a primeira que casar. Existe SO para a
-// guarda de saida: normalizarProdutoMacro NAO e tocado, entao o gating de ferramenta
-// (MATRIZ_TOOL) segue exatamente igual. Ausencia de reconhecimento = nao comprovado.
-function macrosDoTexto(s: string): string[] {
-  const t = semAcento(s);
-  const out: string[] = [];
-  if (/textil/.test(t)) out.push('dtf_textil');
-  if (/\buv\b|adesivo/.test(t)) out.push('dtf_uv');
-  if (/copo|caneca|garrafa/.test(t)) out.push('copo');
-  if (/camiseta|moletom|regata|baby ?look|polo|jaleco|uniforme|camisa/.test(t)) out.push('camiseta');
-  return out;
-}
-// Frase de TABELA/limiar: nao afirma pedido nenhum.
-const RX_FRAME_TABELA = /\b(a\s+partir\s+de|acima\s+de|abaixo\s+de|m[i\u00ed]nimo|cada|at[e\u00e9]\s+\d|entre\s+\d|por\s+unidade|faixa|tabela)\b|\d\s*a\s*\d/i;
-
-function afirmacoesSemLastro(a: {
-  texto: string; verificado: any; textosCliente: string[];
-  macroCanonico: string | null; numerosAutorizados: number[];
-  descricoesCanonicas?: string[];
-}): Array<{ trecho: string; motivo: string }> {
-  const fora: Array<{ trecho: string; motivo: string }> = [];
-  const ver = a.verificado || {};
-  const textoCli = (a.textosCliente || []).join(' \n ');
-  // Conjunto de familias que o pedido ADMITE. Um pedido pode ser multi-produto
-  // ("19 polos + 18 copos"): comparar com UMA macro so acusava contradicao falsa.
-  const permitidos = new Set<string>([
-    ...macrosDoTexto(String(ver.produto ?? '')),
-    ...macrosDoTexto((Array.isArray(ver.grade) ? ver.grade : []).map((g: any) => String(g?.modelo ?? '')).join(' ')),
-    ...macrosDoTexto(String(ver.arte ?? '')),
-    ...macrosDoTexto(textoCli),
-    ...(a.macroCanonico ? [a.macroCanonico] : []),
-    ...macrosDoTexto((a.descricoesCanonicas || []).join(' ')),
-  ]);
-  const qtdVer = (ver.quantidade === undefined || ver.quantidade === null)
-    ? null : Number(String(ver.quantidade).replace(',', '.'));
-  const lastreados = new Set<number>([
-    ...numerosDaGrade(ver.grade),
-    ...(a.numerosAutorizados || []).map((x) => Number(x)),
-  ]);
-  if (qtdVer !== null && Number.isFinite(qtdVer)) lastreados.add(qtdVer);
-  for (const f of fatosDePedidoNoTexto(a.texto)) {
-    // Frase de TABELA/limiar nao afirma pedido: "1 a 4 metros R$59,90", "a partir de
-    // 10 unidades". Preco ja tem guarda propria; aqui so evita falso positivo.
-    const sent = String(a.texto).split(/(?<=[.!?])\s+|\n+/).find((s) => s.includes(f.trecho)) || a.texto;
-    if (RX_FRAME_TABELA.test(sent)) continue;
-    const n = Number(String(f.num).replace(',', '.'));
-    const numOk = lastreados.has(n) || evidenciaDeQuantidade(f.num, a.textosCliente).ok;
-    if (!numOk && numeroVeioDeDinheiroDoCliente(f.num, a.textosCliente)) {
-      fora.push({ trecho: f.trecho, motivo: 'quantidade_veio_de_dinheiro' });
-      continue;
-    }
-    // "unidades"/"itens"/"metros" nao nomeiam produto: so o numero e afirmado ali.
-    // Conjunto vazio = nao se sabe nada do pedido: nao da para acusar contradicao.
-    // Usa macrosDoTexto, nao produtoNaMensagem: este ultimo ancora em \b e devolve
-    // null para PLURAL ("camisetas", "adesivos") — MEDIDO. Familia ambigua = nao
-    // comprovado, entao nao se acusa nada.
-    const familias = macrosDoTexto(f.unidade);
-    const macroUni = familias.length === 1 ? familias[0] : null;
-    if (macroUni !== null && permitidos.size > 0 && !permitidos.has(macroUni)
-        && !valorEcoaNoTexto(f.unidade, textoCli)) {
-      fora.push({ trecho: f.trecho, motivo: 'produto_contradiz_pedido' });
-    }
-    // NAO existe regra de "quantidade divergente do pedido conhecido". Ela foi
-    // implementada, MEDIDA no replay organico e RETIRADA: disparou 10 vezes em 281
-    // turnos e quase todas eram legitimas — quantidade muda no meio da conversa
-    // (cliente revisa, o Joao oferece completar o filme, a ferramenta calcula
-    // rendimento). Estado verificado fica velho em relacao ao turno vivo. Sobraram
-    // as duas regras que a medicao sustentou com zero falso positivo.
-  }
-  return fora;
-}
-
 // A PORTA. Devolve os slots que podem virar fato + a lista do que foi recusado.
 function filtrarSlotsPorProveniencia(a: {
   anteriores: any; recebidos: any; textosCliente: string[];
   macroCanonico: string | null; toolsUsadas: string[];
+  midiaNoTurno?: boolean; numerosDeFerramenta?: number[];
 }): { slots: any; rejeitados: Array<{ slot: string; valor: any; motivo: string }> } {
   const rejeitados: Array<{ slot: string; valor: any; motivo: string }> = [];
   const out: any = { ...(a.recebidos || {}) };
@@ -1571,24 +1454,50 @@ function filtrarSlotsPorProveniencia(a: {
 
     let ok = false; let motivo = '';
     if (s === 'produto') {
-      ok = !!evidenciaDeProduto(v, a.textosCliente, a.macroCanonico, macroAnterior).fonte;
-      motivo = 'produto_sem_evidencia';
+      // CONTRADICAO, nao ausencia. MEDIDO em 1.273 turnos organicos: exigir evidencia
+      // textual para TODO produto recusava 216 deles — quase todos DESCOBERTA legitima
+      // no primeiro turno, em que o cliente so escreve "Ola! Posso ter mais informacoes
+      // sobre isso?" (clique de anuncio) e o produto vem do ANUNCIO, nao da mensagem.
+      // Sem referencia anterior nem canonica nao ha o que contradizer: aceita.
+      // Com referencia, ela manda — foi exatamente o caso do Vitor (canonico=camiseta).
+      const temReferencia = !!macroAnterior || !!a.macroCanonico;
+      ok = !temReferencia || !!evidenciaDeProduto(v, a.textosCliente, a.macroCanonico, macroAnterior).fonte;
+      motivo = 'produto_contradiz_referencia';
     } else if (s === 'quantidade') {
+      // So numero puro entra na regra. MEDIDO: quantidade tambem chega como TEXTO
+      // ("40 coletes (20 amarelo + 20 azul)", "37.86m + 4.56m", "100-200") e ai
+      // replace(/\D/g,'') fabricava um numero que nunca existiu. Descricao livre nao
+      // e o defeito do Vitor — o dele era um numero puro (300) nascido de dinheiro.
       // A soma da grade ja aceita e fonte legitima: no fluxo de camiseta o cliente
       // manda "M 4 / G 7 / GG 3" e nunca digita o total.
+      const ehNumeroPuro = typeof v === 'number' || /^\s*\d{1,6}(?:[.,]\d+)?\s*$/.test(String(v));
       const sg = somaGrade(out.grade ?? ant.grade);
-      ok = evidenciaDeQuantidade(v, a.textosCliente).ok
-        || (sg !== null && Number(String(v).replace(/\D/g, '')) === sg);
+      const nQ = Number(String(v).replace(',', '.'));
+      // Numero devolvido por FERRAMENTA neste turno e fonte legitima: no fluxo por
+      // metro a metragem sai de calcular_dtf_metro, nunca da fala do cliente.
+      const deTool = (a.numerosDeFerramenta || []).some((x) => Number(x) === nQ);
+      ok = !ehNumeroPuro
+        || evidenciaDeQuantidade(v, a.textosCliente).ok
+        || (sg !== null && nQ === sg)
+        || deTool;
       motivo = 'quantidade_sem_evidencia_de_unidade';
     } else if (s === 'cep') {
       const d = String(v).replace(/\D/g, '');
       ok = d.length === 8 && texto.replace(/\D/g, '').includes(d);
       motivo = 'cep_nao_dito_pelo_cliente';
     } else if (s === 'arte') {
-      ok = valorEcoaNoTexto(v, texto);
+      // Arte quase sempre nasce de IMAGEM ou AUDIO que o cliente mandou — coisa que
+      // uma checagem textual nunca ve. MEDIDO: exigir eco recusava refinamento
+      // legitimo ("dois designs - frente e costas" -> o mesmo + nome da igreja).
+      // Aceita eco, refinamento do valor anterior, ou midia no turno.
+      const antAr = String(ant.arte ?? '');
+      const novoAr = String(v ?? '');
+      const refino = !!antAr && (semAcento(novoAr).includes(semAcento(antAr)) || semAcento(antAr).includes(semAcento(novoAr)));
+      ok = valorEcoaNoTexto(v, texto) || refino || a.midiaNoTurno === true;
       motivo = 'arte_sem_evidencia';
     } else if (s === 'pagamento') {
-      ok = valorEcoaNoTexto(v, texto) || (a.toolsUsadas || []).some((t) => /pix|cobranca|pagamento|cartao/i.test(String(t)));
+      ok = valorEcoaNoTexto(v, texto) || a.midiaNoTurno === true
+        || (a.toolsUsadas || []).some((t) => /pix|cobranca|pagamento|cartao/i.test(String(t)));
       motivo = 'pagamento_sem_evidencia';
     } else if (s === 'grade') {
       // So bloqueia o caso destrutivo: trocar grade JA CONHECIDA sem o cliente
@@ -4340,12 +4249,25 @@ async function atenderClienteInterno(phone: string, chatName: string, mensagem: 
   const slotsAnteriores: any = estado?.slots || {};
   // ── v4.37.0 P0: o modelo PROPOE; so vira fato com proveniencia verificavel ──
   const textosCliente: string[] = [String(mensagem || ''), ...(inbounds || []).map((i: any) => String(i?.message_text || ''))];
+  // Numeros que as FERRAMENTAS deste turno devolveram: fonte legitima de quantidade.
+  const numerosFerramenta: number[] = [];
+  for (const r of (Array.isArray(ctx.rendimentosAutorizados) ? ctx.rendimentosAutorizados : [])) {
+    const v = Number(r?.cabem_por_metro); if (Number.isFinite(v) && v > 0) numerosFerramenta.push(v);
+  }
+  for (const v of (Array.isArray(ctx.rendimentosAuxiliares) ? ctx.rendimentosAuxiliares : [])) {
+    if (Number.isFinite(Number(v)) && Number(v) > 0) numerosFerramenta.push(Number(v));
+  }
+  for (const it of (Array.isArray(calcmeVigente?.itens) ? calcmeVigente.itens : [])) {
+    const q = Number(it?.qtd); if (Number.isFinite(q) && q > 0) numerosFerramenta.push(q);
+  }
   const provSlots = filtrarSlotsPorProveniencia({
     anteriores: slotsAnteriores,
     recebidos: decisao.slots || {},
     textosCliente,
     macroCanonico: normalizarProdutoMacro(prodOrigem),
     toolsUsadas,
+    midiaNoTurno: (imagens || []).length > 0 || (transcricoes || []).length > 0,
+    numerosDeFerramenta: numerosFerramenta,
   });
   const slotsRecebidos: any = provSlots.slots;
   if (provSlots.rejeitados.length && !dryRun) {
@@ -4521,95 +4443,6 @@ async function atenderClienteInterno(phone: string, chatName: string, mensagem: 
   }
 
   // ── v4.33.0 P0: INVARIANTE DE TRANSPORTE ───────────────────────────────────────────
-  // ── v4.37.0 P0: FATO COMERCIAL AFIRMADO SEM LASTRO ────────────────────
-  // A porta de escrita impede o fato de virar ESTADO. Esta impede que ele seja DITO.
-  // Roda depois de TODAS as reescritas (frete/CEP, preco, rendimento, hold de arte) e
-  // antes da guarda financeira, para ver o texto exatamente como ele iria ao cliente.
-  // A fonte de verdade e `slotsNovos` — o snapshot que a porta da v4.37.0 ja aprovou.
-  // decisao.slots CRU nao entra aqui em momento nenhum.
-  if (decisao.responde === true) {
-    const numerosAut: number[] = [];
-    for (const r of (Array.isArray(ctx.rendimentosAutorizados) ? ctx.rendimentosAutorizados : [])) {
-      const v = Number(r?.cabem_por_metro); if (Number.isInteger(v) && v > 0) numerosAut.push(v);
-    }
-    for (const v of (Array.isArray(ctx.rendimentosAuxiliares) ? ctx.rendimentosAuxiliares : [])) {
-      if (Number.isInteger(v) && v > 0) numerosAut.push(Number(v));
-    }
-    // O orcamento CalcMe e FONTE CANONICA: as quantidades e descricoes dos itens dele
-    // lastreiam a fala. Sem isto a guarda acusaria a propria leitura do orcamento.
-    const descCanon: string[] = [];
-    const itensCanon: any[] = Array.isArray(calcmeVigente?.itens) ? calcmeVigente.itens : [];
-    for (const it of itensCanon) {
-      const q = Number(it?.qtd); if (Number.isFinite(q) && q > 0) numerosAut.push(q);
-      if (it?.descricao) descCanon.push(String(it.descricao));
-    }
-    const argsLastro = {
-      verificado: slotsNovos, textosCliente,
-      macroCanonico: normalizarProdutoMacro(prodOrigem), numerosAutorizados: numerosAut,
-      descricoesCanonicas: descCanon,
-    };
-    const semLastro = afirmacoesSemLastro({ texto: resposta, ...argsLastro });
-    if (semLastro.length > 0) {
-      const respostaOriginalFato = resposta;
-      const valoresAntesFato = valoresDaMensagem(respostaOriginalFato);
-      await logErro('guardrail_fato_comercial_sem_lastro', {
-        phone, afirmacoes: semLastro, verificado: slotsNovos,
-        resposta: respostaOriginalFato.slice(0, 300), tools: toolsUsadas,
-      });
-      let desfechoFato = 'rejeitado';
-      try {
-        const conhecido = [
-          slotsNovos.produto ? 'produto: ' + String(slotsNovos.produto) : null,
-          (slotsNovos.quantidade !== undefined && slotsNovos.quantidade !== null) ? 'quantidade: ' + String(slotsNovos.quantidade) : null,
-          somaGrade(slotsNovos.grade) !== null ? 'total pela grade: ' + String(somaGrade(slotsNovos.grade)) : null,
-        ].filter(Boolean).join('; ');
-        const df = await chamarCerebro('[SISTEMA: sua resposta afirma fato comercial SEM fonte verificavel: '
-          + semLastro.map((x: any) => '"' + x.trecho + '" (' + x.motivo + ')').join(', ') + '. '
-          + 'PROIBIDO inventar produto, quantidade ou medida. So pode afirmar o que esta no pedido confirmado.\n'
-          + 'Pedido confirmado deste cliente: ' + (conhecido || '(nada confirmado ainda)') + '.\n'
-          + (conhecido
-              ? 'Reescreva usando SOMENTE esses dados.'
-              : 'Nao afirme produto nem quantidade nenhuma: responda de forma curta e neutra, sem numero de peca.')
-          + ' MANTENHA todos os valores em R$ que voce ja calculou. Retorne APENAS o JSON.]');
-        const rf = aberturaCorreta(sanearMsg(df.mensagem), !conversaAtivaHoje, false);
-        const valoresDepoisFato = valoresDaMensagem(rf);
-        // Invariante de preservacao de valor (v4.21.6): o retry nao pode apagar R$ ja calculado.
-        const perdeuValorFato = valoresAntesFato.some((v: number) => !valoresDepoisFato.includes(v));
-        const aindaSemLastro = afirmacoesSemLastro({ texto: rf, ...argsLastro });
-        if (df.responde === true && aindaSemLastro.length === 0 && !perdeuValorFato
-            && validarMsg(rf, ehPerguntaDireta) && validarPix(rf)
-            && !(estadoLog.bloqueia_frete && RX_SAIDA_TERMO_FRETE.test(rf))) {
-          resposta = rf; desfechoFato = 'aceito';
-        }
-      } catch (e: any) {
-        await logErro('guardrail_fato_sem_lastro_excecao', { phone, e: String(e?.message ?? e).slice(0, 120) });
-      }
-      if (desfechoFato !== 'aceito') {
-        // Cirurgia deterministica: remove SO as sentencas que carregam a afirmacao sem
-        // lastro. Reusa a mesma poda da v4.34.0 — nada de mecanismo novo.
-        const rxFora = new RegExp(semLastro
-          .map((x: any) => x.trecho.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\s+/g, '\\s+'))
-          .join('|'), 'i');
-        const podadoFato = removerSentencasComTermo(respostaOriginalFato, rxFora);
-        const sobrouLastro = afirmacoesSemLastro({ texto: podadoFato, ...argsLastro });
-        if (podadoFato.length >= 8 && sobrouLastro.length === 0
-            && !valoresAntesFato.some((v: number) => !valoresDaMensagem(podadoFato).includes(v))) {
-          resposta = podadoFato; desfechoFato = 'preservado_cirurgia';
-        } else {
-          // Sem texto aproveitavel. Neutro e verdadeiro: nao inventa produto, nao inventa
-          // quantidade, nao pede CEP. Prefere-se resposta neutra a mentira comercial.
-          resposta = 'Perfeito! Recebi por aqui. Vou seguir com o seu pedido conforme o que a gente j\u00e1 combinou e te confirmo os detalhes na sequ\u00eancia.';
-          desfechoFato = 'substituido_deterministico';
-        }
-      }
-      await logErro('guardrail_fato_comercial_desfecho', {
-        phone, resultado: desfechoFato, afirmacoes: semLastro,
-        valores_antes: valoresAntesFato, valores_depois: valoresDaMensagem(resposta),
-        resposta_original: respostaOriginalFato.slice(0, 600), resposta_final: resposta.slice(0, 600),
-      });
-    }
-  }
-
   // Ultima barreira antes do transporte. Entre este ponto e entregarComoJoao nenhuma linha
   // volta a escrever em `resposta`: a barreira de frescor so pode SUPRIMIR o envio.
   // Os QRs de proveniencia provada entram como isentos para que a chave aleatoria que vive

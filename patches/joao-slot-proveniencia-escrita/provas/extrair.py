@@ -31,8 +31,7 @@ BLOCO_C, iC, _ = recorte("function normalizarProdutoMacro(v: any): string | null
 for nome in ['SLOTS_CRITICOS', 'SLOTS_SO_DETERMINISTICOS', 'valorEcoaNoTexto',
              'evidenciaDeQuantidade', 'evidenciaDeProduto', 'filtrarSlotsPorProveniencia',
              'RX_EVID_UNIDADE_SUF', 'RX_EVID_PEDIDO', 'RX_EVID_DINHEIRO', 'RX_EVID_GRADE',
-             'NOMES_MERCADORIA', 'somaGrade', 'fatosDePedidoNoTexto', 'afirmacoesSemLastro',
-             'numerosDaGrade', 'numeroVeioDeDinheiroDoCliente', 'macrosDoTexto', 'RX_FRAME_TABELA']:
+             'NOMES_MERCADORIA', 'somaGrade', 'familiasFaladasPeloCliente']:
     assert nome in BLOCO_C, 'faltou no extrato: ' + nome
 for nome in ['RX_ENVIO_REMETENTE_CLIENTE', 'RX_ENVIO_OBJETO_NAO_LOGISTICO', 'RX_LOG_ENVIO_FORTE']:
     assert nome in BLOCO_B, 'faltou no extrato: ' + nome
@@ -63,8 +62,7 @@ RODAPE = """
 export {
   SLOTS_CRITICOS, SLOTS_SO_DETERMINISTICOS, semAcento, valorEcoaNoTexto,
   evidenciaDeQuantidade, evidenciaDeProduto, filtrarSlotsPorProveniencia,
-  somaGrade, numerosDaGrade, fatosDePedidoNoTexto, afirmacoesSemLastro,
-  numeroVeioDeDinheiroDoCliente, macrosDoTexto, RX_FRAME_TABELA,
+  somaGrade, familiasFaladasPeloCliente,
   normalizarProdutoMacro, produtoNaMensagem,
   RX_EVID_PEDIDO, RX_EVID_DINHEIRO, RX_EVID_GRADE,
   RX_ENVIO_REMETENTE_CLIENTE, RX_ENVIO_OBJETO_NAO_LOGISTICO,
