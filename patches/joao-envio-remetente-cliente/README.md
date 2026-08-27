@@ -3,6 +3,17 @@
 **Frente:** `joao-correcao-contexto-intencao` (a mesma) · **Trilha:** `conversao_joao`
 **Edge:** `agente-noturno` (`ldrdtaibazplvrbwyrvx`)
 
+> **PUBLICADO em 27/08/2026 00:44:54 UTC — Edge version 179, `ACTIVE`, `verify_jwt=false`.**
+> Shim: `.../skillprintpro1/cd9276a6f4d38efd1e5c32d671ecaae88c003f20/patches/joao-envio-remetente-cliente/candidato/index.ts`
+> `ezbr_sha256`: `38835c218707d6352566961efdf373a28da9b30e2e87772b1788cbbe24fbdf71`.
+>
+> **Prova pós-deploy**: boot `POST {}` → `HTTP 400 {"ok":false,"motivo":"campos"}`. Replay da
+> frase orgânica em dry-run contra a 179 (`"Sao 300 adesivos. posso enviar 300 agora ? e o
+> restante daqui a 5 dias?"`) → `slots` **sem** `modalidade_logistica`, `tools: []`, resposta
+> `"Preciso só da medida do adesivo para calcular o consumo de filme e o valor dos 300."` —
+> nenhum CEP pedido, nenhum frete calculado.
+
+
 | item | valor |
 |---|---|
 | LIVE de partida | Edge **178**, `agente-noturno-v4.35.0`, `sha256 33a4ec12…b7311` |
