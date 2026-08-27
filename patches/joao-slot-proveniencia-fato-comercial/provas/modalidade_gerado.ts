@@ -1,5 +1,5 @@
 // GERADO AUTOMATICAMENTE por provas/extrair.py — NAO EDITAR.
-// Recorte VERBATIM de candidato/index.ts (bytes 48055..77827).
+// Recorte VERBATIM de candidato/index.ts (bytes 48901..78673).
 
 // ═══════ PREAMBULO DE MOCK — NAO FAZ PARTE DO CANDIDATO ═══════
 // Substitui apenas o MUNDO (ERP por HTTP e log). Nenhuma regra e reimplementada.

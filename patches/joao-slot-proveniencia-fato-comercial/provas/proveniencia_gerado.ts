@@ -139,9 +139,13 @@ function valorEcoaNoTexto(valor: any, texto: string): boolean {
   return toks.every((t) => alvo.includes(t));
 }
 
+// VOCABULARIO UNICO de unidade de mercadoria. Serve as DUAS pontas do contrato:
+// a porta de escrita (o que pode virar quantidade) e a guarda de saida (o que pode
+// ser afirmado ao cliente). Uma lista so, para as duas nao divergirem.
+const NOMES_MERCADORIA = 'un\\b|und\\b|unid\\w*|pe[c\u00e7]as?|camisetas?|baby\\s?looks?|regatas?|moletons?|polos?|jalecos?|uniformes?|adesivos?|copos?|canecas?|garrafas?|itens?|p[c\u00e7]s?|pcs?|folhas?|metros?';
 // Numero COM marcador de unidade ao lado. O numero entra por parametro: nao ha
 // literal numerico nesta regra.
-const RX_EVID_UNIDADE_SUF = '\\s*(?:x\\s*)?(?:un\\b|und\\b|unid\\w*|pe[c\u00e7]as?|camisetas?|baby\\s?looks?|regatas?|moletons?|polos?|jalecos?|uniformes?|adesivos?|copos?|canecas?|garrafas?|itens?|p[c\u00e7]s?|pcs?|folhas?|metros?)';
+const RX_EVID_UNIDADE_SUF = '\\s*(?:x\\s*)?(?:' + NOMES_MERCADORIA + ')';
 // Verbo de PEDIDO explicito. "mandar"/"enviar" NAO entram: sao verbos de remessa.
 // "sao"/"total de" tambem nao entram: "sao 300" costuma ser preco, nao peca.
 const RX_EVID_PEDIDO = /\b(?:quero|queria|preciso|vou\s+querer|fech\w+|or[c\u00e7]a\w*|pedido\s+(?:[e\u00e9]|de))\b/i;
@@ -192,6 +196,157 @@ function evidenciaDeProduto(valor: any, textos: string[], macroCanonico: string 
   return { fonte: null, macro };
 }
 
+// Soma da grade = quantidade derivada de FATO ja aceito. "M 4 / G 7 / GG 3" = 14.
+// Sem isto a porta recusaria a quantidade legitima do fluxo de camiseta, em que o
+// cliente manda a grade e nunca digita o total.
+function somaGrade(grade: any): number | null {
+  if (!Array.isArray(grade) || !grade.length) return null;
+  let t = 0;
+  for (const item of grade) {
+    const tam = item?.tamanhos || {};
+    for (const k of Object.keys(tam)) { const n = Number(tam[k]); if (Number.isFinite(n) && n > 0) t += n; }
+  }
+  return t > 0 ? t : null;
+}
+
+// ── GUARDA DE SAIDA: fato comercial AFIRMADO ao cliente ────────────────────
+// Uma afirmacao de pedido e um numero colado num substantivo de mercadoria:
+// "300 adesivos", "16 camisetas", "12 un". Mencao solta de produto NAO conta —
+// o Joao precisa poder oferecer catalogo sem ser bloqueado.
+function fatosDePedidoNoTexto(texto: string): Array<{ num: string; unidade: string; trecho: string }> {
+  const out: Array<{ num: string; unidade: string; trecho: string }> = [];
+  // (?<![\d.,]) e (?:[.,]\d+)? porque "116,6 metros" e UM numero. Sem isso o extrator
+  // lia "6 metros" e acusava divergencia onde nao havia. MEDIDO no replay organico.
+  const rx = new RegExp('(?<![\\d.,])(\\d{1,6}(?:[.,]\\d+)?)\\s*(?:x\\s*)?(' + NOMES_MERCADORIA + ')', 'gi');
+  let m: RegExpExecArray | null;
+  while ((m = rx.exec(String(texto || ''))) !== null) out.push({ num: m[1], unidade: m[2], trecho: m[0] });
+  return out;
+}
+// Todos os numeros que a grade ja confirma: o total E cada tamanho. "Fica 17 unidades
+// no tamanho M" e lastreado por grade.M=17, nao pela soma.
+function numerosDaGrade(grade: any): number[] {
+  const out: number[] = [];
+  const s = somaGrade(grade);
+  if (s !== null) out.push(s);
+  for (const item of (Array.isArray(grade) ? grade : [])) {
+    const tam = item?.tamanhos || {};
+    for (const k of Object.keys(tam)) { const n = Number(tam[k]); if (Number.isFinite(n) && n > 0) out.push(n); }
+  }
+  return out;
+}
+// O numero AFIRMADO nasceu da fala de DINHEIRO do cliente? E o inverso exato de
+// evidenciaDeQuantidade: aparece na fala dele, mas so em frase de dinheiro ou de
+// remessa dele proprio. Foi assim que "300" (entrada em R$) virou "300 adesivos".
+// ADJACENCIA, nao a frase inteira. MEDIDO: a versao por frase acusava "18" em
+// "o valor pedido para dar a entrada, sobre a questao do 19 blusas e 18 kits" —
+// a frase tem "entrada", mas o 18 esta colado em "kits", que e mercadoria que o
+// vocabulario nao conhece. Exigir o marcador de dinheiro GRUDADO no numero mata
+// essa classe inteira de falso positivo sem precisar crescer o vocabulario.
+const RX_DINHEIRO_ANTES = /(?:r\$|entrada|sinal|adiantamento|dep[o\u00f3]sito|pagar|paguei|pago|pagamento|transferir|transferi|metade|dou|deposito)\s*(?:de\s+|uns\s+|em\s+|uma\s+)?$/i;
+const RX_DINHEIRO_DEPOIS = /^\s*(?:reais|conto|pila|paus)\b/i;
+function numeroVeioDeDinheiroDoCliente(valor: string, textos: string[]): boolean {
+  const n = String(valor ?? '').replace(/\D/g, '');
+  if (!n) return false;
+  if (evidenciaDeQuantidade(n, textos).ok) return false;   // tem lastro de unidade: nao e dinheiro
+  for (const t of (textos || [])) {
+    const s = String(t || '');
+    const rx = new RegExp('(?:^|[^\\d])' + n + '(?![\\d])', 'g');
+    let m: RegExpExecArray | null;
+    while ((m = rx.exec(s)) !== null) {
+      const idx = m.index + m[0].length - n.length;
+      const antes = s.slice(Math.max(0, idx - 28), idx);
+      const depois = s.slice(idx + n.length, idx + n.length + 12);
+      if (RX_DINHEIRO_ANTES.test(antes)) return true;
+      if (RX_DINHEIRO_DEPOIS.test(depois)) return true;
+      // O cliente como REMETENTE grudado no numero: "posso enviar 300".
+      if (RX_ENVIO_REMETENTE_CLIENTE.test(antes + ' ' + n)) return true;
+    }
+  }
+  return false;
+}
+
+// O que a resposta afirma que NAO tem lastro no estado verificado.
+// `verificado` e o snapshot ja filtrado pela porta de escrita — nunca decisao.slots cru.
+//
+// DUAS regras, ambas estreitadas contra trafego organico real (284 turnos):
+//  1. QUANTIDADE — so acusa quando o numero afirmado nasceu de fala de DINHEIRO do
+//     cliente. Numero de tabela de preco, de orcamento, de ferramenta ou de grade tem
+//     origem legitima e NAO e acusado. A versao ampla desta regra bloqueava 47,7% do
+//     trafego normal: tabela por metro, KIT do catalogo, grade por tamanho.
+//  2. PRODUTO — so acusa CONTRADICAO: o texto nomeia um produto diferente do que o
+//     pedido verificado (ou a fonte canonica) diz, e o cliente nunca o nomeou.
+// TODAS as familias presentes num texto, nao a primeira que casar. Existe SO para a
+// guarda de saida: normalizarProdutoMacro NAO e tocado, entao o gating de ferramenta
+// (MATRIZ_TOOL) segue exatamente igual. Ausencia de reconhecimento = nao comprovado.
+function macrosDoTexto(s: string): string[] {
+  const t = semAcento(s);
+  const out: string[] = [];
+  if (/textil/.test(t)) out.push('dtf_textil');
+  if (/\buv\b|adesivo/.test(t)) out.push('dtf_uv');
+  if (/copo|caneca|garrafa/.test(t)) out.push('copo');
+  if (/camiseta|moletom|regata|baby ?look|polo|jaleco|uniforme|camisa/.test(t)) out.push('camiseta');
+  return out;
+}
+// Frase de TABELA/limiar: nao afirma pedido nenhum.
+const RX_FRAME_TABELA = /\b(a\s+partir\s+de|acima\s+de|abaixo\s+de|m[i\u00ed]nimo|cada|at[e\u00e9]\s+\d|entre\s+\d|por\s+unidade|faixa|tabela)\b|\d\s*a\s*\d/i;
+
+function afirmacoesSemLastro(a: {
+  texto: string; verificado: any; textosCliente: string[];
+  macroCanonico: string | null; numerosAutorizados: number[];
+  descricoesCanonicas?: string[];
+}): Array<{ trecho: string; motivo: string }> {
+  const fora: Array<{ trecho: string; motivo: string }> = [];
+  const ver = a.verificado || {};
+  const textoCli = (a.textosCliente || []).join(' \n ');
+  // Conjunto de familias que o pedido ADMITE. Um pedido pode ser multi-produto
+  // ("19 polos + 18 copos"): comparar com UMA macro so acusava contradicao falsa.
+  const permitidos = new Set<string>([
+    ...macrosDoTexto(String(ver.produto ?? '')),
+    ...macrosDoTexto((Array.isArray(ver.grade) ? ver.grade : []).map((g: any) => String(g?.modelo ?? '')).join(' ')),
+    ...macrosDoTexto(String(ver.arte ?? '')),
+    ...macrosDoTexto(textoCli),
+    ...(a.macroCanonico ? [a.macroCanonico] : []),
+    ...macrosDoTexto((a.descricoesCanonicas || []).join(' ')),
+  ]);
+  const qtdVer = (ver.quantidade === undefined || ver.quantidade === null)
+    ? null : Number(String(ver.quantidade).replace(',', '.'));
+  const lastreados = new Set<number>([
+    ...numerosDaGrade(ver.grade),
+    ...(a.numerosAutorizados || []).map((x) => Number(x)),
+  ]);
+  if (qtdVer !== null && Number.isFinite(qtdVer)) lastreados.add(qtdVer);
+  for (const f of fatosDePedidoNoTexto(a.texto)) {
+    // Frase de TABELA/limiar nao afirma pedido: "1 a 4 metros R$59,90", "a partir de
+    // 10 unidades". Preco ja tem guarda propria; aqui so evita falso positivo.
+    const sent = String(a.texto).split(/(?<=[.!?])\s+|\n+/).find((s) => s.includes(f.trecho)) || a.texto;
+    if (RX_FRAME_TABELA.test(sent)) continue;
+    const n = Number(String(f.num).replace(',', '.'));
+    const numOk = lastreados.has(n) || evidenciaDeQuantidade(f.num, a.textosCliente).ok;
+    if (!numOk && numeroVeioDeDinheiroDoCliente(f.num, a.textosCliente)) {
+      fora.push({ trecho: f.trecho, motivo: 'quantidade_veio_de_dinheiro' });
+      continue;
+    }
+    // "unidades"/"itens"/"metros" nao nomeiam produto: so o numero e afirmado ali.
+    // Conjunto vazio = nao se sabe nada do pedido: nao da para acusar contradicao.
+    // Usa macrosDoTexto, nao produtoNaMensagem: este ultimo ancora em \b e devolve
+    // null para PLURAL ("camisetas", "adesivos") — MEDIDO. Familia ambigua = nao
+    // comprovado, entao nao se acusa nada.
+    const familias = macrosDoTexto(f.unidade);
+    const macroUni = familias.length === 1 ? familias[0] : null;
+    if (macroUni !== null && permitidos.size > 0 && !permitidos.has(macroUni)
+        && !valorEcoaNoTexto(f.unidade, textoCli)) {
+      fora.push({ trecho: f.trecho, motivo: 'produto_contradiz_pedido' });
+    }
+    // NAO existe regra de "quantidade divergente do pedido conhecido". Ela foi
+    // implementada, MEDIDA no replay organico e RETIRADA: disparou 10 vezes em 281
+    // turnos e quase todas eram legitimas — quantidade muda no meio da conversa
+    // (cliente revisa, o Joao oferece completar o filme, a ferramenta calcula
+    // rendimento). Estado verificado fica velho em relacao ao turno vivo. Sobraram
+    // as duas regras que a medicao sustentou com zero falso positivo.
+  }
+  return fora;
+}
+
 // A PORTA. Devolve os slots que podem virar fato + a lista do que foi recusado.
 function filtrarSlotsPorProveniencia(a: {
   anteriores: any; recebidos: any; textosCliente: string[];
@@ -222,7 +377,11 @@ function filtrarSlotsPorProveniencia(a: {
       ok = !!evidenciaDeProduto(v, a.textosCliente, a.macroCanonico, macroAnterior).fonte;
       motivo = 'produto_sem_evidencia';
     } else if (s === 'quantidade') {
-      ok = evidenciaDeQuantidade(v, a.textosCliente).ok;
+      // A soma da grade ja aceita e fonte legitima: no fluxo de camiseta o cliente
+      // manda "M 4 / G 7 / GG 3" e nunca digita o total.
+      const sg = somaGrade(out.grade ?? ant.grade);
+      ok = evidenciaDeQuantidade(v, a.textosCliente).ok
+        || (sg !== null && Number(String(v).replace(/\D/g, '')) === sg);
       motivo = 'quantidade_sem_evidencia_de_unidade';
     } else if (s === 'cep') {
       const d = String(v).replace(/\D/g, '');
@@ -251,6 +410,8 @@ function filtrarSlotsPorProveniencia(a: {
 export {
   SLOTS_CRITICOS, SLOTS_SO_DETERMINISTICOS, semAcento, valorEcoaNoTexto,
   evidenciaDeQuantidade, evidenciaDeProduto, filtrarSlotsPorProveniencia,
+  somaGrade, numerosDaGrade, fatosDePedidoNoTexto, afirmacoesSemLastro,
+  numeroVeioDeDinheiroDoCliente, macrosDoTexto, RX_FRAME_TABELA,
   normalizarProdutoMacro, produtoNaMensagem,
   RX_EVID_PEDIDO, RX_EVID_DINHEIRO, RX_EVID_GRADE,
   RX_ENVIO_REMETENTE_CLIENTE, RX_ENVIO_OBJETO_NAO_LOGISTICO,

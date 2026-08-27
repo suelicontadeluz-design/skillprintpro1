@@ -6,8 +6,8 @@
 | item | valor |
 |---|---|
 | LIVE de partida | Edge **179**, `agente-noturno-v4.36.0`, `sha256 132df0ca…be68` |
-| candidato | `agente-noturno-v4.37.0`, `sha256 3756a87036766cc3c9bb5b9f69becee574883d00e9310e744f84b66a27d465c8` |
-| diff | **4 hunks, 3 linhas removidas, 189 adicionadas** |
+| candidato | `agente-noturno-v4.37.0`, `sha256 7298d7efeade5958fbfc127447bee324d65977ebc816e7c7e98def74255e2915` |
+| diff | **5 hunks, 3 linhas removidas, 352 adicionadas** |
 | migração | nenhuma. Sem coluna nova, sem tabela nova, sem estado novo. |
 
 > A LIVE 179 é um *loader* de uma linha que importa
@@ -140,14 +140,14 @@ passa a emitir `slot_produto_fora_do_vocabulario`, e tudo que a porta recusa ent
 
 | suíte | resultado |
 |---|---|
-| **v4.37.0** proveniência (caso orgânico + 15 adversariais + troca legítima + não-regressão) | **45 PASS / 0 FAIL** |
+| **v4.37.0** proveniência + guarda de saída (orgânico, 15 adversariais, matriz A–H, falsos positivos) | **64 PASS / 0 FAIL** |
 | **v4.36.0** envio/remetente | **35 PASS / 0 FAIL** |
 | **v4.35.0** CEP canônico | **68 PASS / 0 FAIL** |
 | **v4.34.0** modalidade antes do CEP | **69 PASS / 4 FAIL** |
 | **v4.33.0** financeira | **14/14 + 14/14** |
 | `regressao_diff.py` | 12 blocos financeiros **byte-idênticos** |
 
-**245 asserções.** Os **4 FAIL** de `testes_modalidade` são **pré-existentes**: reproduzem-se
+**264 asserções.** Os **4 FAIL** de `testes_modalidade` são **pré-existentes**: reproduzem-se
 idênticos rodando a mesma suíte contra a v4.36.0 sem tocar em nada (`T10.e`, `E9`, `E10`,
 `E11` — asserções de texto de prompt que envelheceram na v4.34.0). Não são regressão desta
 frente. A única asserção que esta frente editou é `I1`, identidade de versão do candidato,
@@ -167,6 +167,132 @@ lados: com a porta, `produto`, `quantidade` e `arte` do Vitor não viram estado,
 | `quero 300 camisetas` · `quero 300 adesivos` · `300 unidades` · `o pedido é de 300 peças` | **sim** |
 | `quero 300 camisetas, pago no pix` | **sim** (unidade decide sobre dinheiro) |
 | `na verdade não quero mais camiseta, quero adesivo UV` | troca de produto **aceita** |
+
+
+---
+
+# Segunda metade do contrato — o fato tambem nao pode ser **dito**
+
+A porta acima impede o fato de virar **estado**. Mas `decisao.mensagem` nasce **antes**
+dela: o modelo ainda podia **falar** "os 300 adesivos" mesmo com os slots recusados.
+
+## Caminho da mensagem ate o envio
+
+Cinco pontos de transporte no arquivo. So **um** carrega prosa do modelo:
+
+| linha | o que sai | origem | vetor? |
+|---|---|---|---|
+| 2690 | cortesia / despedida | string fixa no codigo | nao |
+| **4409** | **`resposta`** | **`decisao.mensagem` do modelo** | **sim — o unico** |
+| 4424 | codigo Pix | payload EMV do provider | nao |
+| 4524 | `_direct_message` | corpo HTTP (operador/sistema) | nao |
+| 4530 | codigo Pix do DM | payload EMV | nao |
+
+## Guardas de texto que ja existiam
+
+| guarda | o que valida | linha |
+|---|---|---|
+| `precosAutorizados` | valor em R$ nao autorizado por ferramenta | 3455 |
+| `RX_AFIRMA_RENDIMENTO` | "quantos cabem" divergente da tool | 3736 |
+| `guardrail_negou_midia` | negar midia recebida | 3450 |
+| **`RX_SAIDA_TERMO_FRETE` (v4.34.0)** | **pedir CEP / oferecer PAC-Sedex sem frete** | **3937** |
+| `guardaEgressoFinanceiro` | identificador interno vazando | 4357 |
+
+Faltava exatamente uma: **produto e quantidade**.
+
+### Refutacao — a metade do CEP ja estava coberta
+
+Rodei o modulo de modalidade **extraido do candidato** contra o contexto organico do Vitor:
+
+```
+modalidade     = desconhecida        bloqueia_frete = true
+guarda v4.34 dispara? = true
+podado         = "Perfeito! Pagamento confirmado."
+```
+
+Ou seja: **na LIVE v4.36 de hoje**, a frase sentinela ja seria podada exatamente para a
+resposta segura. Nao reimplementei isso. O que **nao** estava coberto e a mesma invencao
+sem token de frete:
+
+```
+"Perfeito! Pagamento confirmado. Vou separar os 300 adesivos e ja te aviso."
+guarda v4.34 dispara? = false          <-- "300 adesivos" ia para o cliente
+```
+
+## Ponto escolhido
+
+Imediatamente **antes** de `guardaEgressoFinanceiro`, no comentario `INVARIANTE DE
+TRANSPORTE`. E o unico ponto depois de **todas** as reescritas (frete/CEP, preco,
+rendimento, hold de arte) e antes do transporte — cobertura maxima, superficie minima. O
+invariante documentado ("nada escreve em `resposta` depois da guarda financeira") continua
+valendo, porque a nova guarda escreve **antes** dela.
+
+## Contrato de fato verificado
+
+`verifiedCommercialState` **e o proprio `slotsNovos`** — o snapshot que a porta de escrita
+ja aprovou (estado anterior + slots com proveniencia + escrita deterministica do
+`estadoLog`). Nao ha segunda logica de proveniencia, e **`decisao.slots` cru nao entra**.
+Somam-se a ele as fontes que a guarda tambem aceita: numeros das ferramentas
+(`ctx.rendimentosAutorizados`, `rendimentosAuxiliares`), quantidades e descricoes dos itens
+do **orcamento CalcMe** (`calcmeVigente.itens`), e a grade (total **e** cada tamanho).
+
+Uma "afirmacao de pedido" e um numero colado num substantivo de mercadoria
+("300 adesivos", "16 camisetas"). Mencao solta de produto **nao** conta — o Joao precisa
+poder oferecer catalogo.
+
+Sem lastro: **retry explicito** -> revalida (incluindo preservacao de valor em R$ e a
+guarda de frete) -> **poda cirurgica** (a mesma `removerSentencasComTermo` da v4.34.0) ->
+**texto neutro**. Nunca silencio.
+
+## Replay organico — foi a medicao que desenhou a regra
+
+1.431 turnos / 30 dias; 284 com afirmacao de pedido no texto (o resto a guarda nem olha).
+
+| versao da regra | disparos | falsos positivos |
+|---|---|---|
+| "todo numero sem lastro" | **134 / 281 (47,7%)** | tabela por metro, KIT do catalogo, grade por tamanho, `116,6` lido como `6` |
+| + poda de tabela, macro-set, CalcMe | 5 | 4 |
+| + adjacencia de dinheiro | 2 | 1 (audio: "19 blusas e **18** kits") |
+| **final (2 regras)** | **2 / 281 (0,7%)** | **0** |
+
+A versao ampla **nao era publicavel**. Sobraram as duas regras que a medicao sustentou:
+
+- **`quantidade_veio_de_dinheiro`** — o numero afirmado nasceu **grudado** num marcador de
+  dinheiro na fala do cliente (`R$`, entrada, sinal, paguei, ou o cliente como remetente).
+  Adjacencia, nao a frase inteira: a frase inteira acusava "18" em *"o valor pedido para dar
+  a entrada, sobre a questao do 19 blusas e 18 kits"* — porque "kits" nao esta no lexico.
+- **`produto_contradiz_pedido`** — o texto nomeia familia de produto que o pedido nao
+  admite, e o cliente nunca a nomeou. Compara com um **conjunto** de familias, nao uma so:
+  pedido multi-produto ("19 polos + 18 copos") acusava contradicao falsa.
+
+### Regra implementada, medida e RETIRADA
+
+`quantidade_contradiz_pedido` (numero diferente do pedido conhecido) disparou **10 vezes em
+281** e quase todas eram legitimas: o cliente revisa no meio da conversa, o Joao oferece
+completar o filme ("cabem mais 2 adesivos"), a ferramenta calcula rendimento. Estado
+verificado fica **velho** em relacao ao turno vivo. Foi removida. O comentario no codigo
+registra o motivo para ninguem reintroduzi-la sem medir.
+
+### Os 2 disparos — ambos verdadeiros
+
+1. **Vitor** (`5511994088967`, 26/08): `"frete dos 300 adesivos"` -> `quantidade_veio_de_dinheiro`.
+2. **Achado novo** (`06364000`, 24/08): pedido de **camisetas** (`arte: "logo camisa.pdf"`,
+   grade basica, cliente pedindo *"acrescente mais uma camisa tamanho M"*) e o Joao escreveu
+   `"completar os 51 adesivos + 1 que voce acrescentou hoje"` -> `produto_contradiz_pedido`.
+   **Segunda instancia organica da mesma familia**, em outro lead e outro dia.
+
+## Limites declarados desta metade
+
+1. **Quantidade que apenas diverge nao e bloqueada** (testado em `B3`). Numero legitimo vem
+   de fonte que a guarda nao enxerga. Quem impede o numero de virar **estado** e a porta de
+   escrita — as duas metades cobrem coisas diferentes.
+2. **`produtoNaMensagem` devolve `null` para plural** (`\bcamiseta\b` nao casa "camisetas").
+   A guarda usa `macrosDoTexto`, extrator proprio; `normalizarProdutoMacro` e `MATRIZ_TOOL`
+   ficam **intocados**, entao o gating de ferramenta nao muda.
+3. **Vocabulario de mercadoria e finito** ("blusa", "kit", "bone" estao fora). Por isso a
+   regra de dinheiro exige adjacencia: nao depende do lexico crescer.
+4. O replay nao enxerga `ctx` (ferramentas/CalcMe do turno), entao **superestima** disparos;
+   a guarda em producao recebe esses numeros.
 
 ## Reproduzir
 
