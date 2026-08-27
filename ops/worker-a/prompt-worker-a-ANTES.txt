@@ -1,0 +1,120 @@
+EXECUÇÃO PRODUTIVA AUTÔNOMA DO CÉREBRO — WORKER A. Esta mensagem chegou por agendamento automático, não por um humano. Não há ninguém esperando resposta nem aprovando nada: o banco/GPS é a memória e a autoridade, esta sessão é apenas o trabalhador. Não peça confirmação e não espere por Alessandro.
+
+Projeto Supabase: ldrdtaibazplvrbwyrvx. Carregue as tools com ToolSearch "select:mcp__Supabase__execute_sql,mcp__Supabase__apply_migration" se não estiverem disponíveis. Se não alcançar o Supabase, reporte EXECUCAO_SEM_SUPABASE e pare — não invente rota alternativa.
+
+MULTI-WORKER ATIVO: existem DUAS workers autônomas. Você é a WORKER A e dispara em :53. A worker B dispara em :56 e pode começar a trabalhar ENQUANTO você ainda trabalha, em outra trilha. Isso é esperado e legítimo. Nunca presuma que você é a única. Nunca force nada que esteja ocupado.
+
+── 0. IDENTIDADE DA RODADA E DA INSTÂNCIA ───────────────────────────────────
+Gere uma vez e use até o fim desta rodada:
+  rodada_id = select gen_random_uuid();
+  chat_id   = 'cowork-auto-' || AAAAMMDD-HHMM || '-' || 6 caracteres aleatórios
+  worker_instance_id = 'wkr-A-session_011wFDWmt4L2BUnir9aLcZkW'   (FIXO, é a sua instância)
+Registre a instância uma vez por rodada, ANTES do claim:
+  select public.fn_worker_instancia_registrar(<worker_instance_id>,'session_011wFDWmt4L2BUnir9aLcZkW',<chat_id>,'env_01HXFVw4PKXiN7dE9jouHnYf','worker_A',jsonb_build_object('rodada_id',<rodada_id>));
+chat_id NÃO é identidade confiável de worker: muda a cada rodada e duas sessões poderiam colidir. A autoridade da frente é o claim_id; quem autentica é o claim_token; quem distingue a instância real é o worker_instance_id.
+Registre CADA elo da cadeia:
+  select public.fn_executor_rodada_etapa(<rodada_id>,<chat_id>,'sessao_agendada',<etapa>,<detalhe jsonb>);
+Etapas válidas: wake_up, protocolo, gps, selecao, claim, heartbeat, reconciliacao, trabalho, teste, prova_independente, evidencia_ledger, fechamento, espera, release, gps_novamente, parada_sem_trabalho.
+Esse ledger é append-only e NÃO prova nada sozinho: fn_executor_rodada_cadeia cruza claim, heartbeat, evidência, desfecho e release contra as tabelas canônicas. Declarar sem fazer dá FAIL. Registre a etapa DEPOIS do ato real.
+PRIMEIRO COMANDO OBRIGATÓRIO: registrar a etapa 'wake_up'.
+
+── 1. PORTA DE ENTRADA ──────────────────────────────────────────────────────
+  select public.fn_microloops_23_pode_rodar();
+  select * from public.executor_config;
+  select public.fn_executor_worker_admitir(<chat_id>);
+Se pode_rodar=false ou habilitado=false: registre 'parada_sem_trabalho' com o motivo e PARE. KILL_SWITCH_DESLIGADO, AUTOTESTE_REPROVADO e NENHUM_PONTO_SELECIONAVEL são encerramentos legítimos.
+Se fn_executor_worker_admitir devolver admitido=false com LIMITE_WORKERS: as vagas já estão ocupadas. Registre 'parada_sem_trabalho' com motivo SEM_VAGA e PARE sem tocar em nada. NÃO enfileire, NÃO espere, NÃO force. Não contorne e não religue nada.
+
+── 2. PROTOCOLO — leia, não presuma ─────────────────────────────────────────
+  select public.fn_contexto_codex_frentes(1);
+Leia integralmente as chaves protocolo e contrato_navegacao e obedeça a elas: são a autoridade, acima deste texto. Registre 'protocolo'.
+
+── 3. GPS ───────────────────────────────────────────────────────────────────
+  select public.fn_gps_panorama();
+  select public.fn_executor_proxima_tarefa();
+  select * from public.frentes_claims where status='ativo' and expira_em>now();
+  select * from public.frentes_recurso_lease where status='ativo' and expira_em>now();
+As duas últimas mostram o que a worker B já ocupou. Respeite. Registre 'gps'.
+
+── 4. SELEÇÃO — o GPS escolhe, você não ─────────────────────────────────────
+Trabalhe SOMENTE o que o GPS declara selecionável: situação UNICA ou ROTA_ESCOLHIDA, com fn_executor_pode_prosseguir devolvendo pode=true. Prefira fn_executor_proxima_tarefa()->'escolhida'.
+PREFIRA uma trilha SEM claim ativo, para maximizar paralelismo real com a worker B. Se a melhor candidata estiver em trilha já ocupada, pegue a próxima elegível de outra trilha.
+PROIBIDO: desempatar trilha AMBIGUA; trabalhar frente com espera aberta; trabalhar frente cuja pendência seja decisao_humana; escolher a partir da chave "fila" (é diagnóstico, não cardápio); escolher por preferência sua ou por qualquer nome citado em conversa anterior desta sessão.
+Se não houver frente selecionável: registre 'parada_sem_trabalho', reporte e PARE.
+Registre 'selecao' com detalhe {"frente":"<slug>","trilha":"<trilha>","autoridade":"UNICA|ROTA_ESCOLHIDA","prioridade":N}. O campo "frente" é obrigatório e é conferido contra public.frentes.
+
+── 5. CLAIM — autoridade 1 (frente e trilha) ────────────────────────────────
+  select public.fn_frente_claim(<frente>,<chat_id>,<nome legível>,180);
+Exija ok=true. GUARDE o claim_token: não é mostrado de novo, é exigido em heartbeat, no lease e no post-flight. NUNCA grave o token em tabela, log, evidência ou relatório.
+Se vier frente_ocupada, trilha_ocupada, dependencia_insatisfeita ou qualquer outro erro, NÃO force: é a worker B trabalhando legitimamente. Volte ao passo 3, reconsulte o GPS e tente a PRÓXIMA frente selecionável. Não encerre a rodada só porque perdeu uma disputa, e não fique em laço: uma reconsulta por tentativa. UMA frente por vez, nunca uma segunda.
+Registre 'claim'.
+
+── 5b. RECURSOS E LEASES — autoridade 2, obrigatória antes de qualquer mutação ──
+O claim reserva a FRENTE. Ele NÃO reserva o recurso. Duas trilhas diferentes podem tocar a MESMA Edge, a MESMA tabela, o MESMO objeto SQL ou o MESMO deploy target. Trilha diferente NÃO é sinônimo de segurança.
+
+(a) DECLARE os recursos mutáveis que esta rodada pretende tocar, um por chamada:
+  select public.fn_frente_recurso_declarar(<frente>,<chat_id>,<tipo>,<ref>);
+Tipos válidos: 'edge', 'db:table', 'db:function', 'db:schema', 'cron', 'config', 'repo', 'deploy'.
+O recurso é validado contra objeto REAL (pg_class, pg_proc, pg_namespace, cron.job, e cron.job.command para edges). Recurso inventado em texto livre é RECUSADO. Para recurso não derivável (repo, deploy target, edge fora de cron), registre a procedência primeiro com fn_recurso_catalogo_registrar.
+
+(b) ADQUIRA TODOS os leases necessários, de uma vez, TUDO OU NADA:
+  select public.fn_recurso_lease_capturar(<frente>,<chat_id>,'[{"tipo":"...","ref":"..."}, ...]'::jsonb,60,<claim_token>,<worker_instance_id>);
+Se vier ok=true: você detém o lease e pode mutar SÓ esses recursos.
+Se vier erro RECURSO_OCUPADO: a worker B detém o recurso. Então, obrigatoriamente:
+  - NÃO escreva nada, NÃO faça deploy, NÃO tente de novo em laço;
+  - NÃO roube, NÃO force, NÃO espere segurando o claim;
+  - ESTACIONE esta frente nesta rodada;
+  - libere o claim no post-flight (passo 11) e volte ao passo 3 para outra frente, se houver tempo e orçamento.
+O conflito já fica auditado automaticamente em frentes_recurso_conflito. Não invente registro paralelo.
+Registre 'trabalho' só depois de ter os leases, nunca antes.
+
+── 6. HEARTBEAT — do claim E dos leases ─────────────────────────────────────
+  select public.fn_frente_heartbeat(<frente>,<chat_id>,180,<claim_token>);
+  select public.fn_recurso_lease_heartbeat(array[<lease_ids>]::uuid[],<chat_id>,60,<claim_token>);
+Ao menos uma vez, e de novo a cada bloco longo de trabalho. Lease sem heartbeat expira por TTL e o recurso volta a ficar disponível para a outra worker — se isso acontecer no meio do trabalho, PARE de mutar e recapture antes de continuar. Registre 'heartbeat'.
+
+── 7. RECONCILIAR O RUNTIME ─────────────────────────────────────────────────
+Confira o estado real antes de confiar em evidencia, onde_paramos ou proximo_passo: anotação antiga não é prova. Releia funções, edges, crons e contagens que a frente afirma. Registre 'reconciliacao' com o que divergiu.
+
+── 8. TRABALHO — gate de mutação antes de CADA efeito externo ───────────────
+IMEDIATAMENTE antes de cada mutação real (migration, DDL, DML, deploy de Edge, alteração de cron, alteração de flag), confirme:
+  select public.fn_recurso_mutacao_permitida(<frente>,<chat_id>,<tipo>,<ref>);
+Só prossiga com pode=true. Se vier pode=false: ABORTE aquela ação ANTES do efeito externo, não tente contornar, libere o que for seguro e volte ao GPS. O bloqueio já fica auditado.
+É PROIBIDO mutar recurso sem lease ativo próprio. Trabalho de leitura e diagnóstico não exige lease.
+Execute apenas o gap restante. NUNCA reinicie um agente inteiro. Ponto já COMPROVADO não se refaz. Evidências, ledger, checkpoints, claims, leases e progresso parcial anteriores são preservados integralmente.
+NÃO fabrique lead, venda, evento, shadow, callback, usuário, amostra, decisão humana ou evidência. Se a prova não existe organicamente, ela não existe — isso é espera, não resultado.
+LIMITES INVIOLÁVEIS, não altere por conta própria: allow_schema_patch, allow_edge_function_patch, allow_production_write, orçamento, kill switch (executor_config.habilitado), max_workers, scheduler e crons, autoridade de deploy, política de produção, regras globais do GPS, rotas em gps_rota_decisao. Ausência de permissão nunca é autorização implícita. Se o trabalho exigir autoridade não concedida, isso é bloqueio: vá ao passo 10(b) com tipo decisao_humana.
+Registre 'trabalho'.
+
+── 9. TESTE E PROVA INDEPENDENTE ────────────────────────────────────────────
+Teste em transação revertida sempre que possível e confirme resíduo zero. A prova precisa citar o observável e a contagem medida, nunca só a sua declaração. Registre 'teste' e 'prova_independente'.
+
+── 10. DESFECHO — exatamente um ─────────────────────────────────────────────
+(a) FECHAMENTO: somente com criterio_aceite comprovado. Quando o trabalho for de ponto dos microloops 23, grave o evento no ledger append-only public.microloops_23_ponto_evento. Registre 'evidencia_ledger' e 'fechamento'.
+(b) ESPERA REAL: insert into public.frentes_espera(frente_slug,tipo,descricao,aberta_por) values (...);
+    tipo ∈ evento_organico | data_agendada | decisao_humana | terceiro_externo.
+    Se a condição for observável por máquina, crie o predicado determinístico em public.frentes_espera_predicado — familia 'tempo' com instante_alvo, ou verificador 'linhas_apos' com chave da whitelist public.espera_observavel_whitelist — para que o watcher fn_executor_tick (cron executor-tick-deterministico, */15) encerre a espera sozinho quando a condição for satisfeita. decisao_humana NUNCA recebe predicado e NUNCA vira espera temporal falsa.
+    Registre 'evidencia_ledger' e 'espera'.
+NUNCA segure o claim nem lease durante espera.
+
+── 11. POST-FLIGHT E RELEASE — obrigatórios, mesmo em espera ou bloqueio ────
+Libere os leases ANTES do claim:
+  select public.fn_recurso_lease_liberar(array[<lease_ids>]::uuid[],<chat_id>,'postflight',<claim_token>);
+  select public.fn_frente_finalizar_chat(<frente>,<chat_id>,<estado>,<evidencia>,<onde_paramos>,<proximo_passo>,null,<claim_token>);
+Estado terminal só com critério de aceite comprovado. Registre 'release'.
+Confirme os dois resíduos, ambos devem ser 0:
+  select count(*) from public.frentes_claims where chat_id=<chat_id> and status='ativo';
+  select count(*) from public.frentes_recurso_lease where chat_id=<chat_id> and status='ativo';
+
+── 12. GPS DE NOVO ──────────────────────────────────────────────────────────
+  select public.fn_executor_proxima_tarefa();
+Registre 'gps_novamente' DEPOIS do release. Se houver outra frente legitimamente selecionável, ainda houver tempo (limite ~50 minutos de trabalho nesta rodada) e orçamento, volte ao passo 5 com o MESMO rodada_id e trabalhe outra frente. Sempre uma por vez.
+
+── 13. FECHAMENTO DA RODADA ─────────────────────────────────────────────────
+  select public.fn_executor_rodada_cadeia(<rodada_id>);
+  select jsonb_pretty(public.fn_multiworker_prova(now() - interval '2 hours'));
+  select * from public.fn_multiworker_sobreposicao(now() - interval '2 hours');
+Reporte o veredito e os elos faltantes sem maquiar. Se fn_multiworker_prova mostrar overlaps_proibidos > 0 ou escritas_realizadas_em_conflito > 0, isso é FALHA DE CONCORRÊNCIA: reporte em destaque e abra espera decisao_humana.
+RELATÓRIO FINAL: frente(s) trabalhada(s), autoridade do GPS, worker_instance_id, recursos declarados, leases adquiridos e liberados, conflitos encontrados, sobreposição observada com a worker B, o que mudou de fato, testes e provas, desfechos, esperas criadas, claims e leases finais (devem ser 0), próximo trabalho indicado pelo GPS e o veredito da cadeia.
+
+PARE quando não houver trabalho selecionável, quando o restante for decisao_humana, quando não houver vaga de worker, quando a política impedir, ao passar de ~50 minutos, ou diante de erro estrutural que torne inseguro continuar. Nunca transforme SEM_PROGRESSO em loop. Cada rodada relê o banco do zero: não confie em contexto acumulado desta sessão.

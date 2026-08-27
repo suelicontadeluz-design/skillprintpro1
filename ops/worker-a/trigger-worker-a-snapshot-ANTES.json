@@ -1,0 +1,60 @@
+{
+  "id": "trig_01B1pkaxoSLc5d2dKjyA9h8L",
+  "name": "Cérebro — Executor Produtivo Autônomo A (1x/hora, :53) — com lease de recurso",
+  "cron_expression": "53 * * * *",
+  "enabled": true,
+  "next_run_at": "2026-08-27T17:53:00Z",
+  "created_at": "2026-08-17T15:05:50.261142Z",
+  "updated_at": "2026-08-17T15:05:50.261142Z",
+  "job_config": {
+    "ccr": {
+      "environment_id": "env_01HXFVw4PKXiN7dE9jouHnYf",
+      "events": [
+        {
+          "data": {
+            "isSynthetic": true,
+            "message": {
+              "content": "<<<PROMPT em prompt-worker-a-ANTES.txt, 12802 caracteres>>>",
+              "role": "user"
+            },
+            "parent_tool_use_id": null,
+            "type": "user",
+            "uuid": "d67b0be8-de57-46c1-bc09-f205947bd506"
+          }
+        }
+      ],
+      "session_context": {
+        "allowed_tools": [
+          "preset:default",
+          "Task",
+          "Bash",
+          "Glob",
+          "Grep",
+          "Read",
+          "Edit",
+          "MultiEdit",
+          "Write",
+          "NotebookEdit",
+          "WebFetch",
+          "TodoWrite",
+          "WebSearch",
+          "BashOutput",
+          "KillBash",
+          "Skill",
+          "Tmux",
+          "Monitor",
+          "SendUserFile",
+          "REPL"
+        ]
+      }
+    }
+  },
+  "persist_session": true,
+  "persistent_session_id": "session_011wFDWmt4L2BUnir9aLcZkW",
+  "creator": {
+    "account_uuid": "468a1d8c-f876-4d9c-9bda-23f76cca638a"
+  },
+  "last_fired_at": "2026-08-27T16:53:18.592966Z",
+  "created_via": "meta_mcp",
+  "derived_state": {}
+}
