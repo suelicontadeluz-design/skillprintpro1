@@ -1,0 +1,44 @@
+{
+  "lead": "5553984545499",
+  "lead_id": "b6ec833a-a7ab-4545-a13c-927da937b394",
+  "content_category": "impressao_dtf_textil",
+  "prodOrigem": "dtf_textil",
+  "turnos": [
+    {
+      "id": "fec7641c-9a41-4aa3-a567-da9cab87a607",
+      "quando": "2026-08-28 20:36:34+00",
+      "mensagem": "100",
+      "ultimaMsgJoao": "*João Barros:*\nPerfeito! Quantos adesivos de 50x75cm você precisa?",
+      "textosCliente": ["100", "50x75", "Quero colocar em copos  de shopp", "Só os adesivos", "Esse", "Valor para esses modelos", "[imagem]", "[imagem]"],
+      "anteriores": { "produto": "adesivo_dtf_uv" },
+      "recebidos": { "produto": "adesivo_dtf_uv", "arte": "50x75cm", "quantidade": 100, "envio_retirada": null, "modalidade_logistica": null, "cep": null, "pagamento": null, "grade": null, "estampas": null },
+      "toolsUsadas": ["calcular_rendimento_uv", "calcular_rendimento_uv"],
+      "midiaNoTurno": false,
+      "numerosDeFerramenta": []
+    },
+    {
+      "id": "6ca83d4c-6422-49a9-afe5-afa4a1a7adfb",
+      "quando": "2026-08-28 21:04:51+00",
+      "mensagem": "Todas",
+      "ultimaMsgJoao": "*João Barros:*\nQual informação você precisa agora: valor, prazo, pagamento ou entrega?",
+      "textosCliente": ["Todas", "100", "50x75", "Quero colocar em copos  de shopp", "Só os adesivos", "Esse", "Valor para esses modelos", "[imagem]"],
+      "anteriores": { "arte": "50x75cm", "produto": "adesivo_dtf_uv" },
+      "recebidos": { "produto": "adesivo_dtf_uv", "arte": "50x75cm", "quantidade": 100, "envio_retirada": null, "modalidade_logistica": null, "cep": null, "pagamento": null, "grade": null, "estampas": null },
+      "toolsUsadas": ["calcular_rendimento_uv", "calcular_rendimento_uv"],
+      "midiaNoTurno": false,
+      "numerosDeFerramenta": []
+    },
+    {
+      "id": "777e1d50-ddb6-4592-8059-2d11df3365a4",
+      "quando": "2026-08-28 21:18:22+00",
+      "mensagem": "50x75 mm",
+      "ultimaMsgJoao": "*João Barros:*\nAlex, o adesivo DTF UV tem largura útil de 28cm. O tamanho 50x75cm não cabe nessa largura, nem girando.\n\nQual seria o tamanho máximo do seu adesivo para encaixar em 28cm de largura?",
+      "textosCliente": ["50x75 mm", "Prazo de entrega", "Pagamento", "Valor", "Todas", "100", "50x75", "Quero colocar em copos  de shopp"],
+      "anteriores": { "arte": "50x75cm", "produto": "adesivo_dtf_uv" },
+      "recebidos": { "produto": "adesivo_dtf_uv", "arte": "50x75cm" },
+      "toolsUsadas": ["calcular_rendimento_uv"],
+      "midiaNoTurno": false,
+      "numerosDeFerramenta": []
+    }
+  ]
+}

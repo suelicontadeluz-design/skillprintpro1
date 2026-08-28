@@ -113,3 +113,112 @@ de cliente). `provas/replay_dataset.sql` o regenera.
 
 Redeploy da v4.36.0 (Edge 179, `sha256 132df0ca…be68`). Sem migração e sem resíduo: o que
 a porta recusou **não foi gravado**, então voltar não precisa desfazer nada.
+
+---
+
+# FASE 1.1 — `agente-noturno-v4.37.1`: alias de UV colado por separador + quantidade que responde à pergunta
+
+**Frente:** `joao-parametro-financeiro-sem-proveniencia` · **Trilha:** `conversao_joao`
+**Edge:** `agente-noturno` (`ldrdtaibazplvrbwyrvx`)
+
+| item | valor |
+|---|---|
+| LIVE de partida | Edge **182**, `agente-noturno-v4.37.0`, `sha256 58ecc6b53aa9bca59ccf7d0398fba9c07d2488f75b3c4818bd72bd7f7b574816` |
+| candidato | `agente-noturno-v4.37.1`, `sha256 1d8385891f12daaa609d3cf4a8bb5a9a24aea91b47dd63251a0a27dcbe49967b` |
+| diff | **28 linhas adicionadas (16 comentário), 2 alteradas** — `candidato/v4.37.0__v4.37.1.diff` |
+| migração | nenhuma. Sem coluna, sem tabela, sem estado novo. |
+| provas | `provas/v4.37.1/run.sh` — 4 suítes, dry-run, sem rede, sem modelo, sem envio |
+
+> **Escopo desta publicação:** só a normalização de alias de produto e o novo caminho
+> de aceite de quantidade. **Não** entram: o fallback terminal das mensagens repetidas,
+> nem `produtoGuarda` (frente `joao-preco-guarda-cega-produto`). Os dois blocos ficaram
+> com sha idêntico ao da v4.37.0 — conferido antes do deploy.
+
+## O defeito
+
+`normalizarProdutoMacro` reconhece o token UV por `/\buv\b/`. Em JavaScript `_` é
+caractere de palavra, então **não existe fronteira `\b` entre `_` e `uv`**:
+
+```js
+/\buv\b/.test('adesivo_dtf_uv')   // false
+```
+
+Lead `5553984545499` (Alex), 28/08. O modelo escreveu `slots.produto = "adesivo_dtf_uv"`
+nos 7 turnos — JSON cru preservado em `error_log/modelo_sem_resposta_valida` às 21:04:51.
+`joao_slots_observacao.produto_macro` saiu `null` nas 7 linhas.
+
+Com o macro nulo o produto **desaparece das guardas**, sempre para o lado permissivo:
+
+| guarda | com o defeito | efeito |
+|---|---|---|
+| `avaliarCompatibilidadeTool` | `produto_indeterminado_fail_open` | qualquer ferramenta passa |
+| `fn_valor_e_legitimo` | `produto_avaliado: "indeterminado"` | preço conferido sem produto |
+| `filtrarSlotsPorProveniencia` | `macroAnterior = null` | porta sem referência para comparar |
+
+`slot_produto_fora_do_vocabulario` é **observação**, não recusa: roda depois de
+`slotsNovos` montado, dentro do bloco `if (!dryRun)`.
+
+A recusa real do turno foi outra, e é o critério (4) desta frente: `quantidade = 100`,
+**realmente informada pelo cliente** respondendo *"Quantos adesivos de 50x75cm você
+precisa?"*, recusada por `quantidade_sem_evidencia_de_unidade` — a porta só lia a fala
+do cliente, onde `100` está sozinho, e a unidade estava **na pergunta**.
+
+## O contrato
+
+> Vocabulário canônico não pode depender de como o modelo cola as palavras.
+> E pergunta do próprio João é fonte de unidade: ela carrega a unidade, o cliente
+> devolve o número.
+
+| mudança | regra |
+|---|---|
+| `normalizarProdutoMacro` | regra **aditiva e por último**: separador não-alfanumérico conta como fronteira. Por ser a última, só alcança string que a função já resolvia como `null` — reclassificação é impossível por construção. Segundo teste preserva o comportamento atual de string multi-produto. |
+| `quantidade` | novo caminho de **aceite**, exigindo as duas pontas: `quantos/quantas …?` na última mensagem do João **E** mensagem do cliente que é só esse número. |
+
+Nenhum caminho de **recusa** foi afrouxado: as duas mudanças só acrescentam
+aceitação com fonte verificável. O slot cru do modelo não é reescrito.
+
+## Medição
+
+**Corpus histórico de produto** — todo valor de `slots.produto` já emitido em produção
+(`joao_slots_observacao` + `agente_noturno_estado`): **147 distintos / 3.573 ocorrências**.
+
+- **0 reclassificados.**
+- 9 aliases saem de `null` para `dtf_uv`: `adesivo_dtf_uv` (127), `adesivo_uv` (59),
+  `dtf_uv_folha_a4` (12), `dtf_uv_folha` (6), `dtf_uv_adesivo` (3), e mais 4 com 1 cada.
+- Multi-produto intacto: `camiseta + adesivo_uv` → `camiseta`, `copo_ou_adesivo_uv` → `copo`,
+  `dtf_uv_a4 + dtf_textil_1m` → `dtf_textil`.
+
+**Porta de quantidade** — todas as recusas reais de `quantidade_sem_evidencia_de_unidade`
+já registradas em `error_log` (7), reconstruídas com a fala real do cliente e a última
+mensagem real do João, mais 5 adversários derivados da razão de ser da guarda.
+**Só a recusa-alvo muda de veredito.** Seguem recusados, entre outros:
+
+- `"Consigo dar uma entrada de 300 hoje"` — número nascido de dinheiro (caso Vitor)
+- `"posso enviar 300 agora"` — número nascido de remessa
+- `"02 folha A3"` — número não puro
+- `"umas cinco"` — por extenso
+- `7` metros ditos pelo próprio João
+
+**Preço** — `fn_precificar_dtf_uv_v2` (STABLE) devolve **R$ 154,44** para 100 adesivos de
+5×7,5 cm: o mesmo valor que o João acabou enviando às 21:18, depois que o cliente
+esclareceu *"50x75 mm"*.
+
+## Limites — o que esta publicação NÃO corrige
+
+O par de mensagens idênticas que o cliente recebeu às 20:36 e às 21:04
+(*"Qual informação você precisa agora: valor, prazo, pagamento ou entrega?"*) saiu do
+fallback terminal, disparado por `promessa_sem_conclusao_bloqueada_terminal` depois de o
+modelo se enrolar com `50x75` em cm × mm. Naquele bloco o roteamento testa `!produtoSlot`,
+o valor **cru** do slot — verdadeiro tanto com `adesivo_dtf_uv` quanto com `dtf_uv`.
+Corrigir o normalizador não muda esse caminho.
+
+`produtoGuarda` reimplementa o vocabulário com o mesmo ponto cego e ficou **intacto de
+propósito**: mexer nele endurece a guarda de preço, que não é o que este defeito pede.
+Pertence a `joao-preco-guarda-cega-produto`.
+
+## Canário pós-deploy
+
+`provas/v4.37.1/run.sh` roda sobre os **bytes publicados** (refetch da URL raw + `slice.sh`),
+**sem invocar a function**. Motivo: `emitirAutorizacao` **não** é guardado por `dryRun` —
+ele chama `fn_emitir_operacao_financeira` e gravaria operação financeira real. Invocar a
+function no lead da prova criaria autorização de verdade num lead que já recebeu o preço.

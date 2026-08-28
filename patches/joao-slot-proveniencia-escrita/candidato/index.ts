@@ -359,7 +359,7 @@ const BOT_BASE = 'https://backend.botconversa.com.br/api/v1/webhook';
 // FALAR fato errado no texto — isso e ESPERADO aqui e e tratado na frente seguinte
 // (guarda de saida, v4.38.0). O que esta publicacao garante e que o texto errado NAO
 // contamina agente_noturno_estado.
-const V = 'agente-noturno-v4.37.0';
+const V = 'agente-noturno-v4.37.1';
 const MODEL = 'claude-haiku-4-5-20251001';
 const ASSINATURA = '*Jo\u00e3o Barros:*\n';
 const ASSINATURA_JULIA = '*Julia Bitencourt:*\n';
@@ -1305,6 +1305,15 @@ function normalizarProdutoMacro(v: any): string | null {
   if (/\buv\b/.test(s) || s === 'dtf_uv') return 'dtf_uv';
   if (/copo/.test(s)) return 'copo';
   if (/camiseta|moletom|regata|baby\s?look/.test(s)) return 'camiseta';
+  // v4.37.1: 'uv' colado por separador ('adesivo_dtf_uv', 'adesivo_uv', 'dtf_uv_folha_a4')
+  // NAO casa \buv\b porque '_' e caractere de palavra. O macro saia null e o produto
+  // desaparecia das guardas. Regra ADITIVA e POR ULTIMO de proposito: so alcanca string
+  // que a funcao ja resolvia como null, entao nenhum valor hoje classificado troca de
+  // familia. O segundo teste preserva o comportamento atual de string multi-produto
+  // ('camiseta + adesivo_uv', 'copo_ou_adesivo_uv'): quem decide continua sendo a
+  // regra da familia citada, nunca o token 'uv' solto.
+  if (/(?:^|[^a-z0-9])uv(?![a-z0-9])/.test(s)
+      && !/t[êe]xtil|copo|caneca|garrafa|camiseta|moletom|regata|baby\s?look|polo|jaleco|uniforme|bon[ée]|pack|pano/.test(s)) return 'dtf_uv';
   return null;
 }
 
@@ -1347,6 +1356,10 @@ const RX_EVID_PEDIDO = /\b(?:quero|queria|preciso|vou\s+querer|fech\w+|or[c\u00e
 // A frase fala de DINHEIRO. Se o numero so aparece aqui, nao e quantidade.
 const RX_EVID_DINHEIRO = /(?:r\$|reais|conto|entrada|sinal|adiantamento|dep[o\u00f3]sito|pagar|paguei|pago|pagamento|transfer\w+|\bpix\b|restante|resto|parcel\w+|metade)/i;
 // Cliente falou de TAMANHO na janela do pedido.
+// v4.37.1: a pergunta de quantidade que o PROPRIO Joao acabou de fazer carrega a
+// unidade ('Quantos adesivos de 50x75cm voce precisa?'). O numero puro que responde
+// a ela tem proveniencia: unidade na pergunta, valor na resposta do cliente.
+const RX_PERGUNTA_QUANTIDADE = /\bquant[oa]s\b[^?]{0,160}\?/i;
 const RX_EVID_GRADE = /\b(?:pp|p|m|g|gg|g1|g2|g3|xg|xgg|infantil|tamanh\w+)\b/i;
 
 // O numero proposto como quantidade tem evidencia de UNIDADE na fala do cliente?
@@ -1431,6 +1444,7 @@ function filtrarSlotsPorProveniencia(a: {
   anteriores: any; recebidos: any; textosCliente: string[];
   macroCanonico: string | null; toolsUsadas: string[];
   midiaNoTurno?: boolean; numerosDeFerramenta?: number[];
+  perguntaQuantidadePendente?: boolean;
 }): { slots: any; rejeitados: Array<{ slot: string; valor: any; motivo: string }> } {
   const rejeitados: Array<{ slot: string; valor: any; motivo: string }> = [];
   const out: any = { ...(a.recebidos || {}) };
@@ -1476,10 +1490,21 @@ function filtrarSlotsPorProveniencia(a: {
       // Numero devolvido por FERRAMENTA neste turno e fonte legitima: no fluxo por
       // metro a metragem sai de calcular_dtf_metro, nunca da fala do cliente.
       const deTool = (a.numerosDeFerramenta || []).some((x) => Number(x) === nQ);
+      // v4.37.1: numero puro que RESPONDE a pergunta de quantidade do proprio Joao tem
+      // proveniencia — a unidade esta na pergunta e o cliente devolveu so o numero.
+      // Exige as duas pontas: pergunta 'quantos/quantas ...?' no turno anterior do Joao
+      // E uma mensagem do cliente que e SO esse numero. Nao reabre o caso Vitor, em que
+      // o 300 nasceu dentro de frase de dinheiro, nunca como mensagem isolada.
+      const respondeuPerguntaDeQuantidade = a.perguntaQuantidadePendente === true
+        && (a.textosCliente || []).some((t) => {
+          const so = String(t ?? '').trim();
+          return /^\d{1,6}$/.test(so) && Number(so) === nQ;
+        });
       ok = !ehNumeroPuro
         || evidenciaDeQuantidade(v, a.textosCliente).ok
         || (sg !== null && nQ === sg)
-        || deTool;
+        || deTool
+        || respondeuPerguntaDeQuantidade;
       motivo = 'quantidade_sem_evidencia_de_unidade';
     } else if (s === 'cep') {
       const d = String(v).replace(/\D/g, '');
@@ -4268,6 +4293,7 @@ async function atenderClienteInterno(phone: string, chatName: string, mensagem: 
     toolsUsadas,
     midiaNoTurno: (imagens || []).length > 0 || (transcricoes || []).length > 0,
     numerosDeFerramenta: numerosFerramenta,
+    perguntaQuantidadePendente: RX_PERGUNTA_QUANTIDADE.test(String(ultimaMsgJoao || '')),
   });
   const slotsRecebidos: any = provSlots.slots;
   if (provSlots.rejeitados.length && !dryRun) {
