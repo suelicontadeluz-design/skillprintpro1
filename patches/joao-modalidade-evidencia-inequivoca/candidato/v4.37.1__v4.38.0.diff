@@ -1,0 +1,116 @@
+--- a/candidato/index.ts (v4.37.1 = producao, commit 58f6432)
++++ b/candidato/index.ts (v4.38.0 = candidato)
+@@ -359,7 +359,24 @@
+ // FALAR fato errado no texto — isso e ESPERADO aqui e e tratado na frente seguinte
+ // (guarda de saida, v4.38.0). O que esta publicacao garante e que o texto errado NAO
+ // contamina agente_noturno_estado.
+-const V = 'agente-noturno-v4.37.1';
++// ══ v4.38.0 (30/08/2026) — GUARDA DE SAIDA: EVIDENCIA INEQUIVOCA DE MODALIDADE ══
++// A frente anunciada acima ("guarda de saida, v4.38.0") comeca aqui. Caso sentinela
++// 5521993457646 (29/08/2026 18:24-18:27):
++//   Joao: "Como vai ser a entrega, retirada aqui em Embu ou envio?"  Cliente: "Obrigada"
++//   Joao: "Perfeito, entao e envio. Me passa o CEP de 8 digitos..."
++// O resolvedor disse 'desconhecida' (nivel 4, DDD 21) e a guarda de proveniencia da v4.37.0
++// rejeitou o slot 'envio' proposto pelo modelo — e o TEXTO saiu mesmo assim, porque com
++// bloqueia_frete=false o prompt recebia ao mesmo tempo "ENVIO e o caminho provavel" e
++// "[CEP AUSENTE: peca o CEP UMA vez]". O modelo obedeceu a instrucao que o codigo emitiu.
++// TRES fechos, nenhum por frase especifica ("obrigada" nao aparece em regra nenhuma):
++//   1. montar(): 'desconhecida' passa a bloquear frete/CEP em QUALQUER regiao — cortesia,
++//      emoji e silencio nunca foram evidencia; fora da Grande SP agora tambem nao sao.
++//   2. blocoModalidadeLogistica(): fora da Grande SP sem modalidade resolvida, a instrucao
++//      vira pergunta explicita (envio ou retirada?) com CEP proibido antes da resposta.
++//   3. guardaTextoModalidadeSemEvidencia(): barreira TERMINAL deterministica no texto da
++//      resposta. Texto de prompt nao resolve (licao da v4.34.0): a barreira e codigo.
++// Nada financeiro muda; niveis 1-3 (declaracao real do cliente) seguem byte-identicos.
++const V = 'agente-noturno-v4.38.0';
+ const MODEL = 'claude-haiku-4-5-20251001';
+ const ASSINATURA = '*Jo\u00e3o Barros:*\n';
+ const ASSINATURA_JULIA = '*Julia Bitencourt:*\n';
+@@ -790,11 +807,15 @@
+ 
+   const montar = (m: ModalidadeLogistica, prov: string, nivel: number, ev: string | null, confirmar: boolean): EstadoLogistico => {
+     const semFretePorModalidade = m === 'retirada' || m === 'motoboy';
+-    const indefinidaComRetiradaPlausivel = m === 'desconhecida' && grandeSP;
+-    const bloqueia = semFretePorModalidade || produtoDigital || indefinidaComRetiradaPlausivel;
++    // v4.38.0: 'desconhecida' bloqueia frete/CEP em QUALQUER regiao. A versao anterior so
++    // bloqueava na Grande SP; fora dela, pedir_cep=true fazia blocoCepCanonico emitir
++    // "[CEP AUSENTE: peca o CEP]" com ZERO evidencia do cliente — caso sentinela 29/08,
++    // 5521993457646: "Obrigada" respondendo a pergunta de modalidade virou "entao e envio".
++    const indefinida = m === 'desconhecida';
++    const bloqueia = semFretePorModalidade || produtoDigital || indefinida;
+     const motivo = produtoDigital ? 'produto_digital_sem_frete'
+       : semFretePorModalidade ? ('modalidade_' + m + '_nao_tem_frete')
+-      : indefinidaComRetiradaPlausivel ? 'modalidade_indefinida_com_retirada_plausivel'
++      : indefinida ? (grandeSP ? 'modalidade_indefinida_com_retirada_plausivel' : 'modalidade_indefinida_sem_declaracao_do_cliente')
+       : 'sem_bloqueio';
+     return {
+       modalidade: m, proveniencia: prov, fonte_nivel: nivel, evidencia: ev,
+@@ -861,8 +882,9 @@
+     return '\n\n[MODALIDADE LOG\u00cdSTICA N\u00c3O RESOLVIDA e RETIRADA \u00c9 PLAUS\u00cdVEL (Grande SP). Fa\u00e7a UMA pergunta: retirada aqui em Embu ou envio pelos Correios?'
+       + '\nPROIBIDO pedir CEP antes da resposta. PROIBIDO calcular frete. PROIBIDO oferecer PAC ou Sedex.]';
+   }
+-  return '\n\n[MODALIDADE LOG\u00cdSTICA N\u00c3O RESOLVIDA. O cliente est\u00e1 fora da Grande SP, ent\u00e3o ENVIO \u00e9 o caminho prov\u00e1vel — mas isso \u00e9 pista, n\u00e3o fato: havendo qualquer sinal de retirada, pergunte antes.'
+-    + (e.cep_conhecido ? ` O CEP ${e.cep_conhecido} j\u00e1 \u00e9 conhecido (fonte: ${e.cep_fonte}): N\u00c3O pe\u00e7a de novo.]` : ' S\u00f3 pe\u00e7a o CEP quando ele realmente faltar para o frete.]');
++  return '\n\n[MODALIDADE LOG\u00cdSTICA N\u00c3O RESOLVIDA. O cliente est\u00e1 fora da Grande SP, ent\u00e3o ENVIO \u00e9 o caminho prov\u00e1vel — mas isso \u00e9 pista, n\u00e3o fato. N\u00c3O afirme que \u00e9 envio. Cortesia ("obrigada", "ok", "beleza"), emoji e sil\u00eancio N\u00c3O s\u00e3o escolha de modalidade. Fa\u00e7a UMA pergunta: envio pelos Correios ou retirada aqui em Embu?'
++    + '\nPROIBIDO pedir CEP antes da resposta do cliente. PROIBIDO calcular frete. PROIBIDO oferecer PAC ou Sedex.'
++    + (e.cep_conhecido ? ` O CEP ${e.cep_conhecido} j\u00e1 \u00e9 conhecido (fonte: ${e.cep_fonte}): quando o envio for confirmado, N\u00c3O pe\u00e7a de novo.]` : ']');
+ }
+ 
+ // Fallback terminal do fechamento. A v4.33.0 usava uma lista FIXA ("quantidade, medida, CEP
+@@ -885,6 +907,24 @@
+   return `Para gerar a cobran\u00e7a correta, preciso concluir o valor do pedido. Me confirma ${lista}?`;
+ }
+ 
++// ══ v4.38.0 P0: GUARDA DE SAIDA DE MODALIDADE — ver manifesto no topo do arquivo ══
++// So atua quando o resolvedor NAO tem evidencia (modalidade 'desconhecida') e o produto nao
++// e digital. NAO e regra por frase: "obrigada" nao aparece aqui. O que ela verifica e a
++// RESPOSTA: sem evidencia do cliente, afirmar modalidade ou citar CEP e proibido em qualquer
++// regiao. Pergunta que OFERECE a escolha (cita retirada E envio) nao e afirmacao e passa.
++// Nota de regex: \b nao funciona ao lado de acento ([\u00e9]); os limites usam (?:^|\s).
++const RX_TXT_CITA_CEP = /\bcep\b/i;
++const RX_TXT_AFIRMA_MODALIDADE = /(?:^|\s)(?:ent[a\u00e3]o\s+)?(?:[e\u00e9]|vai\s+ser|ser[a\u00e1]|fica(?:ria)?\s+(?:por|como))\s+(?:por\s+)?(?:envio|retirada|entrega\s+em\s+casa)(?:$|[\s.,!?])/i;
++function guardaTextoModalidadeSemEvidencia(texto: string, e: EstadoLogistico): { bloqueia: boolean; gatilho: string | null; substituta: string } {
++  const substituta = 'S\u00f3 me confirma a forma de entrega: retirada aqui em Embu das Artes ou envio pelos Correios?';
++  if (e.modalidade !== 'desconhecida' || e.produto_digital) return { bloqueia: false, gatilho: null, substituta };
++  const t = String(texto || '');
++  if (RX_TXT_CITA_CEP.test(t)) return { bloqueia: true, gatilho: 'citou_cep_sem_modalidade_resolvida', substituta };
++  const ofereceEscolha = /retirad/i.test(t) && /envio|correios|sedex|entrega/i.test(t);
++  if (!ofereceEscolha && RX_TXT_AFIRMA_MODALIDADE.test(t)) return { bloqueia: true, gatilho: 'afirmou_modalidade_sem_evidencia', substituta };
++  return { bloqueia: false, gatilho: null, substituta };
++}
++
+ // ══ v4.35.0 P0: CEP CANONICO — LER O CADASTRO, CONFIRMAR, REUTILIZAR, PERSISTIR ══
+ // KILL SWITCH. FALSE = nunca troca um cep que ja convive com endereco preenchido.
+ // Ligar significa aceitar que a NF-e saia com cep novo e logradouro/cidade antigos.
+@@ -3131,7 +3171,7 @@
+             acao: estadoLog.produto_digital
+               ? 'Este produto e DIGITAL: a entrega e por link no WhatsApp. NAO existe frete, NAO peca CEP e NAO fale de PAC nem Sedex.'
+               : estadoLog.modalidade === 'desconhecida'
+-                ? 'A forma de entrega ainda NAO foi resolvida e retirada e plausivel. Pergunte em UMA frase se ele quer retirada aqui em Embu ou envio, e NAO peca CEP antes da resposta.'
++                ? 'A forma de entrega ainda NAO foi resolvida. Pergunte em UMA frase se ele quer envio pelos Correios ou retirada aqui em Embu, e NAO peca CEP antes da resposta.'
+                 : 'O cliente JA disse que vai ' + (estadoLog.modalidade === 'motoboy' ? 'mandar motoboy buscar' : 'retirar presencialmente')
+                   + '. NAO existe frete neste pedido. NAO peca CEP, NAO ofereca PAC nem Sedex e NAO diga que precisa do CEP para gerar a cobranca. Feche com o valor do produto.',
+           }) });
+@@ -4270,6 +4310,22 @@
+     return { ok: true, respondeu: false, tema: decisao.tema };
+   }
+ 
++  // ══ v4.38.0 P0: GUARDA DE SAIDA — a resposta final nao pode afirmar modalidade nem citar
++  // CEP sem evidencia do cliente. Roda DEPOIS de todo fallback/retry (o texto aqui e final)
++  // e ANTES de slots/estado/envio, nos dois modos (dry-run inclusive). Nunca toca mensagem
++  // que carrega Pix nascido no turno: cobranca real tem prioridade (invariante da v107).
++  if (!ctx.pixGerado?.ok) {
++    const gm = guardaTextoModalidadeSemEvidencia(resposta, estadoLog);
++    if (gm.bloqueia) {
++      await logErro('guardrail_texto_modalidade_sem_evidencia', {
++        phone, lead: leadId, turn_id: obsTurnId, agent_version: V, gatilho: gm.gatilho,
++        resposta_original: String(resposta).slice(0, 250),
++      });
++      toolsUsadas.push('texto_modalidade_bloqueado');
++      resposta = gm.substituta;
++    }
++  }
++
+   // FIX 1 (v87): resposta vazia do modelo NAO sobrescreve memoria estruturada ja preenchida.
+   const slotsAnteriores: any = estado?.slots || {};
+   // ── v4.37.0 P0: o modelo PROPOE; so vira fato com proveniencia verificavel ──
