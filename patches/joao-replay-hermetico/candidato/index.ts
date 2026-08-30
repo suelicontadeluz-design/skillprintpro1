@@ -539,11 +539,14 @@ function stubEscritaHermetica(alvo: string, op: string, payload: any): any {
   return stubThenable({ data: null, error: null, count: null, status: 200, statusText: 'HIPOTETICO' });
 }
 function estadoSinteticoDoCaso(): any | null {
+  // Contrato real de fn_replay_snapshot: estado do instante em payload.slots_before
+  // (a funcao declara agente_noturno_estado como nao-reconstituivel e
+  // replay_caso.slots_antes como fonte unica confiavel).
   const snap = __ctxHermetico?.snapshot;
   if (!snap || typeof snap !== 'object') return null;
-  const slots = (snap as any).slots_antes ?? null;
+  const slots = (snap as any)?.payload?.slots_before ?? (snap as any).slots_antes ?? null;
   if (!slots) return null;
-  return { etapa: (slots as any).etapa ?? (snap as any).etapa ?? 'sondagem', slots, updated_at: __ctxHermetico?.asOf ?? (snap as any).as_of ?? null };
+  return { etapa: (slots as any).etapa ?? (snap as any)?.payload?.etapa ?? 'sondagem', slots, updated_at: __ctxHermetico?.asOf ?? (snap as any).as_of ?? null };
 }
 function fromHermetico(tabela: string): any {
   const c = __ctxHermetico!;
@@ -558,8 +561,11 @@ function fromHermetico(tabela: string): any {
         return (...args: any[]) => {
           c.leituras++;
           if (c.modo === 'replay' && tabela === 'agente_noturno_estado') {
+            // NUNCA completar com estado atual: em replay a linha corrente de
+            // agente_noturno_estado e proibida como entrada. Ou o estado vem do
+            // snapshot (slots_before), ou o turno roda como sem-estado.
             const est = estadoSinteticoDoCaso();
-            if (est) return stubThenable({ data: est, error: null });
+            return stubThenable({ data: est, error: null });
           }
           const qb: any = v.apply(t, args);
           return (col && asOf) ? qb.lte(col, asOf) : qb;
@@ -694,9 +700,18 @@ async function atenderHermetico(body: any, modoPedido: string): Promise<Response
       if (eSnap || !snap) return respostaJsonHermetica({ ok: false, motivo: 'replay_caso_indisponivel', erro: eSnap ? String(eSnap.message ?? eSnap.code ?? eSnap).slice(0, 200) : 'snapshot_vazio' }, 422);
       const caso: any = Array.isArray(snap) ? snap[0] : snap;
       c.snapshot = caso;
-      if (!phone) phone = String(caso?.phone ?? '').replace(/\D/g, '');
-      if (!mensagem) mensagem = String(caso?.inbound_texto ?? '');
+      // Contrato real do snapshot: identidade no topo, entradas em payload.
+      const pl: any = caso?.payload ?? caso ?? {};
+      if (!phone) phone = String(pl?.phone ?? '').replace(/\D/g, '');
+      if (!mensagem) mensagem = String(pl?.mensagem ?? pl?.inbound_texto ?? '');
       if (!c.asOf && caso?.as_of) c.asOf = String(caso.as_of);
+      // §7: contexto historico insuficiente NAO e completado com estado atual.
+      // Sem slots_before o unico estado admissivel e "sem estado"; se alem disso o
+      // snapshot se declara incompleto, o turno nao roda.
+      const marcadorSnap = String(caso?.marcador ?? '');
+      if (marcadorSnap === 'REPLAY_CONTEXTO_INCOMPLETO' && !pl?.slots_before) {
+        return respostaJsonHermetica({ ok: false, motivo: 'REPLAY_CONTEXTO_INCOMPLETO', faltas: caso?.faltas ?? null, replay_case_id: c.replayCaseId }, 422);
+      }
     }
     if (!phone) return respostaJsonHermetica({ ok: false, motivo: 'campos_hermetico', faltando: 'phone' }, 400);
     if (!mensagemValida(mensagem)) return respostaJsonHermetica({ ok: false, motivo: 'campos_hermetico', faltando: 'mensagem' }, 400);
@@ -706,7 +721,7 @@ async function atenderHermetico(body: any, modoPedido: string): Promise<Response
       replay_case_id: c.replayCaseId, as_of: c.asOf,
       resultado,
       acoes_hipoteticas: c.acoes,
-      telemetria_hipotetica: { leituras: c.leituras, escritas_interceptadas: c.escritasInterceptadas, http_bloqueado: c.httpBloqueado, snapshot_usado: !!c.snapshot },
+      telemetria_hipotetica: { leituras: c.leituras, escritas_interceptadas: c.escritasInterceptadas, http_bloqueado: c.httpBloqueado, snapshot_usado: !!c.snapshot, snapshot_marcador: c.snapshot ? String((c.snapshot as any)?.marcador ?? '') : null, snapshot_faltas: c.snapshot ? ((c.snapshot as any)?.faltas ?? null) : null },
     }, 200);
   } catch (e: any) {
     return respostaJsonHermetica({ ok: false, contrato: REPLAY_CONTRACT, modo: c.modo, erro: String(e?.message ?? e).slice(0, 300), acoes_hipoteticas: c.acoes }, 500);
