@@ -1,0 +1,460 @@
+{
+ "com_jwt": true,
+ "cenarios": {
+  "replay": {
+   "status": 200,
+   "corpo": {
+    "ok": true,
+    "contrato": "a1_replay_hermetico_v1",
+    "modo": "replay",
+    "role": "replay_runner",
+    "replay_case_id": "b3c3aa96-3c32-41d2-b53d-08216dd7d079",
+    "as_of": "2026-08-29T18:25:05.482728+00:00",
+    "resultado": {
+     "ok": true,
+     "enviou": true,
+     "texto": "Imagina! Qualquer coisa e so chamar. Boa tarde!",
+     "mensagem_recebida": "Obrigada"
+    },
+    "acoes_hipoteticas": [
+     {
+      "t": "rpc_leitura_negada",
+      "alvo": "fn_agente_pausado",
+      "detalhe": {
+       "code": "42501",
+       "msg": "permission denied for function fn_agente_pausado"
+      },
+      "em": "2026-08-30T14:00:55.020Z"
+     },
+     {
+      "t": "rpc_leitura_negada",
+      "alvo": "fn_contexto_comercial_do_lead",
+      "detalhe": {
+       "code": "42501",
+       "msg": "permission denied for function fn_contexto_comercial_do_lead"
+      },
+      "em": "2026-08-30T14:00:55.020Z"
+     },
+     {
+      "t": "rpc_mutadora_bloqueada",
+      "alvo": "fn_joao_adquirir_lock",
+      "detalhe": {
+       "args": {
+        "p_phone": "55219XXXXXXXX"
+       }
+      },
+      "em": "2026-08-30T14:00:55.020Z"
+     },
+     {
+      "t": "rpc_mutadora_bloqueada",
+      "alvo": "fn_get_or_create_lead",
+      "detalhe": {
+       "args": {
+        "p_phone": "55219XXXXXXXX",
+        "p_fullname": null
+       }
+      },
+      "em": "2026-08-30T14:00:55.020Z"
+     },
+     {
+      "t": "http_externo_bloqueado",
+      "alvo": "http_externo",
+      "detalhe": {
+       "metodo": "PATCH",
+       "url": "https://ynjsflvdfftcopibzxyo.supabase.co/rest/v1/pessoas",
+       "corpo": {
+        "nome": "x"
+       }
+      },
+      "em": "2026-08-30T14:00:55.072Z"
+     },
+     {
+      "t": "rpc_mutadora_bloqueada",
+      "alvo": "fn_emitir_operacao_financeira",
+      "detalhe": {
+       "args": {
+        "p_lead_id": "x",
+        "p_kind": "produto",
+        "p_amount": 213.24,
+        "p_source_tool": "calcular_dtf_metro",
+        "p_components": {}
+       }
+      },
+      "em": "2026-08-30T14:00:55.073Z"
+     },
+     {
+      "t": "rpc_mutadora_bloqueada",
+      "alvo": "fn_registrar_decisao_agente",
+      "detalhe": {
+       "args": {
+        "p_agente_slug": "agente-noturno",
+        "p_acao_executada": "resposta_noturna",
+        "p_dry_run": false
+       }
+      },
+      "em": "2026-08-30T14:00:55.073Z"
+     },
+     {
+      "t": "escrita_bloqueada",
+      "alvo": "joao_envios",
+      "detalhe": {
+       "op": "insert",
+       "payload": {
+        "decision_id": "hipotetico-3db7b903-5976-4904-923d-ef9042f24e51",
+        "phone": "55219XXXXXXXX",
+        "tipo": "texto",
+        "status": "preparado"
+       }
+      },
+      "em": "2026-08-30T14:00:55.073Z"
+     },
+     {
+      "t": "http_externo_bloqueado",
+      "alvo": "whatsapp_zapi_send_text",
+      "detalhe": {
+       "metodo": "POST",
+       "url": "https://api.z-api.io/instances/***/token/***/send-text",
+       "corpo": {
+        "phone": "55219XXXXXXXX",
+        "message": "Imagina! Qualquer coisa e so chamar. Boa tarde!"
+       }
+      },
+      "em": "2026-08-30T14:00:55.074Z"
+     },
+     {
+      "t": "http_externo_bloqueado",
+      "alvo": "whatsapp_botconversa_lookup",
+      "detalhe": {
+       "metodo": "GET",
+       "url": "https://backend.botconversa.com.br/api/v1/webhook/subscriber/get_by_phone/55219XXXXXXXX/",
+       "corpo": null
+      },
+      "em": "2026-08-30T14:00:55.074Z"
+     },
+     {
+      "t": "http_externo_bloqueado",
+      "alvo": "whatsapp_botconversa_send",
+      "detalhe": {
+       "metodo": "POST",
+       "url": "https://backend.botconversa.com.br/api/v1/webhook/subscriber/123/send_message/",
+       "corpo": {
+        "type": "text",
+        "value": "Imagina! Qualquer coisa e so chamar. Boa tarde!"
+       }
+      },
+      "em": "2026-08-30T14:00:55.074Z"
+     },
+     {
+      "t": "http_externo_bloqueado",
+      "alvo": "tts",
+      "detalhe": {
+       "metodo": "POST",
+       "url": "https://ldrdtaibazplvrbwyrvx.supabase.co/functions/v1/joao-tts",
+       "corpo": {}
+      },
+      "em": "2026-08-30T14:00:55.074Z"
+     },
+     {
+      "t": "http_externo_bloqueado",
+      "alvo": "whatsapp_zapi_send_audio",
+      "detalhe": {
+       "metodo": "POST",
+       "url": "https://api.z-api.io/instances/***/token/***/send-audio",
+       "corpo": {}
+      },
+      "em": "2026-08-30T14:00:55.074Z"
+     },
+     {
+      "t": "http_externo_bloqueado",
+      "alvo": "mercadopago_pix_criar",
+      "detalhe": {
+       "metodo": "POST",
+       "url": "https://ldrdtaibazplvrbwyrvx.supabase.co/functions/v1/mp-pix-criar",
+       "corpo": {
+        "valor": 213.24
+       }
+      },
+      "em": "2026-08-30T14:00:55.074Z"
+     },
+     {
+      "t": "http_externo_bloqueado",
+      "alvo": "crm_task",
+      "detalhe": {
+       "metodo": "POST",
+       "url": "https://ldrdtaibazplvrbwyrvx.supabase.co/functions/v1/agente-pipeline",
+       "corpo": {
+        "titulo": "handoff"
+       }
+      },
+      "em": "2026-08-30T14:00:55.074Z"
+     },
+     {
+      "t": "http_externo_bloqueado",
+      "alvo": "crm_lost",
+      "detalhe": {
+       "metodo": "POST",
+       "url": "https://ldrdtaibazplvrbwyrvx.supabase.co/functions/v1/joao-lost-canonico",
+       "corpo": {}
+      },
+      "em": "2026-08-30T14:00:55.075Z"
+     },
+     {
+      "t": "http_externo_bloqueado",
+      "alvo": "frete_cotacao",
+      "detalhe": {
+       "metodo": "POST",
+       "url": "https://ldrdtaibazplvrbwyrvx.supabase.co/functions/v1/calcular-frete",
+       "corpo": {}
+      },
+      "em": "2026-08-30T14:00:55.075Z"
+     },
+     {
+      "t": "http_externo_bloqueado",
+      "alvo": "transcricao_openai",
+      "detalhe": {
+       "metodo": "POST",
+       "url": "https://api.openai.com/v1/audio/transcriptions",
+       "corpo": {}
+      },
+      "em": "2026-08-30T14:00:55.075Z"
+     },
+     {
+      "t": "http_externo_bloqueado",
+      "alvo": "http_externo",
+      "detalhe": {
+       "metodo": "POST",
+       "url": "https://crm.rdstation.com/api/v1/deals",
+       "corpo": {}
+      },
+      "em": "2026-08-30T14:00:55.075Z"
+     },
+     {
+      "t": "escrita_bloqueada",
+      "alvo": "joao_envios",
+      "detalhe": {
+       "op": "update",
+       "payload": {
+        "status": "aceito_provider"
+       }
+      },
+      "em": "2026-08-30T14:00:55.075Z"
+     },
+     {
+      "t": "escrita_bloqueada",
+      "alvo": "fact_conversations",
+      "detalhe": {
+       "op": "insert",
+       "payload": {
+        "phone": "55219XXXXXXXX",
+        "direction": "outbound",
+        "message_text": "Imagina! Qualquer coisa e so chamar. Boa tarde!"
+       }
+      },
+      "em": "2026-08-30T14:00:55.075Z"
+     },
+     {
+      "t": "escrita_bloqueada",
+      "alvo": "agente_decisoes_log",
+      "detalhe": {
+       "op": "update",
+       "payload": {
+        "resultado": "executada"
+       }
+      },
+      "em": "2026-08-30T14:00:55.075Z"
+     },
+     {
+      "t": "escrita_bloqueada",
+      "alvo": "inbound_fora_horario",
+      "detalhe": {
+       "op": "update",
+       "payload": {
+        "status": "atendido_joao"
+       }
+      },
+      "em": "2026-08-30T14:00:55.075Z"
+     },
+     {
+      "t": "escrita_bloqueada",
+      "alvo": "agente_noturno_estado",
+      "detalhe": {
+       "op": "upsert",
+       "payload": {
+        "phone": "55219XXXXXXXX",
+        "etapa": "fechamento",
+        "slots": {}
+       }
+      },
+      "em": "2026-08-30T14:00:55.075Z"
+     },
+     {
+      "t": "escrita_bloqueada",
+      "alvo": "anthropic_token_usage",
+      "detalhe": {
+       "op": "insert",
+       "payload": {
+        "model": "x",
+        "input_tokens": 10
+       }
+      },
+      "em": "2026-08-30T14:00:55.075Z"
+     },
+     {
+      "t": "escrita_bloqueada",
+      "alvo": "error_log",
+      "detalhe": {
+       "op": "insert",
+       "payload": {
+        "function_name": "agente-noturno",
+        "error_message": "x"
+       }
+      },
+      "em": "2026-08-30T14:00:55.075Z"
+     },
+     {
+      "t": "escrita_bloqueada",
+      "alvo": "agente_noturno_lock",
+      "detalhe": {
+       "op": "delete"
+      },
+      "em": "2026-08-30T14:00:55.075Z"
+     }
+    ],
+    "telemetria_hipotetica": {
+     "leituras": 12,
+     "escritas_interceptadas": 13,
+     "http_bloqueado": 12,
+     "snapshot_usado": true,
+     "snapshot_marcador": "REPLAY_CONTEXTO_INCOMPLETO",
+     "snapshot_faltas": [
+      "estado_operacional_nao_versionado"
+     ]
+    }
+   }
+  },
+  "live_apos_lacre": {
+   "status": 409,
+   "corpo": {
+    "ok": false,
+    "motivo": "isolate_hermetico",
+    "detalhe": "Este isolate ja executou shadow/replay e nao serve mais trafego live."
+   }
+  },
+  "modo_invalido": {
+   "status": 400,
+   "corpo": {
+    "ok": false,
+    "motivo": "modo_invalido",
+    "modos": [
+     "live",
+     "shadow",
+     "replay"
+    ]
+   }
+  }
+ },
+ "estado_visto_pelo_turno": {
+  "etapa": "sondagem",
+  "slots": {
+   "arte": "multiplas_medidas",
+   "produto": "dtf_textil",
+   "quantidade": 10
+  },
+  "updated_at": "2026-08-29T18:25:05.482728+00:00"
+ },
+ "auditoria": {
+  "fetchNativoChamado": [
+   {
+    "url": "https://api.anthropic.com/v1/messages",
+    "metodo": "POST"
+   },
+   {
+    "url": "https://ynjsflvdfftcopibzxyo.supabase.co/rest/v1/pessoas?select=id",
+    "metodo": "GET"
+   },
+   {
+    "url": "https://ynjsflvdfftcopibzxyo.supabase.co/rest/v1/rpc/fn_orcar_camisetas_agente",
+    "metodo": "POST"
+   }
+  ],
+  "dbOps": [
+   {
+    "tabela": "fact_conversations",
+    "op": "select",
+    "args": "source, message_text, timestamp"
+   },
+   {
+    "tabela": "inbound_fora_horario",
+    "op": "select",
+    "args": "id, body, created_at"
+   },
+   {
+    "tabela": "mp_pix_cobrancas",
+    "op": "select",
+    "args": "payment_id, valor, status"
+   },
+   {
+    "tabela": "orcamentos",
+    "op": "select",
+    "args": "produto, valor_total"
+   },
+   {
+    "tabela": "operacoes_financeiras",
+    "op": "select",
+    "args": "id, kind, amount"
+   },
+   {
+    "tabela": "pixel_events",
+    "op": "select",
+    "args": "id"
+   }
+  ],
+  "rpcs": [
+   {
+    "nome": "fn_replay_snapshot",
+    "via": "cliente_real"
+   },
+   {
+    "nome": "fn_agente_pausado",
+    "via": "cliente_real"
+   },
+   {
+    "nome": "fn_contexto_comercial_do_lead",
+    "via": "cliente_real"
+   }
+  ],
+  "lteAplicado": [
+   {
+    "tabela": "fact_conversations",
+    "coluna": "timestamp",
+    "valor": "2026-08-29T18:25:05.482728+00:00"
+   },
+   {
+    "tabela": "inbound_fora_horario",
+    "coluna": "created_at",
+    "valor": "2026-08-29T18:25:05.482728+00:00"
+   },
+   {
+    "tabela": "mp_pix_cobrancas",
+    "coluna": "created_at",
+    "valor": "2026-08-29T18:25:05.482728+00:00"
+   },
+   {
+    "tabela": "orcamentos",
+    "coluna": "created_at",
+    "valor": "2026-08-29T18:25:05.482728+00:00"
+   },
+   {
+    "tabela": "operacoes_financeiras",
+    "coluna": "created_at",
+    "valor": "2026-08-29T18:25:05.482728+00:00"
+   },
+   {
+    "tabela": "pixel_events",
+    "coluna": "event_time",
+    "valor": "2026-08-29T18:25:05.482728+00:00"
+   }
+  ],
+  "leiturasEstado": []
+ }
+}

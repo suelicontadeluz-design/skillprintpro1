@@ -1,0 +1,27 @@
+{
+  "alvo": "agente-noturno",
+  "as_of": "2026-08-29T18:25:05.482728+00:00",
+  "classe": "sentinela",
+  "faltas": ["estado_operacional_nao_versionado"],
+  "caso_id": "b3c3aa96-3c32-41d2-b53d-08216dd7d079",
+  "payload": {
+    "as_of": "2026-08-29T18:25:05.482728+00:00",
+    "phone": "55219XXXXXXXX",
+    "lead_id": "<lead_id-redigido>",
+    "mensagem": "Obrigada",
+    "slots_before": { "arte": "multiplas_medidas", "produto": "dtf_textil", "quantidade": 10 },
+    "producao_commit": "58f64326271f3a38e5b92ee322ff5dfcd0866816",
+    "producao_versao": "agente-noturno-v4.37.1",
+    "estado_operacional": {
+      "reconstituivel": false,
+      "fonte_unica_confiavel": "replay_caso.slots_antes",
+      "linha_atual_apenas_para_diagnostico": { "etapa_hoje": "fechamento", "updated_at_hoje": "2026-08-29T18:27:18.511+00:00" }
+    },
+    "historico_ate_as_of": [{ "ts": "2026-08-29T18:24:28+00:00", "dir": "inbound", "src": "zapi", "txt": "<redigido>" }],
+    "autorizacoes_vigentes_no_as_of": [{ "id": "<autorizacao_id-redigida>", "kind": "produto", "amount": 213.24, "source_tool": "calcular_dtf_metro" }]
+  },
+  "contrato": "toda leitura obedece timestamp <= as_of",
+  "marcador": "REPLAY_CONTEXTO_INCOMPLETO",
+  "contexto_completo": false,
+  "linhas_futuras_ignoradas": 6
+}
