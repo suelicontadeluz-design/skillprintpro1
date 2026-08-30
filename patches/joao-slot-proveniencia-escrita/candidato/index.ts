@@ -359,7 +359,7 @@ const BOT_BASE = 'https://backend.botconversa.com.br/api/v1/webhook';
 // FALAR fato errado no texto — isso e ESPERADO aqui e e tratado na frente seguinte
 // (guarda de saida, v4.38.0). O que esta publicacao garante e que o texto errado NAO
 // contamina agente_noturno_estado.
-const V = 'agente-noturno-v4.37.2';
+const V = 'agente-noturno-v4.37.3';
 const MODEL = 'claude-haiku-4-5-20251001';
 const ASSINATURA = '*Jo\u00e3o Barros:*\n';
 const ASSINATURA_JULIA = '*Julia Bitencourt:*\n';
@@ -1273,6 +1273,18 @@ function valoresDaMensagem(msg: string): number[] {
   const rx = new RegExp(RX_MOEDA.source, 'gi');
   while ((m = rx.exec(msg)) !== null) { const bruto = m[1] || m[2]; if (bruto) out.push(reaisParaCentavos(bruto)); }
   return out;
+}
+// v4.37.3: VOCABULARIO DE PRECO UNITARIO.
+// Invariante do proprietario (30/08): preco unitario PODE ser informado ao cliente;
+// sozinho, NUNCA e autorizacao financeira do total do pedido.
+const RX_PRECO_UNITARIO = /\bcada\b|\ba\s+partir\s+de\b|\b(?:a|por|o)\s+(?:unidade|pe[cç]a|folha|metro)\b|\/\s*un(?:idade)?\b|\bpor\s+un\b/i;
+// Frase que CARREGA o valor. Reusa valoresDaMensagem em vez de criar um segundo extrator
+// monetario: uma sentenca so conta se ela propria contem aquele centavos. Escopo por frase
+// evita que "a partir de" numa frase vizinha contamine um preco fechado legitimo.
+// O split exige espaco depois do delimitador, entao "R$ 1.234,56" nao e quebrado no milhar.
+function frasesComValor(msg: string, centavos: number): string[] {
+  return String(msg || '').split(/\n+|[.!?]+\s+/)
+    .filter((f) => valoresDaMensagem(f).includes(centavos));
 }
 
 function falhaAutorizacao(display: any) {
@@ -3528,9 +3540,47 @@ async function atenderClienteInterno(phone: string, chatName: string, mensagem: 
           || f === 'dtf_uv_degraus'
           || (f === 'catalogo_produtos' && !produtoGuarda);
 
+        // ── v4.37.3: PRECO UNITARIO NAO AUTORIZA O TOTAL ────────────────────
+        // MEDIDO em 16 autorizacoes preco_de_ficha ja emitidas: 4 nasceram de frase
+        // explicitamente unitaria ("a partir de R$29,90 cada", "R$35,90 a unidade.
+        // Quantas voce quer?"). A lista de valores nao podia barra-las: um numero nao
+        // carrega a informacao de ser total ou unitario. Nenhuma chegou a ser consumida,
+        // entao o risco era latente — esta guarda o fecha antes de virar cobranca.
+        // DOIS SINAIS, do mais confiavel para o menos:
+        //  1 ESTRUTURADO: quantidade ja conhecida (slot do turno, estado salvo ou soma da
+        //    grade) maior que 1. Se o pedido tem N>1 pecas, um valor unico da ficha NAO
+        //    pode ser o total — o total seria N x unitario. Nao depende de ler texto.
+        //  2 SEMANTICO: a FRASE que carrega o valor o enuncia como unitario. Escopo por
+        //    frase, nao pela mensagem inteira, para nao derrubar preco fechado legitimo
+        //    por causa de frase vizinha.
+        // Esta guarda so REMOVE autorizacao; nunca cria. O Joao continua livre para
+        // INFORMAR o preco unitario: nada aqui toca o texto enviado ao cliente.
+        const qtdDoPedido: number | null = (() => {
+          for (const v of [(decisao.slots || {}).quantidade, estado?.slots?.quantidade]) {
+            const n = Number(String(v ?? '').replace(',', '.'));
+            if (Number.isFinite(n) && n > 0) return n;
+          }
+          const sg = somaGrade((decisao.slots || {}).grade ?? estado?.slots?.grade);
+          return (sg !== null && sg > 0) ? sg : null;
+        })();
+        const frasesDoValor = soUm ? frasesComValor(resposta, conferidos[0].centavos) : [];
+        const valorEUnitario = soUm && (
+          (qtdDoPedido !== null && qtdDoPedido > 1)
+          || (frasesDoValor.length > 0
+                ? frasesDoValor.some((f) => RX_PRECO_UNITARIO.test(f))
+                : RX_PRECO_UNITARIO.test(resposta))
+        );
         const ehProduto = soUm
+          && !valorEUnitario
           && PRECOS_FICHA_FECHADOS.has(conferidos[0].centavos)
           && FONTES_UNIDADE_FECHADA(conferidos[0].fonte);
+        if (soUm && valorEUnitario) {
+          await logErro('preco_unitario_nao_autoriza_total', {
+            phone, centavos: conferidos[0].centavos, fonte: conferidos[0].fonte,
+            quantidade_conhecida: qtdDoPedido,
+            frase: (frasesDoValor[0] || resposta).trim().slice(0, 160),
+          });
+        }
         const jaTemProdutoNoTurno = (ctx.autorizacoes || []).some((o: any) => o.kind === 'produto');
         if (ehProduto && !jaTemProdutoNoTurno) {
           const { data: jaAtiva } = await sb.from('operacoes_financeiras')

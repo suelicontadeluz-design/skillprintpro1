@@ -304,3 +304,89 @@ quebraria a autorização de preço do pack.
 Estampas Streetwear (R$ 29,90) fica fora do conjunto de preços fechados e pode não
 autorizar automaticamente. É problema independente, de autorização/proveniência de
 preço, a investigar pela fonte canônica.
+
+---
+
+# FASE 1.3 — `agente-noturno-v4.37.3`: preço unitário não autoriza o total
+
+**Frente:** `joao-parametro-financeiro-sem-proveniencia` · **Trilha:** `conversao_joao`
+**Decisão do proprietário (30/08):** preço unitário **pode** ser informado ao cliente;
+sozinho, **nunca** é autorização financeira do total do pedido.
+
+| item | valor |
+|---|---|
+| LIVE de partida | Edge **184**, `agente-noturno-v4.37.2`, `sha256 e93b2f10d85dd85fcd262dcf88e08f613a694069074389610091394b23392983` |
+| candidato | `agente-noturno-v4.37.3`, `sha256 6c979b526324384372d3210b6e030a4d265a3078c6e38db8ef66e47bd837a525` |
+| diff | **51 linhas adicionadas (27 comentário), 1 alterada** — `candidato/v4.37.2__v4.37.3.diff` |
+| migração | nenhuma |
+| provas | `provas/v4.37.3/run.sh` — três suítes, três baselines |
+
+## O defeito
+
+A invariante de v4.21.2 deixa um valor único da ficha virar autorização de produto.
+O filtro era `PRECOS_FICHA_FECHADOS`, uma lista de **valores** — e um número não
+carrega a informação de ser total ou unitário.
+
+**Medido nas 16 autorizações `preco_de_ficha` já emitidas: 4 nasceram de frase
+explicitamente unitária.**
+
+```
+"Camiseta personalizada sai a partir de R$29,90 cada"
+"copos ... personalizado sai a partir de R$ 35,90 a unidade. Quantas você quer?"
+"custa a partir de R$29,90 a folha"
+```
+
+Nenhuma foi consumida — todas expiraram como `ativa`. Risco **latente**, dano zero
+realizado. Mas a de R$35,90 viraria um Pix de R$35,90 num pedido de 15 copos
+(R$538,50).
+
+## A regra
+
+> Preço unitário pode ser **informado**. Sozinho, nunca **autoriza** o total.
+
+Dois sinais, do mais confiável para o menos:
+
+| sinal | regra |
+|---|---|
+| **1. estruturado** | quantidade já conhecida (slot do turno, estado salvo, ou soma da grade) **> 1**. Se o pedido tem N>1 peças, um valor único da ficha não pode ser o total. Não lê texto. |
+| **2. semântico** | a **frase** que carrega o valor o enuncia como unitário: `cada`, `a/por unidade`, `por peça`, `por metro`, `a folha`, `/un`, `a partir de`. Escopo por frase, não pela mensagem inteira. |
+
+A guarda só **remove** autorização, nunca cria. O texto enviado ao cliente não é
+tocado: informar preço unitário continua permitido. Quando bloqueia, registra
+`preco_unitario_nao_autoriza_total` com a frase e a quantidade conhecida.
+
+## Por que não mexemos na lista
+
+Investigação prévia (read-only) mediu as três opções:
+
+- **A. manter a lista** — escolhida. Não bloqueia preço legítimo de catálogo: dos
+  12 valores já bloqueados por `guardrail_preco_sem_tool`, só 2 eram de catálogo e
+  ambos eram R$99,00 **por metro**, corretamente bloqueados.
+- **B. derivar de `catalogo_produtos`** — **inseguro, comprovado**. `fn_valor_e_legitimo`
+  casa qualquer linha ativa por preço **sem filtrar `orcamento_por_agente`**: R$59,90
+  (DTF Têxtil/metro) e R$99,00 (DTF UV/metro) voltam `legitimo=true`. Derivar ampliaria
+  o conjunto autorizador de 6 valores para ~30, incluindo os por metro.
+- **C. catálogo + `orcamento_por_agente`** — viável (as 5 linhas `false` são exatamente
+  as 2 camisetas "SOMENTE HUMANO" e os 3 por-metro), mas **não resolve** o defeito:
+  `Copo térmico 10un = R$29,90` é `orcamento_por_agente=true` e ainda assim unitário.
+
+O defeito era **semântico, não de fonte**. Por isso a correção é esta, e a lista
+ficou byte-idêntica.
+
+## Não alterado — sha de bloco idêntico ao baseline
+
+```
+PRECOS_FICHA_FECHADOS    91a3615b93e9af89
+PRECOS_DE_FICHA          5dfd9fb978411e01
+produtoGuarda            d2ff7d935dc1d7f8
+FONTES_UNIDADE_FECHADA   506584da25a3a4a4   (nenhuma fonte autorizadora nova)
+normalizarProdutoMacro   d4a45e1d259f45f5
+quantidade da v4.37.1    198417a4ec671e3d
+```
+
+`catalogo_produtos` não foi tocado. Nenhum preço adicionado ou removido.
+
+## Nota de teste
+
+`provas/v4.37.3/slice-preco.sh` recorta a **composição da decisão verbatim** do
+`candidato/index.ts`. O teste executa a regra publicada, não uma reimplementação dela.
