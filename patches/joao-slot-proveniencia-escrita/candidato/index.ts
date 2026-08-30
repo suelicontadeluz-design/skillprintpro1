@@ -359,7 +359,7 @@ const BOT_BASE = 'https://backend.botconversa.com.br/api/v1/webhook';
 // FALAR fato errado no texto — isso e ESPERADO aqui e e tratado na frente seguinte
 // (guarda de saida, v4.38.0). O que esta publicacao garante e que o texto errado NAO
 // contamina agente_noturno_estado.
-const V = 'agente-noturno-v4.37.1';
+const V = 'agente-noturno-v4.37.2';
 const MODEL = 'claude-haiku-4-5-20251001';
 const ASSINATURA = '*Jo\u00e3o Barros:*\n';
 const ASSINATURA_JULIA = '*Julia Bitencourt:*\n';
@@ -774,7 +774,15 @@ function resolverModalidadeLogistica(a: {
   // como nivel 1 do CEP. Nada da resolucao de modalidade mudou.
   const ddd = String(a.phone || '').length >= 4 ? String(a.phone).slice(2, 4) : '';
   const grandeSP = ddd === '11';
-  const produtoDigital = /\bpacks?\b|estampas?\s+pronta|arquivo\s+digital/i.test(String(a.produtoContexto || ''));
+  // v4.37.2: 'pack' colado por separador ('pack_adesivos') nao casava \bpacks?\b, e sem isso
+  // o pedido DIGITAL seguia o fluxo fisico: pedia medida, retirada e CEP. Mesmo defeito de
+  // fronteira que a v4.37.1 corrigiu no 'uv'. A segunda condicao delega ao vocabulario
+  // canonico em vez de repetir regra: pedido MISTO ('dtf_textil_3m + pack_catolicos') resolve
+  // como dtf_textil, continua fisico e continua tendo frete.
+  const ctxProduto = String(a.produtoContexto || '');
+  const packColado = /(?:^|[^a-z0-9])packs?(?![a-z0-9])/i.test(ctxProduto)
+    && normalizarProdutoMacro(ctxProduto) === 'pack';
+  const produtoDigital = /\bpacks?\b|estampas?\s+pronta|arquivo\s+digital/i.test(ctxProduto) || packColado;
 
   // CEP CONHECIDO = o que o Joao REALMENTE ja tem. Existir CEP nao decide modalidade.
   // v4.35.0: ordem das fontes conforme o contrato. O que o cliente ACABOU de escrever vence
@@ -874,8 +882,15 @@ function perguntaDoQueFaltaFechamento(e: EstadoLogistico, slots: any): string {
     return v !== undefined && v !== null && String(v).trim() !== '' && String(v).toLowerCase() !== 'null';
   };
   const faltas: string[] = [];
-  if (!tem('quantidade')) faltas.push('a quantidade');
-  if (!tem('arte') && !tem('quantidade')) faltas.push('a medida');
+  // v4.37.2: produto DIGITAL nao tem medida fisica, e no catalogo vivo todo pack cobra o
+  // mesmo preco_1un e preco_10un — quantidade nao muda o valor. Pedir os dois foi o que
+  // produziu "me confirma a quantidade, a medida e se e retirada ou envio" num pedido de
+  // Pack Futebol. A linha de retirada/envio ja era suprimida aqui desde a v4.34.0; faltava
+  // suprimir as outras duas. Sem faltas, a pergunta vira so a forma de pagamento.
+  if (!e.produto_digital) {
+    if (!tem('quantidade')) faltas.push('a quantidade');
+    if (!tem('arte') && !tem('quantidade')) faltas.push('a medida');
+  }
   if (e.modalidade === 'desconhecida' && !e.produto_digital) faltas.push('se \u00e9 retirada ou envio');
   if (e.modalidade === 'envio' && !e.cep_conhecido) faltas.push('o CEP');
   if (faltas.length === 0) {
@@ -1314,6 +1329,14 @@ function normalizarProdutoMacro(v: any): string | null {
   // regra da familia citada, nunca o token 'uv' solto.
   if (/(?:^|[^a-z0-9])uv(?![a-z0-9])/.test(s)
       && !/t[êe]xtil|copo|caneca|garrafa|camiseta|moletom|regata|baby\s?look|polo|jaleco|uniforme|bon[ée]|pack|pano/.test(s)) return 'dtf_uv';
+  // v4.37.2: familia DIGITAL 'pack'. Colada por separador ('pack_adesivos', 'pack_animes',
+  // 'packs_digitais') ela nao casa \bpacks?\b pelo mesmo motivo do 'uv' na v4.37.1: '_' e
+  // caractere de palavra. Sem macro o pack ficava indeterminado e a matriz de ferramenta
+  // caia em produto_indeterminado_fail_open. Regra ADITIVA e POR ULTIMO: so alcanca string
+  // que a funcao ja resolvia como null, entao nenhum valor hoje classificado troca de
+  // familia — pedido misto ('dtf_textil_3m + pack_catolicos_troca_anjos') ja resolveu como
+  // dtf_textil nas regras acima e nunca chega aqui.
+  if (/(?:^|[^a-z0-9])packs?(?![a-z0-9])/.test(s)) return 'pack';
   return null;
 }
 

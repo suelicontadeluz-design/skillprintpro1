@@ -222,3 +222,85 @@ Pertence a `joao-preco-guarda-cega-produto`.
 **sem invocar a function**. Motivo: `emitirAutorizacao` **não** é guardado por `dryRun` —
 ele chama `fn_emitir_operacao_financeira` e gravaria operação financeira real. Invocar a
 function no lead da prova criaria autorização de verdade num lead que já recebeu o preço.
+
+---
+
+# FASE 1.2 — `agente-noturno-v4.37.2`: família digital `pack` fora do vocabulário e no fluxo físico
+
+**Frente:** `joao-parametro-financeiro-sem-proveniencia` · **Trilha:** `conversao_joao`
+**Edge:** `agente-noturno` (`ldrdtaibazplvrbwyrvx`)
+
+| item | valor |
+|---|---|
+| LIVE de partida | Edge **183**, `agente-noturno-v4.37.1`, `sha256 1d8385891f12daaa609d3cf4a8bb5a9a24aea91b47dd63251a0a27dcbe49967b` |
+| candidato | `agente-noturno-v4.37.2`, `sha256 e93b2f10d85dd85fcd262dcf88e08f613a694069074389610091394b23392983` |
+| diff | **27 linhas adicionadas (18 comentário), 4 alteradas** — `candidato/v4.37.1__v4.37.2.diff` |
+| migração | nenhuma. Sem coluna, sem tabela, sem estado novo. |
+| provas | `provas/v4.37.2/run.sh` — duas suítes, dois baselines, dry-run |
+
+> **Escopo:** só o reconhecimento da família digital `pack` e a supressão do fluxo
+> físico para ela. **Não** entram: preço, `PRECOS_FICHA_FECHADOS`, `produtoGuarda`,
+> fallback terminal, e o caminho de quantidade da v4.37.1. Os quatro ficaram com
+> sha de bloco idêntico ao da v4.37.1 — conferido no gate.
+
+## O defeito
+
+Mesma classe de fronteira da v4.37.1, agora no token `pack`. `_` é caractere de
+palavra, então `/\bpacks?\b/` não casa valor colado:
+
+```
+"pack"             -> true      "pack_adesivos"   -> false
+"Pack Futebol"     -> true      "pack_animes"     -> false
+"pack de estampas" -> true      "packs_digitais"  -> false
+```
+
+Dois pontos sofriam:
+
+1. `normalizarProdutoMacro` **não conhecia a família `pack`** — `produto_macro`
+   saía `null` e `avaliarCompatibilidadeTool` caía em `produto_indeterminado_fail_open`.
+2. `resolverModalidadeLogistica` detecta produto digital por essa regex. Com o
+   valor colado, `produto_digital = false`, `bloqueia_frete = false`, CEP liberado
+   e `perguntaDoQueFaltaFechamento` pedindo quantidade e medida.
+
+Caso real, lead `…3109` em 30/08 13:38–14:02: cinco turnos com
+`slots.produto = "pack_adesivos"`, `produto_macro = null` nos cinco. A conversa era
+Pack Futebol R$ 9,90 / Pack Animes R$ 6,90 e o João respondeu *"me confirma a
+quantidade, a medida e se é retirada ou envio"* para um arquivo digital.
+
+Pré-existente: `pack_adesivos` → `null` na v4.37.0 **e** na v4.37.1.
+
+## O contrato
+
+> Produto digital não tem medida, não tem retirada, não tem frete.
+> E vocabulário canônico não pode depender de como o modelo cola as palavras.
+
+| mudança | regra |
+|---|---|
+| `normalizarProdutoMacro` | família `pack` como regra **aditiva e por último**: só alcança string que já resolvia `null`. Famílias físicas resolvem antes, então pedido misto não muda. |
+| detector de produto digital | enxerga `pack` colado, **delegando ao vocabulário canônico** (`normalizarProdutoMacro(ctx) === 'pack'`) em vez de repetir regra. Pedido misto resolve como físico e mantém frete. |
+| `perguntaDoQueFaltaFechamento` | não pede quantidade nem medida quando `produto_digital`. A linha de retirada/envio já era suprimida desde a v4.34.0. |
+
+Aliases vieram do catálogo vivo (`catalogo_produtos`, 9 packs ativos) e do corpus
+real de produção. Nenhum inventado. Nenhum preço alterado.
+
+## Medição
+
+- Corpus histórico de produto: **23 valores / 264 ocorrências** saem de `null`,
+  **0 reclassificados**.
+- Pedido misto `dtf_textil_3m + pack_catolicos_troca_anjos` → `dtf_textil`,
+  segue físico, mantém frete.
+- Porta de quantidade da v4.37.1: **zero divergência** entre v4.37.1 e v4.37.2.
+
+## Cuidado ao evoluir
+
+**`produtoGuarda` NÃO deve ganhar `pack`.** A guarda de preço aceita
+`catalogo_produtos` como fonte de unidade fechada apenas quando `produtoGuarda` é
+falsy (`f === 'catalogo_produtos' && !produtoGuarda`). Devolver `'pack'` ali
+quebraria a autorização de preço do pack.
+
+## Pendência conhecida, NÃO tratada aqui
+
+`PRECOS_FICHA_FECHADOS` tem `690, 990, 1990` mas **não** `2990` — o Pack de
+Estampas Streetwear (R$ 29,90) fica fora do conjunto de preços fechados e pode não
+autorizar automaticamente. É problema independente, de autorização/proveniência de
+preço, a investigar pela fonte canônica.
