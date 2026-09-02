@@ -1662,7 +1662,7 @@ async function registrarObservacaoSlots(row: any) {
   catch (e: any) { L('shadow_slots_obs_falhou', { erro: String(e?.message ?? e).slice(0, 120) }); }
 }
 
-async function executarTool(name: string, input: any, ctx: { leadId: string | null; autorizacoes: any[]; cobrancaPendente: any | null; permiteMudanca: boolean; freteJa: any | null; arteParaCalculo?: { largura_cm: number; altura_cm: number; copias: number } | null; phone?: string; pixGerado?: any; holdArte?: boolean }): Promise<string> {
+async function executarTool(name: string, input: any, ctx: { leadId: string | null; autorizacoes: any[]; cobrancaPendente: any | null; permiteMudanca: boolean; freteJa: any | null; arteParaCalculo?: { largura_cm: number; altura_cm: number; copias: number } | null; phone?: string; pixGerado?: any; holdArte?: boolean; modalidadeLogistica?: ModalidadeLogistica; produtoDigital?: boolean }): Promise<string> {
   try {
     if (name === 'consultar_catalogo') {
       const termo = String(input?.termo || '').toLowerCase().trim();
@@ -1968,6 +1968,37 @@ async function executarTool(name: string, input: any, ctx: { leadId: string | nu
       // v4.33.0 P0: era aqui que a chave manual entrava na conversa. Sem lead nao existe
       // cobranca possivel e NAO existe chave manual provada: falha FECHADA.
       if (!ctx.leadId) return JSON.stringify({ ok: false, erro: 'lead_nao_identificado', acao: 'Nao ha cadastro para emitir a cobranca. NAO envie chave, codigo nem link. Peca o dado que falta para identificar o pedido.' });
+
+      // v4.37.4 P0: a autorizacao financeira precisa representar o pedido LOGISTICO inteiro.
+      // Antes, um operation_id de produto podia ser consumido mesmo quando a venda era envio:
+      // o cliente ouvia produto + frete, mas recebia Pix apenas do produto. Falha fechada antes
+      // de consumir a autorizacao e antes de criar orcamento/cobranca.
+      const { data: operacaoPix, error: erroOperacaoPix } = await sb.from('operacoes_financeiras')
+        .select('id,kind,source_tool,components,amount,status')
+        .eq('id', operationId).eq('lead_id', ctx.leadId).maybeSingle();
+      if (erroOperacaoPix || !operacaoPix) {
+        await logErro('autorizacao_pix_nao_encontrada', { operationId, lead: ctx.leadId, erro: String(erroOperacaoPix?.message || '').slice(0, 120) });
+        return JSON.stringify({ ok: false, erro: 'autorizacao_invalida', acao: 'A autorizacao nao vale mais. Recalcule e gere uma nova.' });
+      }
+      const compsPix = Array.isArray((operacaoPix as any)?.components?.componentes)
+        ? (operacaoPix as any).components.componentes : [];
+      const totalComProdutoEFrete = String((operacaoPix as any).kind) === 'total'
+        && String((operacaoPix as any).source_tool) === 'fn_compor_total'
+        && compsPix.some((c: any) => String(c?.kind) === 'produto')
+        && compsPix.some((c: any) => String(c?.kind) === 'frete');
+      if (ctx.produtoDigital !== true && ctx.modalidadeLogistica === 'desconhecida') {
+        await logErro('guardrail_pix_modalidade_pendente', { operationId, lead: ctx.leadId, kind: (operacaoPix as any).kind });
+        return JSON.stringify({ ok: false, erro: 'modalidade_logistica_pendente',
+          acao: 'Antes do Pix, confirme se o cliente vai retirar aqui em Embu, mandar motoboy ou receber por envio. Se for envio, calcule o frete e componha o total.' });
+      }
+      if (ctx.produtoDigital !== true && ctx.modalidadeLogistica === 'envio' && !totalComProdutoEFrete) {
+        await logErro('guardrail_pix_envio_sem_total_composto', {
+          operationId, lead: ctx.leadId, kind: (operacaoPix as any).kind,
+          source_tool: (operacaoPix as any).source_tool, componentes: compsPix.map((c: any) => String(c?.kind || '')).slice(0, 8)
+        });
+        return JSON.stringify({ ok: false, erro: 'envio_sem_total_composto',
+          acao: 'NAO gere Pix apenas do produto. Calcule o frete, chame compor_total com os operation_id de produto e frete e use somente o operation_id total devolvido.' });
+      }
 
       let operacaoConsumida = false;
       try {
@@ -3022,7 +3053,7 @@ async function atenderClienteInterno(phone: string, chatName: string, mensagem: 
   const arteParaCalculo = !pediuMetrosDiretos && larguraCtx > 0 && alturaCtx > 0 && copiasCtx > 0
     ? { largura_cm: larguraCtx, altura_cm: alturaCtx, copias: copiasCtx } : null;
   // v84: valores conversacionais nao autorizam cobranca. Somente operation_id tipado.
-  const ctx: any = { leadId, phone, autorizacoes: [] as any[], precosAutorizados: [] as any[], rendimentosAutorizados: [] as any[], rendimentosAuxiliares: [] as number[], cobrancaPendente: execucoes.cobrancaPendente, permiteMudanca: pediuMudanca, freteJa: execucoes.freteJa, arteParaCalculo, pixGerado: null, holdArte: RX_HOLD_ARTE_PAGAMENTO.test(mensagem) };
+  const ctx: any = { leadId, phone, autorizacoes: [] as any[], precosAutorizados: [] as any[], rendimentosAutorizados: [] as any[], rendimentosAuxiliares: [] as number[], cobrancaPendente: execucoes.cobrancaPendente, permiteMudanca: pediuMudanca, freteJa: execucoes.freteJa, arteParaCalculo, pixGerado: null, holdArte: RX_HOLD_ARTE_PAGAMENTO.test(mensagem), modalidadeLogistica: estadoLog.modalidade, produtoDigital: estadoLog.produto_digital };
   // v4.26.0: fonte canonica CalcMe, somente extracao validada e vigente.
   let calcmeVigente: any = null;
   try {
@@ -4182,6 +4213,28 @@ async function atenderClienteInterno(phone: string, chatName: string, mensagem: 
   // Provado em producao: 2 ReferenceError em 24h (15/08 23:29, 16/08 00:36) e TS2304 x3 no deno check.
   // Mesma expressao da declaracao original; a de baixo passa a apenas sombrear esta, sem mudar valor.
   const produtoSlot = String((({ ...(estado?.slots || {}), ...(decisao.slots || {}) }) as any).produto || '').replace(/^null$/i, '').trim();
+
+  // v4.37.4 P0: prazo padrao nao e agenda confirmada. Impede promessas como
+  // "produz amanha", "pode buscar amanha de manha", "pronto hoje" e "em poucas horas".
+  const RX_PROMESSA_PRODUCAO_EXATA = /\b(?:fic(?:a|am|arao?|ara)|estar(?:a|ao)|vai\s+(?:ficar|estar)|deix(?:o|amos)|produz(?:imos|ir|ido|ida)?|termin(?:o|amos)|finaliz(?:o|amos)|entreg(?:o|amos)|post(?:o|amos)|pode\s+(?:buscar|retirar|pegar)|consegue\s+(?:buscar|retirar|pegar))\b.{0,60}\b(?:hoje|amanha|esta\s+noite|ainda\s+hoje|pela\s+manha|de\s+manha|ate\s+(?:as?\s*)?\d{1,2}(?::\d{2}|h)?)\b|\bpront[oa]s?\s+(?:hoje|amanha|esta\s+noite|pela\s+manha|de\s+manha)\b|\bem\s+poucas\s+horas\b/i;
+  if (decisao.responde === true && RX_PROMESSA_PRODUCAO_EXATA.test(normalizar(resposta))) {
+    const respostaPrazoOriginal = resposta;
+    const partesSeguras = resposta.split(/(?<=[.!?])\s+|\n+/)
+      .filter((p: string) => p.trim() && !RX_PROMESSA_PRODUCAO_EXATA.test(normalizar(p)));
+    const prodPrazo = normalizar(produtoSlot + ' ' + String(prodOrigem || ''));
+    const prazoSeguro = /camis|polo|molet|peca.*cliente|aplica/.test(prodPrazo)
+      ? 'O prazo padrao e de 7 a 10 dias uteis apos a aprovacao do layout. Para uma data especifica, a equipe precisa confirmar o encaixe na agenda.'
+      : /copo|garrafa/.test(prodPrazo)
+        ? 'O prazo padrao e de 1 a 2 dias uteis para conferencia. A retirada so fica confirmada quando a equipe avisar que o pedido esta pronto.'
+        : /dtf|filme|adesivo|textil|uv/.test(prodPrazo)
+          ? 'O prazo padrao e de 1 dia util apos a aprovacao do layout. A retirada so fica confirmada quando a equipe avisar que o pedido esta pronto.'
+          : 'Para uma data especifica, a equipe precisa confirmar o encaixe na agenda. A retirada so fica confirmada quando o pedido estiver pronto.';
+    resposta = [...partesSeguras, prazoSeguro].join(' ').trim();
+    await logErro('guardrail_promessa_producao_exata', {
+      phone, produto: produtoSlot || prodOrigem || null,
+      resposta_original: respostaPrazoOriginal.slice(0, 600), resposta_final: resposta.slice(0, 600)
+    });
+  }
   if (decisao.responde === true && (promessaCalculoPendente || promessaPixPendente || promessaCartaoPendente)) {
     const consultaOperacional = /\b(status|andamento|ficou pronto|est[a\u00e1] pronto|produ[c\u00e7][a\u00e3]o|meu pedido|cad[e\u00ea] meu pedido)\b/i.test(mensagem);
     if (consultaOperacional) {
