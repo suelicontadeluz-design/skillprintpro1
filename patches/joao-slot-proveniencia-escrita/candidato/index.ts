@@ -2708,6 +2708,23 @@ async function processarLostCanonico(conversationId: string | null, leadId: stri
 async function atenderCliente(phone: string, chatName: string, mensagem: string, imagens: string[], transcricoes: string[], idsParaCarimbar: any[] | null, dryRun: boolean, loteCreatedAtMax: string | null = null): Promise<any> {
   if (!dryRun) { const temLock = await adquirirLock(phone); if (!temLock) return { ok: true, skip: 'lock_ocupado' }; }
   try { return await atenderClienteInterno(phone, chatName, mensagem, imagens, transcricoes, idsParaCarimbar, dryRun, loteCreatedAtMax); }
+  // v191.1: ate aqui uma excecao subia nua — 500 sem linha em error_log, sem ledger de
+  // decisao e sem envio; o cliente ficava 'pendente' para sempre e a falha era invisivel.
+  // Medido em producao 03/09: ReferenceError em 6 clientes distintos, so visivel no stderr.
+  // Registra UMA linha e RELANCA: o transporte (sweep e handler) segue identico ao de antes,
+  // nenhuma falha de infraestrutura vira resposta comercial.
+  catch (e: any) {
+    try {
+      await logErro('joao_fatal_unhandled_v191_diag', {
+        error_name: String(e?.name || 'Error'),
+        error_message: String(e?.message ?? e).slice(0, 300),
+        stack: String(e?.stack || '').split(String.fromCharCode(10)).slice(0, 6).map((l: string) => l.trim()).join(' | ').slice(0, 900),
+        phone_final: String(phone || '').slice(-4),
+        dry_run: dryRun === true
+      });
+    } catch {}
+    throw e;
+  }
   finally { if (!dryRun) await liberarLock(phone); }
 }
 
@@ -4250,11 +4267,11 @@ async function atenderClienteInterno(phone: string, chatName: string, mensagem: 
   // v4.37.4 P0: prazo padrao nao e agenda confirmada. Impede promessas como
   // "produz amanha", "pode buscar amanha de manha", "pronto hoje" e "em poucas horas".
   const RX_PROMESSA_PRODUCAO_EXATA = /\b(?:fic(?:a|am|arao?|ara)|estar(?:a|ao)|vai\s+(?:ficar|estar)|deix(?:o|amos)|produz(?:imos|ir|ido|ida)?|termin(?:o|amos)|finaliz(?:o|amos)|entreg(?:o|amos)|post(?:o|amos)|pode\s+(?:buscar|retirar|pegar)|consegue\s+(?:buscar|retirar|pegar))\b.{0,60}\b(?:hoje|amanha|esta\s+noite|ainda\s+hoje|pela\s+manha|de\s+manha|ate\s+(?:as?\s*)?\d{1,2}(?::\d{2}|h)?)\b|\bpront[oa]s?\s+(?:hoje|amanha|esta\s+noite|pela\s+manha|de\s+manha)\b|\bem\s+poucas\s+horas\b/i;
-  if (decisao.responde === true && RX_PROMESSA_PRODUCAO_EXATA.test(normalizar(resposta))) {
+  if (decisao.responde === true && RX_PROMESSA_PRODUCAO_EXATA.test(semAcento(resposta))) {
     const respostaPrazoOriginal = resposta;
     const partesSeguras = resposta.split(/(?<=[.!?])\s+|\n+/)
-      .filter((p: string) => p.trim() && !RX_PROMESSA_PRODUCAO_EXATA.test(normalizar(p)));
-    const prodPrazo = normalizar(produtoSlot + ' ' + String(prodOrigem || ''));
+      .filter((p: string) => p.trim() && !RX_PROMESSA_PRODUCAO_EXATA.test(semAcento(p)));
+    const prodPrazo = semAcento(produtoSlot + ' ' + String(prodOrigem || ''));
     const prazoSeguro = /camis|polo|molet|peca.*cliente|aplica/.test(prodPrazo)
       ? 'O prazo padrao e de 7 a 10 dias uteis apos a aprovacao do layout. Para uma data especifica, a equipe precisa confirmar o encaixe na agenda.'
       : /copo|garrafa/.test(prodPrazo)
