@@ -914,6 +914,22 @@ const CADASTRO_VAZIO: PessoaCadastro = { pessoa_id: null, nome: null, cep: null,
 
 function soDigitos(v: any): string { return String(v ?? '').replace(/\D/g, ''); }
 
+// v190.1 INCIDENTE 2026-09-03: as buscas por telefone usavam LIKE '%<8 digitos>'. O curinga
+// inicial impede o uso de idx_fact_conv_phone_ts e forca Seq Scan em fact_conversations
+// (290k linhas / 459 MB). Espelha public.fn_normalize_phone_br: devolve as formas EXATAS
+// validas no banco - 13 digitos (55+DDD+9+8) e o legado de 12 digitos, ainda vivo.
+function variantesTelefoneBR(v: any): string[] {
+  const d = soDigitos(v);
+  if (!d) return [];
+  if (!/^55[0-9]{10,11}$/.test(d)) return [d];
+  if (d.length === 13) {
+    const ddd = d.slice(2, 4); const num = d.slice(5);
+    return (d[4] === '9' && /^[6-9]/.test(num)) ? [d, `55${ddd}${num}`] : [d];
+  }
+  const ddd = d.slice(2, 4); const num = d.slice(4);
+  return /^[6-9]/.test(num) ? [`55${ddd}9${num}`, d] : [d];
+}
+
 // Le o cadastro canonico do ERP por TELEFONE. Fail-closed: 0 ou 2+ casamentos exatos de
 // sufixo devolvem cadastro vazio com ambiguo=true. Nunca cria pessoa, nunca adivinha.
 // O filtro vai pelos 4 ultimos digitos (sempre contiguos no formato "(11) 91857-0605") so
@@ -1137,6 +1153,21 @@ async function salvarEstado(phone: string, leadId: string | null, etapa: string,
   try { await sb.from('agente_noturno_estado').upsert({ phone, lead_id: leadId, etapa: etapa || 'sondagem', slots: slots || {}, updated_at: new Date().toISOString() }, { onConflict: 'phone' }); } catch {}
 }
 
+// v190.1: resolve UMA vez por turno qual forma exata este contato usa no corpus. Medido em
+// 2026-09-03: nenhum sufixo de 8 digitos aparece com os dois formatos, entao uma unica forma
+// cobre todo o historico do contato. Sem ORDER BY de proposito - assim o planner usa
+// idx_conversations_phone (Index Only Scan, ~2 ms) mesmo quando o telefone nao tem historico.
+// Fallback = phone cru, exatamente o que gravarFio escreve, para nao perder o proprio turno.
+async function resolverPhoneCorpus(phone: string): Promise<string> {
+  const vs = variantesTelefoneBR(phone);
+  if (vs.length <= 1) return phone;
+  try {
+    const { data } = await sb.from('fact_conversations').select('phone').in('phone', vs).limit(1).maybeSingle();
+    if (data?.phone) return String(data.phone);
+  } catch {}
+  return phone;
+}
+
 async function resolverLeadPorTelefone(phone: string): Promise<{ lead_id: string | null; content_category: string }> {
   const digits = String(phone || '').replace(/\D/g, '');
   if (!digits) return { lead_id: null, content_category: '' };
@@ -1145,9 +1176,9 @@ async function resolverLeadPorTelefone(phone: string): Promise<{ lead_id: string
     if (exato?.lead_id) return { lead_id: exato.lead_id, content_category: String(exato.content_category || '') };
     // A Z-API pode entregar o telefone sem o nono digito, mas o LID continua sendo da mesma pessoa.
     // O sufixo de 8 digitos resolve o caso sem fabricar um lead duplicado; ambiguidade falha fechada.
-    const sufixo = digits.slice(-8);
-    if (sufixo.length === 8) {
-      const { data: candidatos } = await sb.from('leads_marketing').select('lead_id, content_category').like('ph', `%${sufixo}`).limit(2);
+    const variantes = variantesTelefoneBR(digits).filter((v) => v !== digits);
+    if (variantes.length > 0) {
+      const { data: candidatos } = await sb.from('leads_marketing').select('lead_id, content_category').in('ph', variantes).limit(2);
       if (candidatos?.length === 1) return { lead_id: candidatos[0].lead_id, content_category: String(candidatos[0].content_category || '') };
     }
   } catch {}
@@ -2685,6 +2716,8 @@ async function atenderClienteInterno(phone: string, chatName: string, mensagem: 
     if (!dryRun) await carimbarInbound(phone, idsParaCarimbar, 'pausado_humano');
     return { ok: true, respondeu: false, skip: 'agente_pausado' };
   }
+  // v190.1: forma exata do telefone no corpus, resolvida uma unica vez por turno.
+  const phoneCorpus = await resolverPhoneCorpus(phone);
   const ehFormulario = REGEX_FORMULARIO.test(mensagem);
   const ehPerguntaDireta = /\?\s*$/.test(mensagem.trim()) || REGEX_PEDIDO_INFO.test(mensagem);
   const pediuMudanca = REGEX_PEDIU_MUDANCA.test(mensagem);
@@ -2718,7 +2751,7 @@ async function atenderClienteInterno(phone: string, chatName: string, mensagem: 
 
   let blocoAnuncio = ''; let anuncioTexto = ''; let anuncioRecente = false;
   try {
-    const { data: adRow } = await sb.from('inbound_fora_horario').select('body, created_at').like('phone', `%${phone.slice(-8)}`).not('body->externalAdReply', 'is', null).order('created_at', { ascending: false }).limit(1).maybeSingle();
+    const { data: adRow } = await sb.from('inbound_fora_horario').select('body, created_at').in('phone', variantesTelefoneBR(phone)).not('body->externalAdReply', 'is', null).order('created_at', { ascending: false }).limit(1).maybeSingle();
     const ad: any = (adRow as any)?.body?.externalAdReply;
     if (ad && (ad.title || ad.body || ad.greetingMessageBody)) {
       const adTitulo = String(ad.title || '').slice(0, 120);
@@ -2753,8 +2786,8 @@ async function atenderClienteInterno(phone: string, chatName: string, mensagem: 
   // Uma falha na entrega das licoes nao apaga as guardas de humano, preco e continuidade.
   try {
     const [outsR, inbsR] = await Promise.all([
-      sb.from('fact_conversations').select('source, message_text, timestamp').like('phone', `%${phone.slice(-8)}`).eq('direction', 'outbound').gte('timestamp', new Date(Date.now() - 14 * 3600000).toISOString()).order('timestamp', { ascending: false }).limit(6),
-      sb.from('fact_conversations').select('message_text, timestamp').like('phone', `%${phone.slice(-8)}`).eq('direction', 'inbound').gte('timestamp', new Date(Date.now() - 14 * 3600000).toISOString()).order('timestamp', { ascending: false }).limit(8),
+      sb.from('fact_conversations').select('source, message_text, timestamp').eq('phone', phoneCorpus).eq('direction', 'outbound').gte('timestamp', new Date(Date.now() - 14 * 3600000).toISOString()).order('timestamp', { ascending: false }).limit(6),
+      sb.from('fact_conversations').select('message_text, timestamp').eq('phone', phoneCorpus).eq('direction', 'inbound').gte('timestamp', new Date(Date.now() - 14 * 3600000).toISOString()).order('timestamp', { ascending: false }).limit(8),
     ]);
     const outs = outsR.data;
     inbounds = inbsR.data || [];
@@ -2885,7 +2918,7 @@ async function atenderClienteInterno(phone: string, chatName: string, mensagem: 
   let historicoInbound: any[] = [];
   try {
     const { data: hl } = await sb.from('fact_conversations')
-      .select('message_text, timestamp').like('phone', `%${phone.slice(-8)}`)
+      .select('message_text, timestamp').eq('phone', phoneCorpus)
       .eq('direction', 'inbound')
       .gte('timestamp', new Date(Date.now() - 180 * 24 * 3600000).toISOString())
       .lt('timestamp', new Date(Date.now() - 14 * 3600000).toISOString())
@@ -2962,7 +2995,7 @@ async function atenderClienteInterno(phone: string, chatName: string, mensagem: 
     // ja acordado as 16:04). Agora busca 120 e descarta o eco ANTES de cortar em 60.
     const { data: brutas } = await sb.from('fact_conversations')
       .select('direction, message_text, timestamp, source')
-      .like('phone', `%${phone.slice(-8)}`)
+      .eq('phone', phoneCorpus)
       .order('timestamp', { ascending: false }).limit(120);
     const vistas = new Set<string>();
     const data = (brutas || []).filter((h: any) => {
@@ -4073,7 +4106,7 @@ async function atenderClienteInterno(phone: string, chatName: string, mensagem: 
   if (decisao.responde === true && /\?/.test(resposta)) {
     try {
       const { data: ultimasSaidas } = await sb.from('fact_conversations')
-        .select('message_text, timestamp').like('phone', `%${phone.slice(-8)}`)
+        .select('message_text, timestamp').eq('phone', phoneCorpus)
         .eq('direction', 'outbound').eq('source', 'joao')
         .gte('timestamp', new Date(Date.now() - 3 * 3600000).toISOString())
         .order('timestamp', { ascending: false }).limit(3);
