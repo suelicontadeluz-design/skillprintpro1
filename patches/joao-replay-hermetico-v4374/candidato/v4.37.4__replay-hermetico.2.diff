@@ -1,0 +1,308 @@
+--- live-v4.37.4
++++ candidate-replay-hermetico.2
+@@ -448,7 +448,289 @@
+ ]);
+ const ABERTURAS = ['Combinado!', 'Perfeito!', 'Maravilha!', 'Show!'];
+ 
+-const sb = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
++const sbLive = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
++// ═════════════════════════════════════════════════════════════════════════════════
++// A1 REPLAY HERMETICO — contrato a1_replay_hermetico_v2 (v4.37.4-replay-hermetico.2)
++// Tres modos explicitos por requisicao: live | shadow | replay.
++//   live   → caminho identico ao v4.37.4: mesmo cliente service-role, mesmo fetch.
++//            Nenhuma linha do fluxo live foi alterada; apenas o gate de entrada decide.
++//   shadow → turno completo sobre dados correntes, ZERO efeito real.
++//   replay → turno completo sobre caso historico (replay_case_id + as_of via
++//            fn_replay_snapshot), ZERO efeito real.
++// Garantias estruturais nos modos hermeticos:
++//   1. Banco: cliente com papel replay_runner (REPLAY_RUNNER_JWT). Sem a credencial o
++//      modo hermetico NEM COMECA (fail-closed). Escritas nunca chegam ao banco: sao
++//      interceptadas ANTES do transporte e registradas como acoes hipoteticas; se
++//      alguma escapasse, o papel replay_runner morreria em 42501 (segunda camada).
++//   2. HTTP: o fetch global e trocado pelo gate hermetico NO MOMENTO em que o isolate
++//      recebe o primeiro pedido nao-live. A partir dai o isolate fica LACRADO:
++//      pedido live posterior recebe 409 isolate_hermetico e nao executa. Producao
++//      nunca compartilha isolate com replay.
++//   3. Transporte externo (Z-API, BotConversa, Mercado Pago, TTS, agente-pipeline,
++//      LOST canonico, CalcMe, frete, transcricao OpenAI, download de midia):
++//      bloqueado; resposta sintetica marcada hipotetico:true; a acao que TERIA
++//      ocorrido e registrada com o corpo. Unicas passagens (leitura/computo):
++//      inferencia Anthropic (necessaria para reproduzir a decisao do agente),
++//      GET no REST do ERP e as rpcs de orcamento fn_listar_modelos_disponiveis /
++//      fn_orcar_camisetas_agente (computo sem efeito).
++//   4. as_of: leituras de tabelas-evento ganham corte automatico (.lte) e o estado
++//      do agente vem de replay_caso.slots_antes via fn_replay_snapshot — a unica
++//      fonte confiavel (laudo r3: agente_noturno_estado nao e reconstituivel).
++//   5. Concorrencia: um turno hermetico por vez (429 replay_ocupado).
++// O que o contrato NAO cobre nesta versao (documentado):
++//   relogio corrente (saudacao/periodo usam a hora real do turno de replay) e
++//   leituras de tabelas fora do mapa AS_OF_COLUNAS, que seguem apenas os filtros
++//   originais do fluxo. Nenhuma dessas lacunas produz efeito real.
++// ─────────────────────────────────────────────────────────────────────────────────
++type ModoExecucao = 'live' | 'shadow' | 'replay';
++type AcaoHipotetica = { t: string; alvo: string; detalhe: any; em: string };
++type ContextoHermetico = {
++  modo: ModoExecucao; replayCaseId: string | null; asOf: string | null; snapshot: any | null;
++  acoes: AcaoHipotetica[]; leituras: number; escritasInterceptadas: number; httpBloqueado: number;
++};
++const REPLAY_CONTRACT = 'a1_replay_hermetico_v2';
++const REPLAY_RUNNER_JWT = Deno.env.get('REPLAY_RUNNER_JWT') ?? '';
++let __ctxHermetico: ContextoHermetico | null = null;
++let __isolamentoLacrado = false;
++let __hermeticoOcupado = false;
++let __sbReplay: any = null;
++const __fetchNativo: typeof fetch = globalThis.fetch.bind(globalThis);
++
++function modoExecucaoAtual(): ModoExecucao { return __ctxHermetico?.modo ?? 'live'; }
++function resumoHermetico(v: any): any {
++  try {
++    if (typeof v === 'string') return v.length > 700 ? v.slice(0, 700) + '…' : v;
++    const s = JSON.stringify(v ?? null);
++    return s.length > 700 ? s.slice(0, 700) + '…' : (v ?? null);
++  } catch { return String(v).slice(0, 200); }
++}
++function registrarAcaoHipotetica(t: string, alvo: string, detalhe: any) {
++  const c = __ctxHermetico; if (!c) return;
++  c.acoes.push({ t, alvo, detalhe: resumoHermetico(detalhe), em: new Date().toISOString() });
++}
++
++// Tabelas-evento com corte as_of automatico nas leituras hermeticas.
++const AS_OF_COLUNAS: Record<string, string> = {
++  inbound_fora_horario: 'created_at',
++  fact_conversations: 'timestamp',
++  pixel_events: 'event_time',
++  mp_pix_cobrancas: 'created_at',
++  orcamentos: 'created_at',
++  operacoes_financeiras: 'created_at',
++  joao_envios: 'created_at',
++};
++const OPS_ESCRITA_DB = new Set(['insert', 'update', 'upsert', 'delete']);
++
++function stubThenable(resultado: any): any {
++  const alvo: any = () => alvo;
++  return new Proxy(alvo, {
++    get(_t, prop) {
++      if (prop === 'then') return (res: any, rej: any) => Promise.resolve(resultado).then(res, rej);
++      if (prop === Symbol.toPrimitive || prop === 'toString') return () => '[stub-hermetico]';
++      return (..._a: any[]) => stubThenable(resultado);
++    },
++    apply() { return stubThenable(resultado); },
++  });
++}
++function stubEscritaHermetica(alvo: string, op: string, payload: any): any {
++  const c = __ctxHermetico!;
++  c.escritasInterceptadas++;
++  registrarAcaoHipotetica('escrita_bloqueada', alvo, { op, payload });
++  return stubThenable({ data: null, error: null, count: null, status: 200, statusText: 'HIPOTETICO' });
++}
++function estadoSinteticoDoCaso(): any | null {
++  // Contrato real de fn_replay_snapshot: estado do instante em payload.slots_before
++  // (a funcao declara agente_noturno_estado como nao-reconstituivel e
++  // replay_caso.slots_antes como fonte unica confiavel).
++  const snap = __ctxHermetico?.snapshot;
++  if (!snap || typeof snap !== 'object') return null;
++  const slots = (snap as any)?.payload?.slots_before ?? (snap as any).slots_antes ?? null;
++  if (!slots) return null;
++  return { etapa: (slots as any).etapa ?? (snap as any)?.payload?.etapa ?? 'sondagem', slots, updated_at: __ctxHermetico?.asOf ?? (snap as any).as_of ?? null };
++}
++function fromHermetico(tabela: string): any {
++  const c = __ctxHermetico!;
++  const col = AS_OF_COLUNAS[tabela];
++  const asOf = c.asOf;
++  const b: any = __sbReplay.from(tabela);
++  return new Proxy(b, {
++    get(t, prop) {
++      if (typeof prop === 'string' && OPS_ESCRITA_DB.has(prop)) return (payload?: any) => stubEscritaHermetica(tabela, prop, payload);
++      const v = (t as any)[prop];
++      if (prop === 'select' && typeof v === 'function') {
++        return (...args: any[]) => {
++          c.leituras++;
++          if (c.modo === 'replay' && tabela === 'agente_noturno_estado') {
++            // NUNCA completar com estado atual: em replay a linha corrente de
++            // agente_noturno_estado e proibida como entrada. Ou o estado vem do
++            // snapshot (slots_before), ou o turno roda como sem-estado.
++            const est = estadoSinteticoDoCaso();
++            return stubThenable({ data: est, error: null });
++          }
++          const qb: any = v.apply(t, args);
++          return (col && asOf) ? qb.lte(col, asOf) : qb;
++        };
++      }
++      return typeof v === 'function' ? v.bind(t) : v;
++    },
++  });
++}
++const RPC_LEITURA_HERMETICA = new Set([
++  'fn_agente_pausado', 'fn_contexto_aprendizados', 'fn_contexto_comercial_do_lead',
++  'fn_dtf_uv_capacidade_folha', 'fn_precificar_dtf_uv_v2', 'fn_valor_e_legitimo', 'fn_replay_snapshot',
++]);
++function rpcSinteticoHermetico(nome: string, args: any): any {
++  switch (nome) {
++    case 'fn_joao_adquirir_lock': return true;
++    case 'fn_registrar_decisao_agente': return 'hipotetico-' + crypto.randomUUID();
++    case 'fn_get_or_create_lead': return { ok: false, lead_id: null, hipotetico: true };
++    case 'fn_emitir_operacao_financeira': return {
++      id: 'hipotetico-' + crypto.randomUUID(), kind: args?.p_kind ?? null, amount: args?.p_amount ?? null,
++      source_tool: args?.p_source_tool ?? null, components: args?.p_components ?? {}, status: 'hipotetica', hipotetico: true,
++    };
++    default: return null;
++  }
++}
++async function rpcHermetico(nome: string, args?: any): Promise<any> {
++  const c = __ctxHermetico!;
++  if (RPC_LEITURA_HERMETICA.has(nome)) {
++    try {
++      const r = await __sbReplay.rpc(nome, args);
++      c.leituras++;
++      if (r?.error) registrarAcaoHipotetica('rpc_leitura_negada', nome, { code: r.error.code ?? null, msg: String(r.error.message ?? '').slice(0, 120) });
++      return r;
++    } catch (e: any) { return { data: null, error: { message: String(e?.message ?? e).slice(0, 150), code: 'hermetico_excecao' } }; }
++  }
++  c.escritasInterceptadas++;
++  registrarAcaoHipotetica('rpc_mutadora_bloqueada', nome, { args });
++  return { data: rpcSinteticoHermetico(nome, args), error: null };
++}
++const sb: any = new Proxy({} as any, {
++  get(_t, prop) {
++    if (modoExecucaoAtual() === 'live') {
++      const v = (sbLive as any)[prop];
++      return typeof v === 'function' ? v.bind(sbLive) : v;
++    }
++    if (prop === 'from') return (tabela: string) => fromHermetico(tabela);
++    if (prop === 'rpc') return (nome: string, args?: any) => rpcHermetico(nome, args);
++    if (prop === 'schema') return (_s: string) => ({ from: (tabela: string) => fromHermetico(tabela) });
++    const v = (__sbReplay as any)?.[prop];
++    return typeof v === 'function' ? v.bind(__sbReplay) : v;
++  },
++});
++function classificarUrlHermetico(url: string): string {
++  if (url.includes('api.z-api.io')) return url.includes('send-audio') ? 'whatsapp_zapi_send_audio' : url.includes('send-reaction') ? 'whatsapp_zapi_send_reaction' : 'whatsapp_zapi_send_text';
++  if (url.startsWith(BOT_BASE)) return url.includes('send_message') ? 'whatsapp_botconversa_send' : 'whatsapp_botconversa_lookup';
++  if (url.includes('/functions/v1/mp-pix-criar')) return 'mercadopago_pix_criar';
++  if (url.includes('/functions/v1/calcular-frete')) return 'frete_cotacao';
++  if (url.includes('/functions/v1/joao-tts')) return 'tts';
++  if (url.includes('/functions/v1/joao-lost-canonico')) return 'crm_lost';
++  if (url.includes('/functions/v1/agente-pipeline')) return 'crm_task';
++  if (url.includes('/functions/v1/joao-orcamento-calcme')) return 'orcamento_calcme';
++  if (url.includes('api.openai.com')) return 'transcricao_openai';
++  if (url.includes('api.anthropic.com')) return 'anthropic';
++  return 'http_externo';
++}
++function respostaSinteticaHermetica(classe: string): Response {
++  const jsonSint = (corpo: any, status: number) => new Response(JSON.stringify(corpo), { status, headers: { 'Content-Type': 'application/json' } });
++  switch (classe) {
++    case 'whatsapp_zapi_send_text':
++    case 'whatsapp_zapi_send_audio':
++    case 'whatsapp_zapi_send_reaction':
++      return jsonSint({ hipotetico: true, messageId: 'hipotetico-' + crypto.randomUUID(), zaapId: 'hipotetico-zaap' }, 200);
++    case 'whatsapp_botconversa_lookup':
++      return jsonSint({ hipotetico: true, id: 'hipotetico-subscriber' }, 200);
++    case 'whatsapp_botconversa_send':
++      return jsonSint({ hipotetico: true }, 200);
++    default:
++      return jsonSint({ ok: false, hipotetico: true, motivo: 'transporte_bloqueado_' + classe }, 503);
++  }
++}
++function urlPermitidaHermetico(url: string, metodo: string): boolean {
++  if (url.startsWith('https://api.anthropic.com/v1/messages')) return true;
++  if (url.startsWith(ERP_URL + '/rest/v1/rpc/')) {
++    return metodo === 'POST' && (url.includes('fn_listar_modelos_disponiveis') || url.includes('fn_orcar_camisetas_agente'));
++  }
++  if (url.startsWith(ERP_URL + '/rest/v1/')) return metodo === 'GET';
++  return false;
++}
++async function fetchHermetico(input: any, init?: any): Promise<Response> {
++  const c = __ctxHermetico;
++  if (!c) return __fetchNativo(input, init);
++  const url = typeof input === 'string' ? input : String(input?.url ?? input);
++  const metodo = String(init?.method ?? input?.method ?? 'GET').toUpperCase();
++  if (urlPermitidaHermetico(url, metodo)) { c.leituras++; return __fetchNativo(input, init); }
++  c.httpBloqueado++;
++  const classe = classificarUrlHermetico(url);
++  let corpo: any = null;
++  try { corpo = typeof init?.body === 'string' ? JSON.parse(init.body) : null; } catch { corpo = String(init?.body ?? '').slice(0, 300); }
++  registrarAcaoHipotetica('http_externo_bloqueado', classe, {
++    metodo,
++    url: url.split('?')[0].replace(/\/instances\/[^/]+\/token\/[^/]+/, '/instances/***/token/***'),
++    corpo,
++  });
++  return respostaSinteticaHermetica(classe);
++}
++function respostaJsonHermetica(corpo: any, status: number): Response {
++  return new Response(JSON.stringify(corpo), { status, headers: { 'Content-Type': 'application/json' } });
++}
++async function atenderHermetico(body: any, modoPedido: string): Promise<Response> {
++  if (modoPedido === 'live') return respostaJsonHermetica({ ok: false, motivo: 'isolate_hermetico', detalhe: 'Este isolate ja executou shadow/replay e nao serve mais trafego live.' }, 409);
++  if (modoPedido !== 'shadow' && modoPedido !== 'replay') return respostaJsonHermetica({ ok: false, motivo: 'modo_invalido', modos: ['live', 'shadow', 'replay'] }, 400);
++  if (!REPLAY_RUNNER_JWT) return respostaJsonHermetica({ ok: false, motivo: 'replay_sem_credencial', detalhe: 'REPLAY_RUNNER_JWT ausente; modos hermeticos exigem o papel replay_runner.' }, 503);
++  if (__hermeticoOcupado) return respostaJsonHermetica({ ok: false, motivo: 'replay_ocupado' }, 429);
++  __hermeticoOcupado = true;
++  __isolamentoLacrado = true;
++  (globalThis as any).fetch = fetchHermetico;
++  if (!__sbReplay) __sbReplay = createClient(SUPABASE_URL, REPLAY_RUNNER_JWT, { auth: { persistSession: false } });
++  __ctxHermetico = {
++    modo: modoPedido as ModoExecucao,
++    replayCaseId: body.replay_case_id ? String(body.replay_case_id) : null,
++    asOf: body.as_of ? String(body.as_of) : null,
++    snapshot: null, acoes: [], leituras: 0, escritasInterceptadas: 0, httpBloqueado: 0,
++  };
++  const c = __ctxHermetico;
++  try {
++    let phone = String(body.phone || '').replace(/\D/g, '');
++    let mensagem = String(body.mensagem || '');
++    const chatName = String(body.chat_name || body.chatName || 'Cliente');
++    if (c.modo === 'replay') {
++      if (!c.replayCaseId) return respostaJsonHermetica({ ok: false, motivo: 'replay_sem_caso', detalhe: 'replay exige replay_case_id (replay_caso.id).' }, 400);
++      const { data: snap, error: eSnap } = await __sbReplay.rpc('fn_replay_snapshot', { p_caso_id: c.replayCaseId });
++      if (eSnap || !snap) return respostaJsonHermetica({ ok: false, motivo: 'replay_caso_indisponivel', erro: eSnap ? String(eSnap.message ?? eSnap.code ?? eSnap).slice(0, 200) : 'snapshot_vazio' }, 422);
++      const caso: any = Array.isArray(snap) ? snap[0] : snap;
++      c.snapshot = caso;
++      // Contrato real do snapshot: identidade no topo, entradas em payload.
++      const pl: any = caso?.payload ?? caso ?? {};
++      if (!phone) phone = String(pl?.phone ?? '').replace(/\D/g, '');
++      if (!mensagem) mensagem = String(pl?.mensagem ?? pl?.inbound_texto ?? '');
++      if (!c.asOf && caso?.as_of) c.asOf = String(caso.as_of);
++      // §7: contexto historico insuficiente NAO e completado com estado atual.
++      // Sem slots_before o unico estado admissivel e "sem estado"; se alem disso o
++      // snapshot se declara incompleto, o turno nao roda.
++      const marcadorSnap = String(caso?.marcador ?? '');
++      if (marcadorSnap === 'REPLAY_CONTEXTO_INCOMPLETO' && !pl?.slots_before) {
++        return respostaJsonHermetica({ ok: false, motivo: 'REPLAY_CONTEXTO_INCOMPLETO', faltas: caso?.faltas ?? null, replay_case_id: c.replayCaseId }, 422);
++      }
++    }
++    if (!phone) return respostaJsonHermetica({ ok: false, motivo: 'campos_hermetico', faltando: 'phone' }, 400);
++    if (!mensagemValida(mensagem)) return respostaJsonHermetica({ ok: false, motivo: 'campos_hermetico', faltando: 'mensagem' }, 400);
++    const resultado = await atenderCliente(phone, chatName, mensagem, [], [], null, false, null);
++    return respostaJsonHermetica({
++      ok: true, contrato: REPLAY_CONTRACT, modo: c.modo, role: 'replay_runner',
++      replay_case_id: c.replayCaseId, as_of: c.asOf,
++      resultado,
++      acoes_hipoteticas: c.acoes,
++      telemetria_hipotetica: { leituras: c.leituras, escritas_interceptadas: c.escritasInterceptadas, http_bloqueado: c.httpBloqueado, snapshot_usado: !!c.snapshot, snapshot_marcador: c.snapshot ? String((c.snapshot as any)?.marcador ?? '') : null, snapshot_faltas: c.snapshot ? ((c.snapshot as any)?.faltas ?? null) : null },
++    }, 200);
++  } catch (e: any) {
++    return respostaJsonHermetica({ ok: false, contrato: REPLAY_CONTRACT, modo: c.modo, erro: String(e?.message ?? e).slice(0, 300), acoes_hipoteticas: c.acoes }, 500);
++  } finally {
++    __ctxHermetico = null;
++    __hermeticoOcupado = false;
++  }
++}
++// ═════ fim do bloco A1 REPLAY HERMETICO ═════════════════════════════════════════
+ const L = (s: string, d: any = {}) => console.log(JSON.stringify({ v: V, s, ...d }));
+ const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
+ 
+@@ -4744,6 +5026,14 @@
+   let body: any = {};
+   try { body = await req.json(); } catch { return new Response('bad json', { status: 400 }); }
+ 
++  // A1 REPLAY HERMETICO: o modo e decidido AQUI e em nenhum outro lugar. Sem body.mode
++  // (ou com mode=live num isolate nunca lacrado) o fluxo abaixo segue byte-identico ao
++  // v4.37.4. body._dry_run continua existindo e NAO e modo: dry-run roda live com as
++  // guardas antigas; shadow/replay rodam o caminho REAL com efeitos interceptados.
++  const modoPedido = String((body.mode ?? body._mode ?? 'live')).toLowerCase();
++  if (modoPedido !== 'live' || __isolamentoLacrado) return await atenderHermetico(body, modoPedido);
++
++
+   if (body._sweep === true) {
+     const { data: rows } = await sb.from('inbound_fora_horario').select('id, phone, chat_name, body, created_at').eq('status', 'pendente').gte('created_at', new Date(Date.now() - 4 * 3600000).toISOString()).lte('created_at', new Date(Date.now() - 30000).toISOString()).order('created_at', { ascending: true }).limit(40);
+     const porPhone = new Map<string, any[]>();
