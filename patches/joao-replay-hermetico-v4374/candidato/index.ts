@@ -5030,8 +5030,9 @@ Deno.serve(async (req) => {
   // (ou com mode=live num isolate nunca lacrado) o fluxo abaixo segue byte-identico ao
   // v4.37.4. body._dry_run continua existindo e NAO e modo: dry-run roda live com as
   // guardas antigas; shadow/replay rodam o caminho REAL com efeitos interceptados.
-  const modoPedido = String((body.mode ?? body._mode ?? 'live')).toLowerCase();
-  if (modoPedido !== 'live' || __isolamentoLacrado) return await atenderHermetico(body, modoPedido);
+  const modoPedido = String((body.mode ?? body._mode ?? 'replay')).toLowerCase();
+  if (modoPedido !== 'replay') return respostaJsonHermetica({ ok: false, motivo: 'edge_replay_apenas' }, 403);
+  return await atenderHermetico(body, 'replay');
 
 
   if (body._sweep === true) {

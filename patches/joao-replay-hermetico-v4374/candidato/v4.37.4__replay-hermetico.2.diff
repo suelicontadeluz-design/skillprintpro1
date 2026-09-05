@@ -291,7 +291,7 @@
  const L = (s: string, d: any = {}) => console.log(JSON.stringify({ v: V, s, ...d }));
  const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
  
-@@ -4744,6 +5026,14 @@
+@@ -4744,6 +5026,15 @@
    let body: any = {};
    try { body = await req.json(); } catch { return new Response('bad json', { status: 400 }); }
  
@@ -299,8 +299,9 @@
 +  // (ou com mode=live num isolate nunca lacrado) o fluxo abaixo segue byte-identico ao
 +  // v4.37.4. body._dry_run continua existindo e NAO e modo: dry-run roda live com as
 +  // guardas antigas; shadow/replay rodam o caminho REAL com efeitos interceptados.
-+  const modoPedido = String((body.mode ?? body._mode ?? 'live')).toLowerCase();
-+  if (modoPedido !== 'live' || __isolamentoLacrado) return await atenderHermetico(body, modoPedido);
++  const modoPedido = String((body.mode ?? body._mode ?? 'replay')).toLowerCase();
++  if (modoPedido !== 'replay') return respostaJsonHermetica({ ok: false, motivo: 'edge_replay_apenas' }, 403);
++  return await atenderHermetico(body, 'replay');
 +
 +
    if (body._sweep === true) {
