@@ -51,7 +51,7 @@ with tempfile.TemporaryDirectory() as td:
     run("patch", "--batch", "--fuzz=0", "-o", str(rebased), str(src), str(delta))
     candidate = rebased.read_text()
 
-# 4) Corrige duas divergencias medidas em 05/09.
+# 4) Corrige divergencias medidas em 05/09.
 # fn_compor_total e SECURITY DEFINER mutadora; nunca pode atravessar como leitura no replay.
 old_read = "'fn_compor_total', 'fn_dtf_uv_capacidade_folha'"
 new_read = "'fn_dtf_uv_capacidade_folha', 'fn_precificar_dtf_uv_v2'"
@@ -59,14 +59,21 @@ if candidate.count(old_read) != 1:
     raise SystemExit(f"anchor RPC_LEITURA inesperado: ocorrencias={candidate.count(old_read)}")
 candidate = candidate.replace(old_read, new_read, 1)
 
-# Marca contrato novo sem mudar semantica do caminho live.
-if candidate.count("const REPLAY_CONTRACT = 'a1_replay_hermetico_v1';") != 1:
-    raise SystemExit("anchor REPLAY_CONTRACT ausente/duplicado")
-candidate = candidate.replace(
-    "const REPLAY_CONTRACT = 'a1_replay_hermetico_v1';",
-    "const REPLAY_CONTRACT = 'a1_replay_hermetico_v2';",
-    1,
-)
+# Marca contrato e comentarios com a baseline realmente rebasada.
+repls = {
+    "A1 REPLAY HERMETICO — contrato a1_replay_hermetico_v1 (v4.37.1-replay-hermetico.1)":
+        "A1 REPLAY HERMETICO — contrato a1_replay_hermetico_v2 (v4.37.4-replay-hermetico.2)",
+    "live   → caminho identico ao v4.37.1: mesmo cliente service-role, mesmo fetch.":
+        "live   → caminho identico ao v4.37.4: mesmo cliente service-role, mesmo fetch.",
+    "const REPLAY_CONTRACT = 'a1_replay_hermetico_v1';":
+        "const REPLAY_CONTRACT = 'a1_replay_hermetico_v2';",
+    "v4.37.1. body._dry_run continua existindo e NAO e modo":
+        "v4.37.4. body._dry_run continua existindo e NAO e modo",
+}
+for old, new in repls.items():
+    if candidate.count(old) != 1:
+        raise SystemExit(f"anchor de versao ausente/duplicado: {old!r} -> {candidate.count(old)}")
+    candidate = candidate.replace(old, new, 1)
 
 # 5) Assertions de que o rebase trouxe os fixes vivos e manteve as duas barreiras.
 required = [
@@ -78,6 +85,7 @@ required = [
     "joao_fatal_unhandled_v191_diag",
     "RX_PROMESSA_PRODUCAO_EXATA",
     "fn_precificar_dtf_uv_v2",
+    "a1_replay_hermetico_v2",
 ]
 missing = [x for x in required if x not in candidate]
 if missing:
@@ -95,9 +103,13 @@ with tempfile.TemporaryDirectory() as td:
     b = td / "candidate.ts"
     a.write_text(live)
     b.write_text(candidate)
-    diff = subprocess.run(
-        ["diff", "-u", str(a), str(b)], cwd=ROOT, text=True, capture_output=True
-    ).stdout
+    p = subprocess.run(
+        ["diff", "-u", "--label", "live-v4.37.4", "--label", "candidate-replay-hermetico.2", str(a), str(b)],
+        cwd=ROOT, text=True, capture_output=True,
+    )
+    if p.returncode not in (0, 1):
+        raise SystemExit(f"diff falhou: {p.stderr}")
+    diff = p.stdout
 DIFF_OUT.write_text(diff)
 
 print("OK rebase hermetico v4.37.4")
