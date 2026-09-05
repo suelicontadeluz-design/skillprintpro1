@@ -1,0 +1,19 @@
+{
+  "frente_slug": "joao-parametro-financeiro-sem-proveniencia",
+  "criterio": "um caso com contexto_completo=true por classe, selecao deterministica medida em 2026-09-05",
+  "casos": [
+    {"classe":"sentinela","replay_case_id":"b3c3aa96-3c32-41d2-b53d-08216dd7d079"},
+    {"classe":"controle_ok","replay_case_id":"de52299f-3b33-456c-bfa9-0d4fa043daf9"},
+    {"classe":"controle_oposto","replay_case_id":"58694da5-92cc-4863-8d10-69ac8b8ce66c"},
+    {"classe":"controle_similar","replay_case_id":"a5b6d246-40fa-4873-b539-210fbebff45a"},
+    {"classe":"borda","replay_case_id":"3c91e46a-08fb-436b-8630-ed7e8146c386"}
+  ],
+  "gate": {
+    "db_effect_zero": true,
+    "external_io_zero": true,
+    "sentinela_veredito": "MELHOROU",
+    "controles_sem_regressao": true,
+    "indeterminado": false
+  },
+  "observacao_snapshot": "os 5 snapshots marcam REPLAY_CONTEXTO_INCOMPLETO apenas por estado_operacional_nao_versionado, mas todos possuem payload.slots_before; o contrato hermetico usa slots_before e nao completa com estado atual"
+}
