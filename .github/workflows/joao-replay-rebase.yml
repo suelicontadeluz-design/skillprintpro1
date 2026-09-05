@@ -31,6 +31,8 @@ jobs:
           grep -q "joao_fatal_unhandled_v191_diag" "$F"
           grep -q "fn_precificar_dtf_uv_v2" "$F"
           ! grep -q "'fn_compor_total', 'fn_dtf_uv_capacidade_folha'" "$F"
+      - name: Validar parse TypeScript
+        run: npx --yes esbuild@0.25.9 patches/joao-replay-hermetico-v4374/candidato/index.ts --bundle --platform=neutral --external:* --outfile=/tmp/joao-replay-parse.js
       - name: Persistir candidato validado na branch
         shell: bash
         run: |
