@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   rebase:
@@ -31,7 +31,21 @@ jobs:
           grep -q "joao_fatal_unhandled_v191_diag" "$F"
           grep -q "fn_precificar_dtf_uv_v2" "$F"
           ! grep -q "'fn_compor_total', 'fn_dtf_uv_capacidade_folha'" "$F"
-      - name: Publicar candidato apenas como artefato CI
+      - name: Persistir candidato validado na branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add patches/joao-replay-hermetico-v4374/candidato/index.ts \
+                  patches/joao-replay-hermetico-v4374/candidato/v4.37.4__replay-hermetico.2.diff
+          if git diff --cached --quiet; then
+            echo "candidate already deterministic"
+          else
+            git commit -m "build(replay): materializa candidato hermetico v4.37.4"
+            git push origin HEAD:cortex/joao-replay-v4374
+          fi
+      - name: Publicar artefato CI
         uses: actions/upload-artifact@v4
         with:
           name: joao-replay-hermetico-v4374
