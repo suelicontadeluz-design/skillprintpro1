@@ -1,0 +1,41 @@
+name: joao-replay-rebase
+
+on:
+  push:
+    branches:
+      - cortex/joao-replay-v4374
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  rebase:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Gerar candidato hermetico v4.37.4
+        run: python3 patches/joao-replay-hermetico-v4374/rebase_candidato.py
+      - name: Validar invariantes estaticos
+        shell: bash
+        run: |
+          set -euo pipefail
+          F=patches/joao-replay-hermetico-v4374/candidato/index.ts
+          test -s "$F"
+          grep -q "a1_replay_hermetico_v2" "$F"
+          grep -q "REPLAY_RUNNER_JWT" "$F"
+          grep -q "fetchHermetico" "$F"
+          grep -q "resolverPhoneCorpus" "$F"
+          grep -q "joao_fatal_unhandled_v191_diag" "$F"
+          grep -q "fn_precificar_dtf_uv_v2" "$F"
+          ! grep -q "'fn_compor_total', 'fn_dtf_uv_capacidade_folha'" "$F"
+      - name: Publicar candidato apenas como artefato CI
+        uses: actions/upload-artifact@v4
+        with:
+          name: joao-replay-hermetico-v4374
+          path: |
+            patches/joao-replay-hermetico-v4374/candidato/index.ts
+            patches/joao-replay-hermetico-v4374/candidato/v4.37.4__replay-hermetico.2.diff
+          if-no-files-found: error
