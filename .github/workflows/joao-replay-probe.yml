@@ -21,23 +21,17 @@ jobs:
         shell: bash
         env:
           URL: https://ldrdtaibazplvrbwyrvx.supabase.co/functions/v1/agente-noturno-replay
-          ANON: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxkcmR0YWliYXpwbHZyYnd5cnZ4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTA4MjQ3MTcsImV4cCI6MjA2NjQwMDcxN30.kw-_WEbgA2ehtnlsGAsXAtJW2ATDO_Eewanz7DFw3Vg
+          ANON: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYXNlIiwicmVmIjoibGRyZHRhaWJhenBsdnJid3lydngiLCJyb2xlIjoiYW5vbiIsImlhdCI6MTc1MDgyNDcxNywiZXhwIjoyMDY2NDAwNzE3fQ.kw-_WEbgA2ehtnlsGAsXAtJW2ATDO_Eewanz7DFw3Vg
         run: |
           set -euo pipefail
           call() {
-            local body="$1"
-            local label="$2"
-            local out code
+            body="$1"
+            label="$2"
             out=$(mktemp)
-            code=$(curl -sS -o "$out" -w '%{http_code}' \
-              -X POST "$URL" \
-              -H "Authorization: Bearer $ANON" \
-              -H "apikey: $ANON" \
-              -H 'Content-Type: application/json' \
-              --data "$body")
+            code=$(curl -sS -o "$out" -w '%{http_code}' -X POST "$URL" -H "Authorization: Bearer $ANON" -H "apikey: $ANON" -H 'Content-Type: application/json' --data "$body")
             echo "=== $label ==="
             echo "HTTP $code"
-            cat "$out" | head -c 4000
+            head -c 4000 "$out"
             echo
             rm -f "$out"
           }
@@ -48,23 +42,10 @@ jobs:
           call '{"mode":"replay","replay_case_id":"00000000-0000-0000-0000-000000000000"}' replay_caso_invalido
 
           echo '=== CANARIO 5 ==='
-          python3 - <<'PY' > /tmp/cases.txt
-import json
-p='patches/joao-replay-hermetico-v4374/canario-5.json'
-with open(p,encoding='utf-8') as f:
-    x=json.load(f)
-items=x if isinstance(x,list) else x.get('casos') or x.get('cases') or []
-for it in items:
-    if isinstance(it,str):
-        print(it)
-    else:
-        cid=it.get('id') or it.get('caso_id') or it.get('replay_case_id')
-        if cid: print(cid)
-PY
           n=0
           while read -r cid; do
             [ -n "$cid" ] || continue
             n=$((n+1))
             call "{\"mode\":\"replay\",\"replay_case_id\":\"$cid\"}" "canario_$n:$cid"
-          done < /tmp/cases.txt
+          done < <(jq -r '.casos[].replay_case_id' patches/joao-replay-hermetico-v4374/canario-5.json)
           echo "CANARIO_TOTAL=$n"
