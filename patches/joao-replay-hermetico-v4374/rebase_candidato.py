@@ -75,7 +75,20 @@ for old, new in repls.items():
         raise SystemExit(f"anchor de versao ausente/duplicado: {old!r} -> {candidate.count(old)}")
     candidate = candidate.replace(old, new, 1)
 
-# 5) Assertions de que o rebase trouxe os fixes vivos e manteve as duas barreiras.
+# O artefato desta pasta serve SOMENTE o slug agente-noturno-replay.
+# Nunca permitir que body ausente/live transforme o canario em uma segunda entrada de producao.
+generic_gate = """  const modoPedido = String((body.mode ?? body._mode ?? 'live')).toLowerCase();
+  if (modoPedido !== 'live' || __isolamentoLacrado) return await atenderHermetico(body, modoPedido);
+"""
+dedicated_gate = """  const modoPedido = String((body.mode ?? body._mode ?? 'replay')).toLowerCase();
+  if (modoPedido !== 'replay') return respostaJsonHermetica({ ok: false, motivo: 'edge_replay_apenas' }, 403);
+  return await atenderHermetico(body, 'replay');
+"""
+if candidate.count(generic_gate) != 1:
+    raise SystemExit(f"anchor gate generico ausente/duplicado: {candidate.count(generic_gate)}")
+candidate = candidate.replace(generic_gate, dedicated_gate, 1)
+
+# 5) Assertions de que o rebase trouxe os fixes vivos e manteve as barreiras.
 required = [
     "REPLAY_RUNNER_JWT",
     "fetchHermetico",
@@ -86,12 +99,15 @@ required = [
     "RX_PROMESSA_PRODUCAO_EXATA",
     "fn_precificar_dtf_uv_v2",
     "a1_replay_hermetico_v2",
+    "edge_replay_apenas",
 ]
 missing = [x for x in required if x not in candidate]
 if missing:
     raise SystemExit("candidato incompleto: " + ", ".join(missing))
 if "'fn_compor_total', 'fn_dtf_uv_capacidade_folha'" in candidate:
     raise SystemExit("fn_compor_total ainda classificada como leitura")
+if "body.mode ?? body._mode ?? 'live'" in candidate:
+    raise SystemExit("candidato dedicado ainda aceita default live")
 
 OUT.parent.mkdir(parents=True, exist_ok=True)
 OUT.write_text(candidate)
@@ -112,7 +128,7 @@ with tempfile.TemporaryDirectory() as td:
     diff = p.stdout
 DIFF_OUT.write_text(diff)
 
-print("OK rebase hermetico v4.37.4")
+print("OK rebase hermetico v4.37.4 replay-only")
 print("live_sha256     =", sha256_text(live))
 print("candidate_sha256=", sha256_text(candidate))
 print("candidate       =", OUT.relative_to(ROOT))
