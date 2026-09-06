@@ -1,7 +1,7 @@
 declare const Deno: any;
 
-// Joao budget semantic preload v1 — 2026-09-06
-// B2 of ingest-produtos-rd-semantica.
+// Joao budget semantic preload v2 — 2026-09-06
+// B2 + provenance-based modality guard of ingest-produtos-rd-semantica.
 // Scope: only fn_consumir_operacao_financeira -> INSERT public.orcamentos inside gerar_pix.
 // Does not change amount, payment, customer text, price, or financial authorization.
 
@@ -44,14 +44,23 @@ function b2Prune(): void {
   for (const [lead] of oldest.slice(0, b2LastByLead.size - 100)) b2LastByLead.delete(lead);
 }
 function b2DirectSemantic(sourceTool: string, components: any): B2Semantic {
-  if (!B2_METER_TOOLS.has(sourceTool)) return { porMetro: false, metros: null, precoPorMetro: null, origem: sourceTool || 'desconhecida' };
   const c = components && typeof components === 'object' ? components : {};
-  return {
-    porMetro: true,
-    metros: b2PositiveNumber(c.metros) ?? b2PositiveNumber(c.consumo_m),
-    precoPorMetro: b2PositiveNumber(c.preco_por_metro),
-    origem: sourceTool,
-  };
+  const metros = b2PositiveNumber(c.metros) ?? b2PositiveNumber(c.consumo_m);
+  const precoPorMetro = b2PositiveNumber(c.preco_por_metro);
+
+  // Proveniencia estruturada vence o nome da ferramenta. Isso cobre fontes heterogeneas
+  // (ex.: preco_de_ficha pode ser folha/pack/peca OU DTF por metro) sem ler texto livre.
+  if (metros !== null) {
+    return { porMetro: true, metros, precoPorMetro, origem: `components:${sourceTool || 'desconhecida'}` };
+  }
+
+  // Ferramentas canonicamente metricas continuam fail-closed se a medida deveria existir
+  // mas nao veio: modalidade=metro, medida=NULL. Nunca fabricar 0 nem inferir de amount/texto.
+  if (B2_METER_TOOLS.has(sourceTool)) {
+    return { porMetro: true, metros: null, precoPorMetro, origem: `meter_tool_sem_medida:${sourceTool}` };
+  }
+
+  return { porMetro: false, metros: null, precoPorMetro: null, origem: sourceTool || 'desconhecida' };
 }
 async function b2LoadProductOperations(components: any): Promise<any[]> {
   const lista = Array.isArray(components?.componentes) ? components.componentes : [];
