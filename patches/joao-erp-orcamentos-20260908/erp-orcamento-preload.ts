@@ -1,8 +1,9 @@
 declare const Deno: any;
 
-// João -> ERP orçamento v2 — 2026-09-08
-// Toda operação de produto só é considerada válida se o ERP materializar um produto canônico.
-// Se o ERP rejeitar, faltar produto ou a materialização não for canônica, o tool-call falha fechado.
+// João -> ERP orçamento v3 — 2026-09-08
+// ERP é a única fonte comercial de produto/preço. Antes de materializar uma operação de produto,
+// consulta o gateway canônico de pricing do ERP, compara com o valor autorizado e grava apenas
+// um receipt de evidência no Córtex. Sem preço/produto canônico do ERP, falha fechado.
 const JOE_MAIN_URL = Deno.env.get('SUPABASE_URL')!;
 const JOE_MAIN_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
 const JOE_ERP_URL = Deno.env.get('ERP_URL') ?? 'https://ynjsflvdfftcopibzxyo.supabase.co';
@@ -52,6 +53,86 @@ async function joeComponentDetails(components: any): Promise<any[]> {
   const rows = await r.json().catch(() => []);
   return Array.isArray(rows) ? rows : [];
 }
+
+function joePricingRequest(sourceTool: string, components: any): { request: any; family: string } {
+  const tool = String(sourceTool || '').toLowerCase();
+  const c = components && typeof components === 'object' ? components : {};
+  if (tool === 'orcar_camisetas') {
+    return { request: { mode: 'apparel', source_tool: tool, components: c }, family: 'apparel' };
+  }
+  if (tool === 'calcular_dtf_por_arte' || tool === 'calcular_dtf_metro') {
+    return { request: { product_family: 'dtf_textil', source_tool: tool, quantity: Number(c.metros ?? 0) }, family: 'dtf_textil' };
+  }
+  if (tool === 'calcular_rendimento_uv' || tool === 'calcular_dtf_uv_metro') {
+    return { request: { product_family: 'dtf_uv', source_tool: tool, quantity: Number(c.consumo_m ?? c.metros ?? 0) }, family: 'dtf_uv' };
+  }
+  return { request: { source_tool: tool }, family: '' };
+}
+
+async function joeRecordPricingReceipt(args: {
+  operationId: string; leadId: string; sourceTool: string; family: string;
+  amount: number; request: any; quote: any; erpTotal: number | null; canonical: boolean;
+}): Promise<void> {
+  try {
+    const payload = {
+      operation_id: args.operationId,
+      lead_id: args.leadId,
+      source_tool: args.sourceTool,
+      product_family: args.family || null,
+      authorized_amount: args.amount,
+      erp_total: Number.isFinite(args.erpTotal as number) ? args.erpTotal : null,
+      canonical: args.canonical,
+      quote_request: args.request,
+      erp_quote: args.quote ?? {},
+    };
+    const r = await joeBaseFetch(`${JOE_MAIN_URL}/rest/v1/rpc/fn_joao_erp_pricing_receipt_record_v1`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', apikey: JOE_MAIN_KEY, authorization: `Bearer ${JOE_MAIN_KEY}` },
+      body: JSON.stringify({ p_payload: payload }),
+    });
+    if (!r.ok) {
+      console.error(JSON.stringify({ event: 'JOAO_ERP_PRICING_RECEIPT_FAIL', status: r.status, operation_id: args.operationId }));
+      return;
+    }
+    const out = await r.json().catch(() => null);
+    console.log(JSON.stringify({ event: 'JOAO_ERP_PRICING_RECEIPT', operation_id: args.operationId, result: out }));
+  } catch (e: any) {
+    console.error(JSON.stringify({ event: 'JOAO_ERP_PRICING_RECEIPT_EXCEPTION', operation_id: args.operationId, error: String(e?.message ?? e).slice(0, 160) }));
+  }
+}
+
+async function joeCanonicalPricing(row: any): Promise<JoeSyncResult> {
+  const operationId = String(row?.id ?? row?.operation_id ?? '');
+  const leadId = String(row?.lead_id ?? '');
+  const sourceTool = String(row?.source_tool ?? '');
+  const amount = Number(row?.amount ?? 0);
+  const { request, family } = joePricingRequest(sourceTool, row?.components ?? {});
+
+  const r = await joeBaseFetch(`${JOE_ERP_URL}/rest/v1/rpc/fn_cortex_pricing_calculation_v1`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', apikey: JOE_ERP_KEY, authorization: `Bearer ${JOE_ERP_KEY}` },
+    body: JSON.stringify({ p_payload: request }),
+  });
+  if (!r.ok) {
+    return { attempted: true, ok: false, canonical: false, code: 'ERP_PRICING_HTTP_FAIL', status: r.status };
+  }
+  const quote = await r.json().catch(() => null);
+  const canonical = !!quote && quote.ok === true && quote.canonical === true && quote.system_of_record === 'ERP';
+  const erpTotalRaw = quote?.total_price;
+  const erpTotal = erpTotalRaw == null ? null : Number(erpTotalRaw);
+  const totalMatch = canonical && Number.isFinite(erpTotal as number) && Math.abs((erpTotal as number) - amount) <= 0.02;
+
+  await joeRecordPricingReceipt({ operationId, leadId, sourceTool, family, amount, request, quote, erpTotal, canonical });
+
+  if (!canonical) {
+    return { attempted: true, ok: false, canonical: false, code: String(quote?.code ?? 'ERP_CANONICAL_PRICE_REQUIRED'), result: quote };
+  }
+  if (!totalMatch) {
+    return { attempted: true, ok: false, canonical: true, code: 'ERP_AUTHORIZED_TOTAL_MISMATCH', result: { authorized_amount: amount, erp_total: erpTotal, quote } };
+  }
+  return { attempted: true, ok: true, canonical: true, code: 'ERP_CANONICAL_PRICE_MATCH', result: quote };
+}
+
 async function joeSync(row: any): Promise<JoeSyncResult> {
   if (!row) return { attempted: false, ok: true, canonical: true };
   const kind = String(row.kind ?? '');
@@ -64,6 +145,13 @@ async function joeSync(row: any): Promise<JoeSyncResult> {
   if (!/^[0-9a-f-]{36}$/i.test(operationId) || !/^[0-9a-f-]{36}$/i.test(leadId) || !(amount > 0)) {
     return { attempted: true, ok: false, canonical: false, code: 'ERP_SYNC_PAYLOAD_INVALID' };
   }
+
+  // Preflight financeiro: preço deve nascer e bater no ERP antes da materialização.
+  if (kind === 'produto') {
+    const pricing = await joeCanonicalPricing(row);
+    if (!pricing.ok) return pricing;
+  }
+
   const phone = await joePhone(leadId);
   const details = kind === 'total' ? await joeComponentDetails(row.components) : [];
   const payload = {
