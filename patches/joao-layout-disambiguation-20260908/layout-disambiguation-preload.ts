@@ -1,16 +1,17 @@
 declare const Deno: any;
 
-// João Layout Disambiguation v1 — 08/09/2026
+// João Layout Disambiguation v1.1 — 08/09/2026
 // Skill runtime: alterações parciais de layout/pedido são tratadas como DELTA.
-// Se a fala puder significar tanto "alterar uma posição" quanto "ficar somente
-// com essa posição", o turno é bloqueado ANTES do modelo/ferramentas e o João
-// faz uma única confirmação curta. Só depois da confirmação o orçamento volta
-// a ser elegível. Sem autoridade de preço, pagamento ou efeito financeiro.
+// Uma fala como "só manga" NÃO basta, por si só, para substituir o layout inteiro:
+// primeiro o João confirma se existem outras posições. Se a alteração puder ser
+// DELTA ou REPLACE, o turno é bloqueado ANTES do modelo/ferramentas. Depois da
+// confirmação, a regra de preservação é injetada dinamicamente no modelo.
+// Sem autoridade própria de preço, pagamento ou transporte.
 
 const LD_URL = (Deno.env.get('SUPABASE_URL') ?? '').replace(/\/$/, '');
 const LD_SERVICE = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
 const ldBaseFetch = globalThis.fetch.bind(globalThis);
-const LD_VERSION = 'joao-layout-disambiguation/v1';
+const LD_VERSION = 'joao-layout-disambiguation/v1.1';
 let ldCfgAt = 0;
 let ldCfg = false;
 
@@ -96,34 +97,67 @@ function ldLooksLikeLayoutChange(raw: string): boolean {
   const partial = new RegExp(`(?:\\b(?:so|somente|apenas)\\b.{0,45}\\b${LD_POS}\\b)|(?:\\b(?:tirar|tira|remover|remove|retirar|sem|mudar|muda|alterar|altera|deixar|deixa|ficar|fica)\\b.{0,50}\\b${LD_POS}\\b)|(?:\\b${LD_POS}\\b.{0,45}\\b(?:muda|mudaria|altera|alterar|tira|tirar|remove|remover)\\b)`, 'i');
   return partial.test(t);
 }
-function ldExplicitReplacement(raw: string): boolean {
-  const t = ldNorm(raw);
-  if (!t) return false;
-  if (/\b(?:so|somente|apenas)\s+(?:a\s+|uma\s+)?(?:manga|manda)\b/.test(t) && !/\b(?:tambem|frente|costas|outra|outras)\b/.test(t)) return true;
-  if (/\b(?:nada|nenhuma\s+estampa)\b.{0,30}\b(?:frente|costas)\b/.test(t)) return true;
-  const semFrente = /\b(?:sem|nao\s+(?:vai|tera|tem))\b.{0,25}\bfrente\b/.test(t);
-  const semCostas = /\b(?:sem|nao\s+(?:vai|tera|tem))\b.{0,25}\bcostas\b/.test(t);
-  return semFrente && semCostas;
-}
 function ldExplicitDelta(raw: string): boolean {
   const t = ldNorm(raw);
   if (!t) return false;
   if (/\b(?:mantem|manter|continua|continuar|igual|mesmo\s+layout|como\s+(?:estava|antes)|resto\s+igual|outras?\s+estampas?)\b/.test(t) && /\b(?:frente|costas|manga|manda|resto|outras?)\b/.test(t)) return true;
   if (/\b(?:frente.{0,30}costas|costas.{0,30}frente)\b/.test(t) && /\b(?:tambem|continua|mantem|igual|mesmo)\b/.test(t)) return true;
-  if (/\btambem\b.{0,35}\b(?:frente|costas)\b/.test(t)) return true;
+  if (/\btambem\b.{0,35}\b(?:frente|costas|manga|manda)\b/.test(t)) return true;
+  return false;
+}
+function ldExhaustiveReplacement(raw: string): boolean {
+  const t = ldNorm(raw);
+  if (!t) return false;
+  if (/\b(?:mais\s+nada|nada\s+mais|nenhuma\s+outra\s+estampa|sem\s+outras?\s+estampas?|nada\s+alem\s+disso|so\s+isso\s+no\s+layout)\b/.test(t)) return true;
+  const mentionsManga = /\b(?:manga|manda)\b/.test(t);
+  const mentionsFrente = /\bfrente\b/.test(t);
+  const mentionsCostas = /\bcostas\b/.test(t);
+  const semFrente = /\b(?:sem|nao\s+(?:vai|tera|tem))\b.{0,25}\bfrente\b/.test(t);
+  const semCostas = /\b(?:sem|nao\s+(?:vai|tera|tem))\b.{0,25}\bcostas\b/.test(t);
+  const semManga = /\b(?:sem|nao\s+(?:vai|tera|tem))\b.{0,25}\b(?:manga|manda)\b/.test(t);
+  if (mentionsManga && semFrente && semCostas) return true;
+  if (mentionsFrente && semManga && semCostas) return true;
+  if (mentionsCostas && semFrente && semManga) return true;
+  return false;
+}
+function ldPendingReplacementAnswer(raw: string): boolean {
+  const t = ldNorm(raw);
+  return /^\s*(?:nao[, ]*)?(?:vai\s+ser\s+)?(?:so|somente|apenas)\s+(?:a\s+|uma\s+|as\s+)?(?:manga|manda|frente|costas|gola|nuca|lateral)(?:\s+(?:direita|esquerda))?[.! ]*$/i.test(t);
+}
+function ldPendingDeltaAnswer(raw: string): boolean {
+  const t = ldNorm(raw);
+  if (/\b(?:mantem|mantem-se|continua|continuam|fica|ficam)\b.{0,35}\b(?:igual|como\s+estava|resto|outras?|frente|costas|manga|manda)\b/.test(t)) return true;
+  if (/\b(?:igual\s+ao\s+anterior|igual\s+antes|como\s+estava|mantem\s+tudo|mantem\s+o\s+resto)\b/.test(t)) return true;
   return false;
 }
 function ldPendingQuestion(raw: string): boolean {
   const t = ldNorm(raw);
-  return /antes de calcular/.test(t) && /somente/.test(t) && /frente/.test(t) && /costas/.test(t);
+  return (/\bantes\s+de\s+calcular\b/.test(t) || /\bnao\s+errar\s+o\s+orcamento\b/.test(t)) &&
+    (/\bou\s+tambem\b/.test(t) || /\boutras?\s+posicoes\b/.test(t) || /\brestante\s+do\s+layout\b/.test(t) || /\balem\b/.test(t));
 }
-function ldResolvedAnswer(raw: string): boolean {
-  return ldExplicitDelta(raw) || ldExplicitReplacement(raw);
+function ldResolvedAnswer(raw: string, pending: boolean): boolean {
+  return ldExplicitDelta(raw) || ldExhaustiveReplacement(raw) || (pending && (ldPendingReplacementAnswer(raw) || ldPendingDeltaAnswer(raw)));
 }
-function ldQuestion(retry = false): string {
-  return retry
-    ? 'Só pra eu não errar o orçamento: além da manga, vai ter estampa na frente e/ou nas costas?'
-    : 'Perfeito. Só pra confirmar antes de calcular: vai estampar somente essa manga, ou também vai ter estampa na frente e/ou nas costas?';
+function ldPosition(raw: string): { key: string; label: string } | null {
+  const t = ldNorm(raw);
+  const found: { key: string; label: string }[] = [];
+  if (/\b(?:manga|manda)\b/.test(t)) found.push({ key: 'manga', label: 'a manga' });
+  if (/\bfrente\b/.test(t)) found.push({ key: 'frente', label: 'a frente' });
+  if (/\bcostas\b/.test(t)) found.push({ key: 'costas', label: 'as costas' });
+  if (/\b(?:gola|nuca)\b/.test(t)) found.push({ key: 'gola_nuca', label: 'a gola/nuca' });
+  if (/\blateral\b/.test(t)) found.push({ key: 'lateral', label: 'a lateral' });
+  return found.length === 1 ? found[0] : null;
+}
+function ldQuestion(source: string, retry = false): string {
+  const p = ldPosition(source);
+  if (retry) {
+    if (p?.key === 'manga') return 'Só pra eu não errar o orçamento: além da manga, vai ter estampa na frente e/ou nas costas?';
+    if (p) return `Só pra eu não errar o orçamento: ${p.label} será a única posição estampada, ou as outras posições do layout continuam?`;
+    return 'Só pra eu não errar o orçamento: essas são todas as posições estampadas ou o restante do layout continua como estava?';
+  }
+  if (p?.key === 'manga') return 'Perfeito. Só pra confirmar antes de calcular: você quer estampar somente a manga, ou também vai ter estampa na frente e/ou nas costas?';
+  if (p) return `Perfeito. Só pra confirmar antes de calcular: você quer estampar somente ${p.label.replace(/^a |^as /, '')}, ou também vai ter estampa em outras posições?`;
+  return 'Perfeito. Só pra confirmar antes de calcular: essas são todas as posições que vão ser estampadas, ou o restante do layout continua como estava?';
 }
 function ldAnthropic(message: string, slots: any): Response {
   const decision = { responde: true, mensagem: message, tema: 'sondagem', encaminhou_venda: false, etapa: 'sondagem', slots };
@@ -154,7 +188,7 @@ async function ldAudit(evento: string, detalhe: any) {
   } catch {}
 }
 
-const LD_RULE = `\n\n[SKILL: DISCOVERY / partial_order_change_disambiguation_v1 — REGRA OBRIGATORIA]\nEm camiseta/polo/moletom, alteracao parcial de layout e DELTA sobre a configuracao vigente, nao um pedido novo. Preserve todas as posicoes/estampas conhecidas que o cliente nao removeu explicitamente. Se a fala puder significar tanto alterar uma posicao quanto substituir o layout inteiro, NAO chame orcar_camisetas e NAO informe preco: faca uma unica pergunta curta confirmando se as outras posicoes permanecem. So trate como substituicao total quando o cliente disser inequivocamente que ficara somente com aquela(s) posicao(oes) ou remover explicitamente as demais. Depois de confirmado, ao chamar orcar_camisetas envie o conjunto COMPLETO de estampas confirmado; nunca apenas a ultima posicao mencionada.\n[/SKILL]\n`;
+const LD_RULE = `\n\n[SKILL: DISCOVERY / partial_order_change_disambiguation_v1 — REGRA OBRIGATORIA]\nEm camiseta/polo/moletom, alteracao parcial de layout e DELTA sobre a configuracao vigente, nao um pedido novo. Preserve todas as posicoes/estampas conhecidas que o cliente nao removeu explicitamente. Uma fala isolada como "so manga", "so frente" ou "so costas" NAO autoriza apagar as demais posicoes sem a confirmacao discriminante. Se a fala puder significar tanto alterar uma posicao quanto substituir o layout inteiro, NAO chame orcar_camisetas e NAO informe preco: faca uma unica pergunta curta confirmando se as outras posicoes permanecem. So trate como substituicao total quando o cliente confirmar isso inequivocamente ou remover explicitamente as demais. Depois de confirmado, ao chamar orcar_camisetas envie o conjunto COMPLETO de estampas confirmado; nunca apenas a ultima posicao mencionada.\n[/SKILL]\n`;
 
 globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
   const url = ldUrl(input);
@@ -172,11 +206,11 @@ globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit): Promise
   const lastAssistant = ldLastAssistant(body.messages);
   const pending = ldPendingQuestion(lastAssistant);
   const looksChange = ldLooksLikeLayoutChange(inbound);
-  const resolved = ldResolvedAnswer(inbound);
+  const resolved = ldResolvedAnswer(inbound, pending);
 
   if ((pending && !resolved) || (looksChange && !resolved)) {
     void ldAudit('layout_ambiguity_blocked', { inbound: inbound.slice(0, 240), pending_confirmation: pending });
-    return ldAnthropic(ldQuestion(pending), ldSlots(body.system));
+    return ldAnthropic(ldQuestion(pending ? lastAssistant : inbound, pending), ldSlots(body.system));
   }
 
   if (looksChange || (pending && resolved)) {
