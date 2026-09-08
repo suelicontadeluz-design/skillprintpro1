@@ -4,15 +4,12 @@ const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SERVICE = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
 const ERP_URL = Deno.env.get('ERP_URL') ?? 'https://ynjsflvdfftcopibzxyo.supabase.co';
 const ERP_KEY = Deno.env.get('ERP_SERVICE_KEY') ?? Deno.env.get('ERP_SERVICE_ROLE_KEY') ?? '';
-const VERSION = 'joao-erp-orcamento-sync/v1';
-const WORKER = 'joao-erp-orcamento-sync-v1';
+const VERSION = 'joao-erp-orcamento-sync/v2';
+const WORKER = 'joao-erp-orcamento-sync-v2';
 const sb = createClient(SUPABASE_URL, SERVICE, { auth: { persistSession: false, autoRefreshToken: false } });
 
 function json(data: unknown, status = 200) {
-  return new Response(JSON.stringify(data), {
-    status,
-    headers: { 'content-type': 'application/json', 'cache-control': 'no-store' },
-  });
+  return new Response(JSON.stringify(data), { status, headers: { 'content-type': 'application/json', 'cache-control': 'no-store' } });
 }
 
 async function authorized(req: Request): Promise<boolean> {
@@ -27,9 +24,7 @@ async function authorized(req: Request): Promise<boolean> {
       signal: AbortSignal.timeout(4000),
     });
     return r.ok && (await r.json().catch(() => false)) === true;
-  } catch {
-    return false;
-  }
+  } catch { return false; }
 }
 
 async function erpRpc(name: string, body: unknown) {
@@ -44,29 +39,28 @@ async function erpRpc(name: string, body: unknown) {
 }
 
 async function phoneForLead(leadId: string): Promise<string> {
-  const { data } = await sb
-    .from('agente_noturno_estado')
-    .select('phone')
-    .eq('lead_id', leadId)
-    .order('updated_at', { ascending: false })
-    .limit(1)
-    .maybeSingle();
+  const { data, error } = await sb.from('agente_noturno_estado').select('phone').eq('lead_id', leadId).order('updated_at', { ascending: false }).limit(1).maybeSingle();
+  if (error) throw new Error(`phone_read:${error.message}`);
   return String(data?.phone ?? '');
 }
 
 async function componentDetails(components: any): Promise<any[]> {
   const parts = Array.isArray(components?.componentes) ? components.componentes : [];
-  const ids = parts
-    .map((x: any) => String(x?.operation_id ?? ''))
-    .filter((x: string) => /^[0-9a-f-]{36}$/i.test(x));
+  const ids = parts.map((x: any) => String(x?.operation_id ?? '')).filter((x: string) => /^[0-9a-f-]{36}$/i.test(x));
   if (!ids.length) return [];
-
-  const { data, error } = await sb
-    .from('operacoes_financeiras')
-    .select('id,kind,amount,source_tool,components')
-    .in('id', ids);
+  const { data, error } = await sb.from('operacoes_financeiras').select('id,kind,amount,source_tool,components').in('id', ids);
   if (error) throw new Error(`component_details:${error.message}`);
   return data ?? [];
+}
+
+async function markFailed(operationId: string, message: string): Promise<void> {
+  try {
+    await sb.rpc('fn_joao_orcamento_outbox_fail_v1', {
+      p_operation_id: operationId,
+      p_worker: WORKER,
+      p_error: message,
+    });
+  } catch {}
 }
 
 Deno.serve(async (req) => {
@@ -74,7 +68,7 @@ Deno.serve(async (req) => {
   if (!(await authorized(req))) return json({ ok: false, error: 'unauthorized', version: VERSION }, 401);
   if (!ERP_KEY) return json({ ok: false, error: 'erp_key_missing', version: VERSION }, 503);
 
-  await sb.rpc('fn_joao_orcamento_outbox_recover_v1').catch(() => null);
+  try { await sb.rpc('fn_joao_orcamento_outbox_recover_v1'); } catch {}
 
   const { data: claimed, error: claimError } = await sb.rpc('fn_joao_orcamento_outbox_claim_v1', {
     p_worker: WORKER,
@@ -90,11 +84,7 @@ Deno.serve(async (req) => {
   for (const job of jobs) {
     const operationId = String(job.operation_id ?? '');
     try {
-      const { data: op, error: opError } = await sb
-        .from('operacoes_financeiras')
-        .select('id,lead_id,kind,amount,source_tool,components,created_at')
-        .eq('id', operationId)
-        .maybeSingle();
+      const { data: op, error: opError } = await sb.from('operacoes_financeiras').select('id,lead_id,kind,amount,source_tool,components,created_at').eq('id', operationId).maybeSingle();
       if (opError || !op) throw new Error(`operation_read:${opError?.message ?? 'not_found'}`);
 
       const phone = await phoneForLead(String(op.lead_id));
@@ -127,11 +117,7 @@ Deno.serve(async (req) => {
     } catch (e) {
       failed++;
       const message = String((e as Error)?.message ?? e).slice(0,800);
-      await sb.rpc('fn_joao_orcamento_outbox_fail_v1', {
-        p_operation_id: operationId,
-        p_worker: WORKER,
-        p_error: message,
-      }).catch(() => null);
+      await markFailed(operationId, message);
       results.push({ operation_id: operationId, ok: false, error: message });
     }
   }
