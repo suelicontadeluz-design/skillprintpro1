@@ -1,6 +1,6 @@
 declare const Deno: any;
 
-// João Layout Disambiguation v1.1 — 08/09/2026
+// João Layout Disambiguation v1.2 — 08/09/2026
 // Skill runtime: alterações parciais de layout/pedido são tratadas como DELTA.
 // Uma fala como "só manga" NÃO basta, por si só, para substituir o layout inteiro:
 // primeiro o João confirma se existem outras posições. Se a alteração puder ser
@@ -11,7 +11,7 @@ declare const Deno: any;
 const LD_URL = (Deno.env.get('SUPABASE_URL') ?? '').replace(/\/$/, '');
 const LD_SERVICE = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
 const ldBaseFetch = globalThis.fetch.bind(globalThis);
-const LD_VERSION = 'joao-layout-disambiguation/v1.1';
+const LD_VERSION = 'joao-layout-disambiguation/v1.2';
 let ldCfgAt = 0;
 let ldCfg = false;
 
@@ -101,8 +101,9 @@ function ldExplicitDelta(raw: string): boolean {
   const t = ldNorm(raw);
   if (!t) return false;
   if (/\b(?:mantem|manter|continua|continuar|igual|mesmo\s+layout|como\s+(?:estava|antes)|resto\s+igual|outras?\s+estampas?)\b/.test(t) && /\b(?:frente|costas|manga|manda|resto|outras?)\b/.test(t)) return true;
-  if (/\b(?:frente.{0,30}costas|costas.{0,30}frente)\b/.test(t) && /\b(?:tambem|continua|mantem|igual|mesmo)\b/.test(t)) return true;
+  if (/\b(?:frente.{0,30}costas|costas.{0,30}frente)\b/.test(t) && /\b(?:tambem|continua|continuam|mantem|igual|iguais|mesmo)\b/.test(t)) return true;
   if (/\btambem\b.{0,35}\b(?:frente|costas|manga|manda)\b/.test(t)) return true;
+  if (/\b(?:frente|costas|manga|manda|gola|nuca|lateral)\b.{0,45}\b(?:continua|continuam|mantem|mantem-se|igual|iguais|mesmo|mesmos|mesmas)\b/.test(t)) return true;
   return false;
 }
 function ldExhaustiveReplacement(raw: string): boolean {
@@ -138,8 +139,18 @@ function ldPendingQuestion(raw: string): boolean {
 function ldResolvedAnswer(raw: string, pending: boolean): boolean {
   return ldExplicitDelta(raw) || ldExhaustiveReplacement(raw) || (pending && (ldPendingReplacementAnswer(raw) || ldPendingDeltaAnswer(raw)));
 }
+function ldPositionFromToken(token: string): { key: string; label: string } | null {
+  if (/^(?:manga|manda)$/.test(token)) return { key: 'manga', label: 'a manga' };
+  if (token === 'frente') return { key: 'frente', label: 'a frente' };
+  if (token === 'costas') return { key: 'costas', label: 'as costas' };
+  if (/^(?:gola|nuca)$/.test(token)) return { key: 'gola_nuca', label: 'a gola/nuca' };
+  if (token === 'lateral') return { key: 'lateral', label: 'a lateral' };
+  return null;
+}
 function ldPosition(raw: string): { key: string; label: string } | null {
   const t = ldNorm(raw);
+  const target = t.match(/\bsomente\s+(?:a\s+|uma\s+|as\s+)?(manga|manda|frente|costas|gola|nuca|lateral)\b/);
+  if (target) return ldPositionFromToken(target[1]);
   const found: { key: string; label: string }[] = [];
   if (/\b(?:manga|manda)\b/.test(t)) found.push({ key: 'manga', label: 'a manga' });
   if (/\bfrente\b/.test(t)) found.push({ key: 'frente', label: 'a frente' });
@@ -156,7 +167,7 @@ function ldQuestion(source: string, retry = false): string {
     return 'Só pra eu não errar o orçamento: essas são todas as posições estampadas ou o restante do layout continua como estava?';
   }
   if (p?.key === 'manga') return 'Perfeito. Só pra confirmar antes de calcular: você quer estampar somente a manga, ou também vai ter estampa na frente e/ou nas costas?';
-  if (p) return `Perfeito. Só pra confirmar antes de calcular: você quer estampar somente ${p.label.replace(/^a |^as /, '')}, ou também vai ter estampa em outras posições?`;
+  if (p) return `Perfeito. Só pra confirmar antes de calcular: você quer estampar somente ${p.label}, ou também vai ter estampa em outras posições?`;
   return 'Perfeito. Só pra confirmar antes de calcular: essas são todas as posições que vão ser estampadas, ou o restante do layout continua como estava?';
 }
 function ldAnthropic(message: string, slots: any): Response {
