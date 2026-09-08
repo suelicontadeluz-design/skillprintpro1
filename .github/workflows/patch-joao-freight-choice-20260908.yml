@@ -21,6 +21,7 @@ jobs:
         run: |
           python3 - <<'PY'
           from pathlib import Path
+          import base64
 
           p = Path('patches/joao-slot-proveniencia-escrita/candidato/index.ts')
           s = p.read_text()
@@ -32,29 +33,10 @@ jobs:
                   raise SystemExit(f'{label}: expected exactly 1 occurrence, got {n}')
               s = s.replace(old, new, 1)
 
-          exactly(
-              "const V = 'agente-noturno-v4.37.4-canonical-price';",
-              "const V = 'agente-noturno-v4.37.5-freight-choice';",
-              'agent version',
-          )
-
-          exactly(
-              "  { name: 'calcular_frete', description: 'Frete Correios por CEP de 8 digitos. CHAME de verdade, nunca prometa calcular depois.', input_schema: { type: 'object', properties: { cep_destino: { type: 'string' } }, required: ['cep_destino'] } },",
-              "  { name: 'calcular_frete', description: 'Frete por CEP de 8 digitos. PRIMEIRA chamada: envie somente cep_destino para COTAR e mostrar as opcoes; isso NAO cria autorizacao financeira. SOMENTE depois de o CLIENTE escolher explicitamente PAC, Sedex ou J&T Standard, chame de novo com cep_destino + servico_escolhido exatamente igual a opcao escolhida. Nunca escolha pelo cliente.', input_schema: { type: 'object', properties: { cep_destino: { type: 'string' }, servico_escolhido: { type: 'string', enum: ['PAC', 'Sedex', 'J&T Standard'] } }, required: ['cep_destino'] } },",
-              'tool schema',
-          )
-
-          exactly(
-              "async function executarTool(name: string, input: any, ctx: { leadId: string | null; autorizacoes: any[]; cobrancaPendente: any | null; permiteMudanca: boolean; freteJa: any | null; arteParaCalculo?: { largura_cm: number; altura_cm: number; copias: number } | null; phone?: string; pixGerado?: any; holdArte?: boolean; modalidadeLogistica?: ModalidadeLogistica; produtoDigital?: boolean }): Promise<string> {",
-              "async function executarTool(name: string, input: any, ctx: { leadId: string | null; autorizacoes: any[]; cobrancaPendente: any | null; permiteMudanca: boolean; freteJa: any | null; arteParaCalculo?: { largura_cm: number; altura_cm: number; copias: number } | null; phone?: string; pixGerado?: any; holdArte?: boolean; modalidadeLogistica?: ModalidadeLogistica; produtoDigital?: boolean; mensagemCliente?: string }): Promise<string> {",
-              'tool ctx signature',
-          )
-
-          exactly(
-              "produtoDigital: estadoLog.produto_digital };",
-              "produtoDigital: estadoLog.produto_digital, mensagemCliente: mensagem };",
-              'ctx current inbound',
-          )
+          exactly("const V = 'agente-noturno-v4.37.4-canonical-price';", "const V = 'agente-noturno-v4.37.5-freight-choice';", 'agent version')
+          exactly("  { name: 'calcular_frete', description: 'Frete Correios por CEP de 8 digitos. CHAME de verdade, nunca prometa calcular depois.', input_schema: { type: 'object', properties: { cep_destino: { type: 'string' } }, required: ['cep_destino'] } },", "  { name: 'calcular_frete', description: 'Frete por CEP de 8 digitos. PRIMEIRA chamada: envie somente cep_destino para COTAR e mostrar as opcoes; isso NAO cria autorizacao financeira. SOMENTE depois de o CLIENTE escolher explicitamente PAC, Sedex ou J&T Standard, chame de novo com cep_destino + servico_escolhido exatamente igual a opcao escolhida. Nunca escolha pelo cliente.', input_schema: { type: 'object', properties: { cep_destino: { type: 'string' }, servico_escolhido: { type: 'string', enum: ['PAC', 'Sedex', 'J&T Standard'] } }, required: ['cep_destino'] } },", 'tool schema')
+          exactly("async function executarTool(name: string, input: any, ctx: { leadId: string | null; autorizacoes: any[]; cobrancaPendente: any | null; permiteMudanca: boolean; freteJa: any | null; arteParaCalculo?: { largura_cm: number; altura_cm: number; copias: number } | null; phone?: string; pixGerado?: any; holdArte?: boolean; modalidadeLogistica?: ModalidadeLogistica; produtoDigital?: boolean }): Promise<string> {", "async function executarTool(name: string, input: any, ctx: { leadId: string | null; autorizacoes: any[]; cobrancaPendente: any | null; permiteMudanca: boolean; freteJa: any | null; arteParaCalculo?: { largura_cm: number; altura_cm: number; copias: number } | null; phone?: string; pixGerado?: any; holdArte?: boolean; modalidadeLogistica?: ModalidadeLogistica; produtoDigital?: boolean; mensagemCliente?: string }): Promise<string> {", 'tool ctx signature')
+          exactly("produtoDigital: estadoLog.produto_digital };", "produtoDigital: estadoLog.produto_digital, mensagemCliente: mensagem };", 'ctx current inbound')
 
           start_marker = "    if (name === 'calcular_frete') {\n"
           end_marker = "      return envelope([opF], dsp);\n    }"
@@ -66,105 +48,32 @@ jobs:
           old_block = s[start:end]
           if 'const sedex = d.opcoes.find' not in old_block or 'const melhor = sedex' not in old_block:
               raise SystemExit('old Sedex preselection logic not found in freight block')
-
-          new_block = r'''    if (name === 'calcular_frete') {
-      if (ctx.freteJa && !ctx.permiteMudanca) return JSON.stringify({ ok: true, financial_authorizations: [], display_data: { ja_calculado: true, servico: ctx.freteJa.servico_frete, preco: `R$${Number(ctx.freteJa.valor_frete).toFixed(2)}`, cep: ctx.freteJa.cep_destino, acao: 'Frete ja calculado. NAO recalcule.' } });
-      const cep = String(input?.cep_destino || '').replace(/\D/g, '');
-      if (cep.length !== 8) return JSON.stringify({ ok: false, erro: 'cep_invalido', acao: 'O CEP precisa ter 8 digitos. Peca o CEP completo.' });
-
-      const canonServico = (v: unknown): string | null => {
-        const raw = String(v ?? '').toLowerCase();
-        const hits: string[] = [];
-        if (/\bpac\b/i.test(raw)) hits.push('pac');
-        if (/\bsedex\b/i.test(raw)) hits.push('sedex');
-        if (/j\s*&\s*t|j\s+e\s+t|j\s+t\s+(?:standard|express)/i.test(raw)) hits.push('jt');
-        return hits.length === 1 ? hits[0] : null;
-      };
-      const escolhaPedida = canonServico(input?.servico_escolhido);
-      const escolhaCliente = canonServico(ctx.mensagemCliente);
-      if (input?.servico_escolhido !== undefined && (!escolhaPedida || escolhaCliente !== escolhaPedida)) {
-        await logErro('frete_escolha_sem_proveniencia_cliente', {
-          lead: ctx.leadId, phone: String(ctx.phone || '').slice(-4),
-          servico_pedido: String(input?.servico_escolhido || '').slice(0, 40),
-          cliente_final: String(ctx.mensagemCliente || '').slice(0, 120),
-        });
-        return JSON.stringify({
-          ok: false, erro: 'servico_frete_sem_escolha_cliente', financial_authorizations: [],
-          acao: 'NAO escolha frete pelo cliente. Mostre as opcoes e aguarde ele escrever explicitamente PAC, Sedex ou J&T. So depois chame calcular_frete com servico_escolhido.'
-        });
-      }
-
-      const r = await fetch(`${SUPABASE_URL}/functions/v1/calcular-frete`, { method: 'POST', headers: { 'content-type': 'application/json', Authorization: `Bearer ${SUPABASE_SERVICE_KEY}` }, body: JSON.stringify({ cep_destino: cep, metros: 1, valor_declarado: 60 }), signal: AbortSignal.timeout(12000) });
-      const d = await r.json();
-      if (!(d?.ok && Array.isArray(d.opcoes) && d.opcoes.length > 0)) return JSON.stringify({ ok: false, erro: 'sem_opcoes' });
-      const opcoes = d.opcoes.map((o: any) => ({ servico: o.servico, preco: o.preco_formatado, prazo: o.prazo_formatado }));
-
-      if (!escolhaPedida) {
-        return envelope([], {
-          opcoes, cep, quote_snapshot_id: d.quote_snapshot_id ?? null,
-          instrucao: 'COTACAO APENAS. MANDE TODAS AS OPCOES AGORA com servico, preco e prazo e pergunte qual o cliente prefere. NAO existe autorizacao de frete ainda. NAO some total e NAO ofereca Pix/cartao antes da escolha.'
-        });
-      }
-
-      const selecionada = d.opcoes.find((o: any) => canonServico(o?.servico) === escolhaPedida);
-      if (!selecionada) return JSON.stringify({
-        ok: false, erro: 'servico_frete_nao_cotado', financial_authorizations: [], opcoes,
-        acao: 'A opcao escolhida pelo cliente nao apareceu nesta cotacao atual. Mostre as opcoes atuais e peca nova escolha; nao substitua por outra.'
-      });
-
-      const dsp = {
-        opcoes, cep, quote_snapshot_id: d.quote_snapshot_id ?? null,
-        servico_escolhido: selecionada.servico, preco_escolhido: selecionada.preco_formatado,
-        prazo_escolhido: selecionada.prazo_formatado,
-        instrucao: 'ESCOLHA DO CLIENTE CONFIRMADA. Use SOMENTE esta autorizacao de frete para compor_total com o produto. Nao troque o servico e nao use outra opcao.'
-      };
-      const opF = await emitirAutorizacao(ctx.leadId, 'frete', Math.round(Number(selecionada.preco) * 100) / 100, 'calcular_frete', { servico: selecionada.servico, cep, quote_snapshot_id: d.quote_snapshot_id ?? null, escolha_cliente: true });
-      if (!opF) return falhaAutorizacao(dsp);
-      return envelope([opF], dsp);
-    }'''
+          new_block = base64.b64decode('ICAgIGlmIChuYW1lID09PSAnY2FsY3VsYXJfZnJldGUnKSB7CiAgICAgIGlmIChjdHguZnJldGVKYSAmJiAhY3R4LnBlcm1pdGVNdWRhbmNhKSByZXR1cm4gSlNPTi5zdHJpbmdpZnkoeyBvazogdHJ1ZSwgZmluYW5jaWFsX2F1dGhvcml6YXRpb25zOiBbXSwgZGlzcGxheV9kYXRhOiB7IGphX2NhbGN1bGFkbzogdHJ1ZSwgc2VydmljbzogY3R4LmZyZXRlSmEuc2Vydmljb19mcmV0ZSwgcHJlY286IGBSJHtOdW1iZXIoY3R4LmZyZXRlSmEudmFsb3JfZnJldGUpLnRvRml4ZWQoMil9YCwgY2VwOiBjdHguZnJldGVKYS5jZXBfZGVzdGlubywgYWNhbzogJ0ZyZXRlIGphIGNhbGN1bGFkby4gTkFPIHJlY2FsY3VsZS4nIH0gfSk7CiAgICAgIGNvbnN0IGNlcCA9IFN0cmluZyhpbmB1dD8uY2VwX2Rlc3Rpbm8gfHwgJycpLnJlcGxhY2UoL1xEL2csICcnKTsKICAgICAgaWYgKGNlcC5sZW5ndGggIT09IDgpIHJldHVybiBKU09OLnN0cmluZ2lmeSh7IG9rOiBmYWxzZSwgZXJybzogJ2NlcF9pbnZhbGlkbycsIGFjYW86ICdPIENFUCDEqHByZWNpc2EgdGVyIDggZGlnaXRvcy4gUGVjYSBvIENFUCBjb21wbGV0by4nIH0pOwoKICAgICAgY29uc3QgY2Fub25TZXJ2aWNvID0gKHY6IHVua25vd24pOiBzdHJpbmcgfCBudWxsID0+IHsKICAgICAgICBjb25zdCByYXcgPSBTdHJpbmcodiA/PyAnJykudG9Mb3dlckNhc2UoKTsKICAgICAgICBjb25zdCBoaXRzOiBzdHJpbmdbXSA9IFtdOwogICAgICAgIGlmICgvXGJwYWNcYi9pLnRlc3QocmF3KSkgaGl0cy5wdXNoKCdwYWMnKTsKICAgICAgICBpZiAoL1xic2VkZXhcYi9pLnRlc3QocmF3KSkgaGl0cy5wdXNoKCdzZWRleCcpOwogICAgICAgIGlmICgvaltcc10qJlxbXHMq dHxqXHM rZVxzK3R8alxzK3RccysrKD86c3RhbmRhcmR8ZXhwcmVzcykvaS50ZXN0KHJhdykpIGhpdHMucHVzaCgnanQnKTsKICAgICAgICByZXR1cm4gaGl0cy5sZW5ndGggPT09IDEgPyBoaXRzWzBdIDogbnVsbDsKICAgICAgfTsKICAgICAgY29uc3QgZXNjb2xoYVBlZGlkYSA9IGNhbm9uU2VydmljbyhpbnB1dD8uc2Vydmljb19lc2NvbGhpZG8pOwogICAgICBjb25zdCBlc2NvbGhhQ2xpZW50ZSA9IGNhbm9uU2VydmljbyhjdHgubWVuc2FnZW1DbGllbnRlKTsKICAgICAgaWYgKGlucHV0Py5zZXJ2aWNvX2VzY29saGlkbyAhPT0gdW5kZWZpbmVkICYmICghZXNjb2xoYVBlZGlkYSB8fCBlc2NvbGhhQ2xpZW50ZSAhPT0gZXNjb2xoYVBlZGlkYSkpIHsKICAgICAgICBhd2FpdCBsb2dFcnJvKCdmcmV0ZV9lc2NvbGhhX3NlbV9wcm92ZW5pZW5jaWFfY2xpZW50ZScsIHsKICAgICAgICAgIGxlYWQ6IGN0eC5sZWFkSWQsIHBob25lOiBTdHJpbmcoY3R4LnBob25lIHx8ICcnKS5zbGljZSgtNCksCiAgICAgICAgICBzZXJ2aWNvX3BlZGlkbzogU3RyaW5nKGlucHV0Py5zZXJ2aWNvX2VzY29saGlkbyB8fCAnJykuc2xpY2UoMCwgNDApLAogICAgICAgICAgY2xpZW50ZV9maW5hbDogU3RyaW5nKGN0eC5tZW5zYWdlbUNsaWVudGUgfHwgJycpLnNsaWNlKDAsIDEyMCksCiAgICAgICAgfSk7CiAgICAgICAgcmV0dXJuIEpTT04uc3RyaW5naWZ5KHsKICAgICAgICAgIG9rOiBmYWxzZSwgZXJybzogJ3NlcnZpY29fZnJldGVfc2VtX2VzY29saGFfY2xpZW50ZScsIGZpbmFuY2lhbF9hdXRob3JpemF0aW9uczogW10sCiAgICAgICAgICBhY2FvOiAnTkFPIHlzY29saGEgZnJldGUgcGVsbyBjbGllbnRlLiBNb3N0cmUgYXMgb3Bjb2VzIGUgYWd1YXJkZSBlbGUgZXNjcmV2ZXIgZXhwbGljaXRhbWVudGUgUEFDLCBTZWRleCBvdSBKJlQuIFNvIGRlcG9pcyBjaGFtZSBjYWxjdWxhcl9mcmV0ZSBjb20gc2Vydmljb19lc2NvbGhpZG8uJwogICAgICAgIH0pOwogICAgICB9CgogICAgICBjb25zdCByID0gYXdhaXQgZmV0Y2goYCR7U1VQQUJBU0VfVVJMfS9mdW5jdGlvbnMvdjEvY2FsY3VsYXItZnJldGUsIHsgbWV0aG9kOiAnUE9TVCcsIGhlYWRlcnM6IHsgJ2NvbnRlbnQtdHlwZSc6ICdhcHBsaWNhdGlvbi9qc29uJywgQXV0aG9yaXphdGlvbjogYEJlYXJlciAke1NVUEFCQVNFX1NFUlZJQ0VfS0VZfWAgfSwgYm9keTogSlNPTi5zdHJpbmdpZnkoeyBjZXBfZGVzdGlubzogY2VwLCBtZXRyb3M6IDEsIHZhbG9yX2RlY2xhcmFkbzogNjAgfSksIHNpZ25hbDogQWJvcnRTaWduYWwudGltZW91dCgxMjAwMCkgfSk7CiAgICAgIGNvbnN0IGQgPSBhd2FpdCByLmpzb24oKTsKICAgICAgaWYgKCEoZD8ub2sgJiYgQXJyYXkuaXNBcnJheShkLm9wY29lcykgJiYgZC5vcGNvZXMubGVuZ3RoID4gMCkpIHJldHVybiBKU09OLnN0cmluZ2lmeSh7IG9rOiBmYWxzZSwgZXJybzogJ3NlbV9vcGNvZXMnIH0pOwogICAgICBjb25zdCBvcGNvZXMgPSBkLm9wY29lcy5tYXAoKG86IGFueSkgPT4gKHsgc2Vydmljbzogby5zZXJ2aWNvLCBwcmVjbzogby5wcmVjb19mb3JtYXRhZG8sIHByYXpvOiBvLnByYXpvX2Zvcm1hdGFkbyB9KSk7CgogICAgICBpZiAoIWVzY29saGFQZWRpZGEpIHsKICAgICAgICByZXR1cm4gZW52ZWxvcGUoW10sIHsKICAgICAgICAgIG9wY29lcywgY2VwLCBxdW90ZV9zbmFwc2hvdF9pZDogZC5xdW90ZV9zbmFwc2hvdF9pZCA/PyBudWxsLAogICAgICAgICAgaW5zdHJ1Y2FvOiAnQ09UQUNBTyBBUEVOQVMuIE1BTkRFIFRPREFTIEFTIE9QQ09FUyBBR09SQSBjb20gc2VydmljbywgcHJlY28gZSBwcmF6byBlIHBlcmd1bnRlIHF1YWwgbyBjbGllbnRlIHByZWZlcmUuIE5BTyBleGlzdGUgYXV0b3JpemFjYW8gZGUgZnJldGUgYWluZGEuIE5BTyBzb21lIHRvdGFsIGUgTkFPI G9mZXJlY2EgUGl4L2NhcnRhbyBhbnRlcyBkYSBlc2NvbGhhLicKICAgICAgICB9KTsKICAgICAgfQoKICAgICAgY29uc3Qgc2VsZWNpb25hZGEgPSBkLm9wY29lcy5maW5kKChvOiBhbnkpID0+IGNhbm9uU2VydmljbyhvPy5zZXJ2aWNvKSA9PT0gZXNjb2xoYVBlZGlkYSk7CiAgICAgIGlmICghc2VsZWNpb25hZGEpIHJldHVybiBKU09OLnN0cmluZ2lmeSh7CiAgICAgICAgb2s6IGZhbHNlLCBlcnJvOiAnc2Vydmljb19mcmV0ZV9uYW9fY290YWRvJywgZmluYW5jaWFsX2F1dGhvcml6YXRpb25zOiBbXSwgb3Bjb2VzLAogICAgICAgIGFjYW86ICdBIG9wY2FvIGVzY29saGlkYSBwZWxvIGNsaWVudGUgbmFvIGFwYXJlY2V1IG5lc3RhIGNvdGFjYW8gYXR1YWwuIE1vc3RyZSBhcyBvcGNvZXMgYXR1YWlzIGUgcGVjYSBub3ZhIGVzY29saGE7IG5hbyBzdWJzdGl0dWEgcG9yIG91dHJhLicKICAgICAgfSk7CgogICAgICBjb25zdCBkc3AgPSB7CiAgICAgICAgb3Bjb2VzLCBjZXAsIHF1b3RlX3NuYXBzaG90X2lkOiBkLnF1b3RlX3NuYXBzaG90X2lkID8/IG51bGwsCiAgICAgICAgc2Vydmljb19lc2NvbGhpZG86IHNlbGVjaW9uYWRhLnNlcnZpY28sIHByZWNvX2VzY29saGlkbzogc2VsZWNpb25hZGEucHJlY29fZm9ybWF0YWRvLAogICAgICAgIHByYXpvX2VzY29saGlkbzogc2VsZWNpb25hZGEucHJhem9fZm9ybWF0YWRvLAogICAgICAgIGluc3RydWNhbzogJ0VTQ09MSEEgRE8gQ0xJRU5URSBDT05GSVJNQURBLiBVc2UgU09NRU5URSB lc3RhIGF1dG9yaXphY2FvIGRlIGZyZXRlIHBhcmEgY29tcG9yX3RvdGFsIGNvbSBvIHByb2R1dG8uIE5hbyB0cm9xdWU gbyBzZXJ2aWNvIGUgbmFvIHVzZSBvdXRyYSBvcGNhby4nCiAgICAgIH07CiAgICAgIGNvbnN0IG9wRiA9IGF3YWl0IGVtaXRpc kF1dG9yaXphY2FvKGN0eC5sZWFkSWQsICdmcmV0ZScsIE1hdGgucm91bmQoTnVtYmVyKHNlbGVjaW9uYWRhLnByZWNvKSAqIDEwMCkgLyAxMDAsICdjYWxjdWxhcl9mcmV0ZScsIHsgc2Vydmljbzogc2VsZWNpb25hZGEuc2VydmljbywgY2VwLCBxdW90ZV9zbmFwc2hvdF9pZDogZC5xdW90ZV9zbmFwc2hvdF9pZCA/PyBudWxsLCBlc2NvbGhhX2NsaWVudGU6IHRydWUgfSk7CiAgICAgIGlmICghb3BGKSByZXR1cm4gZmFsaGFBdXRvcml6YWNhbyhkc3ApOwogICAgICByZXR1cm4gZW52ZWxvcGUoW29wRl0sIGRzcCk7CiAgICB9').decode()
           s = s[:start] + new_block + s[end:]
 
-          exactly(
-              "ENVIO: reutilize o CEP que voc\\u00ea j\\u00e1 tem, ou pe\\u00e7a UMA vez, e s\\u00f3 ent\\u00e3o calcular_frete -> TOTAL = produto + frete.",
-              "ENVIO: reutilize o CEP que voc\\u00ea j\\u00e1 tem, ou pe\\u00e7a UMA vez. Primeiro chame calcular_frete SO com o CEP para COTAR, mostre TODAS as opcoes e aguarde a escolha. So depois de o CLIENTE escrever explicitamente PAC, Sedex ou J&T, chame calcular_frete de novo com servico_escolhido -> TOTAL = produto + frete escolhido. NUNCA escolha frete pelo cliente.",
-              'closeout prompt',
-          )
-
-          exactly(
-              "!/PAC|Sedex|SEDEX|frete/i.test(resposta)",
-              "!/PAC|Sedex|SEDEX|J\\s*&\\s*T|J&T|frete/i.test(resposta)",
-              'freight retry condition',
-          )
-          exactly(
-              "/PAC|Sedex|SEDEX/i.test(r4)",
-              "/PAC|Sedex|SEDEX|J\\s*&\\s*T|J&T/i.test(r4)",
-              'freight retry acceptance',
-          )
+          exactly("ENVIO: reutilize o CEP que voc\\u00ea j\\u00e1 tem, ou pe\\u00e7a UMA vez, e s\\u00f3 ent\\u00e3o calcular_frete -> TOTAL = produto + frete.", "ENVIO: reutilize o CEP que voc\\u00ea j\\u00e1 tem, ou pe\\u00e7a UMA vez. Primeiro chame calcular_frete SO com o CEP para COTAR, mostre TODAS as opcoes e aguarde a escolha. So depois de o CLIENTE escrever explicitamente PAC, Sedex ou J&T, chame calcular_frete de novo com servico_escolhido -> TOTAL = produto + frete escolhido. NUNCA escolha frete pelo cliente.", 'closeout prompt')
+          exactly("!/PAC|Sedex|SEDEX|frete/i.test(resposta)", "!/PAC|Sedex|SEDEX|J\\s*&\\s*T|J&T|frete/i.test(resposta)", 'freight retry condition')
+          exactly("/PAC|Sedex|SEDEX/i.test(r4)", "/PAC|Sedex|SEDEX|J\\s*&\\s*T|J&T/i.test(r4)", 'freight retry acceptance')
 
           if 'const melhor = sedex' in s:
               raise SystemExit('Sedex preselection survived patch')
-          if 'servico_frete_sem_escolha_cliente' not in s:
-              raise SystemExit('customer-choice provenance guard missing')
-          if 'escolha_cliente: true' not in s:
-              raise SystemExit('selected freight authorization provenance missing')
-
+          if 'servico_frete_sem_escolha_cliente' not in s or 'escolha_cliente: true' not in s:
+              raise SystemExit('freight provenance guard missing')
           p.write_text(s)
           PY
 
           grep -F "const V = 'agente-noturno-v4.37.5-freight-choice';" patches/joao-slot-proveniencia-escrita/candidato/index.ts
           grep -F "servico_frete_sem_escolha_cliente" patches/joao-slot-proveniencia-escrita/candidato/index.ts
           grep -F "escolha_cliente: true" patches/joao-slot-proveniencia-escrita/candidato/index.ts
-          if grep -Fq "const melhor = sedex" patches/joao-slot-proveniencia-escrita/candidato/index.ts; then
-            echo 'Sedex preselection remains' >&2
-            exit 1
-          fi
+          if grep -Fq "const melhor = sedex" patches/joao-slot-proveniencia-escrita/candidato/index.ts; then exit 1; fi
 
       - name: Commit generated patch and retire generator
         shell: bash
         run: |
           rm .github/workflows/patch-joao-freight-choice-20260908.yml
+          rm -f .github/trigger-joao-freight-choice-20260908.txt
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add patches/joao-slot-proveniencia-escrita/candidato/index.ts .github/workflows/patch-joao-freight-choice-20260908.yml
+          git add patches/joao-slot-proveniencia-escrita/candidato/index.ts .github/workflows/patch-joao-freight-choice-20260908.yml .github/trigger-joao-freight-choice-20260908.txt
           git commit -m 'fix(joao): authorize only customer-selected freight'
           git push origin HEAD:${GITHUB_REF_NAME}
