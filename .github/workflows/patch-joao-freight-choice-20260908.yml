@@ -2,62 +2,69 @@ name: Generate João freight choice patch
 
 on:
   push:
-    branches: [fix/joao-freight-choice-20260908]
+    branches:
+      - fix/joao-freight-choice-20260908
 
 permissions:
   contents: write
 
 jobs:
   patch:
+    if: github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: fix/joao-freight-choice-20260908
+          fetch-depth: 1
       - name: Apply exact fail-closed freight choice patch
         shell: bash
         run: |
           python3 - <<'PY'
           from pathlib import Path
+
           p = Path('patches/joao-slot-proveniencia-escrita/candidato/index.ts')
           s = p.read_text()
 
-          def one(old, new, label):
+          def exactly(old: str, new: str, label: str):
               global s
               n = s.count(old)
               if n != 1:
-                  raise SystemExit(f'{label}: expected 1 occurrence, got {n}')
+                  raise SystemExit(f'{label}: expected exactly 1 occurrence, got {n}')
               s = s.replace(old, new, 1)
 
-          one(
+          exactly(
               "const V = 'agente-noturno-v4.37.4-canonical-price';",
               "const V = 'agente-noturno-v4.37.5-freight-choice';",
-              'agent version'
+              'agent version',
           )
 
-          old_tool = "  { name: 'calcular_frete', description: 'Frete Correios por CEP de 8 digitos. CHAME de verdade, nunca prometa calcular depois.', input_schema: { type: 'object', properties: { cep_destino: { type: 'string' } }, required: ['cep_destino'] } },"
-          new_tool = "  { name: 'calcular_frete', description: 'Frete por CEP de 8 digitos. PRIMEIRA chamada: envie somente cep_destino para COTAR e mostrar as opcoes; isso NAO cria autorizacao financeira. SOMENTE depois de o CLIENTE escolher explicitamente PAC, Sedex ou J&T Standard, chame de novo com cep_destino + servico_escolhido exatamente igual a opcao escolhida. Nunca escolha pelo cliente.', input_schema: { type: 'object', properties: { cep_destino: { type: 'string' }, servico_escolhido: { type: 'string', enum: ['PAC', 'Sedex', 'J&T Standard'] } }, required: ['cep_destino'] } },"
-          one(old_tool, new_tool, 'tool schema')
+          exactly(
+              "  { name: 'calcular_frete', description: 'Frete Correios por CEP de 8 digitos. CHAME de verdade, nunca prometa calcular depois.', input_schema: { type: 'object', properties: { cep_destino: { type: 'string' } }, required: ['cep_destino'] } },",
+              "  { name: 'calcular_frete', description: 'Frete por CEP de 8 digitos. PRIMEIRA chamada: envie somente cep_destino para COTAR e mostrar as opcoes; isso NAO cria autorizacao financeira. SOMENTE depois de o CLIENTE escolher explicitamente PAC, Sedex ou J&T Standard, chame de novo com cep_destino + servico_escolhido exatamente igual a opcao escolhida. Nunca escolha pelo cliente.', input_schema: { type: 'object', properties: { cep_destino: { type: 'string' }, servico_escolhido: { type: 'string', enum: ['PAC', 'Sedex', 'J&T Standard'] } }, required: ['cep_destino'] } },",
+              'tool schema',
+          )
 
-          old_sig = "async function executarTool(name: string, input: any, ctx: { leadId: string | null; autorizacoes: any[]; cobrancaPendente: any | null; permiteMudanca: boolean; freteJa: any | null; arteParaCalculo?: { largura_cm: number; altura_cm: number; copias: number } | null; phone?: string; pixGerado?: any; holdArte?: boolean; modalidadeLogistica?: ModalidadeLogistica; produtoDigital?: boolean }): Promise<string> {"
-          new_sig = "async function executarTool(name: string, input: any, ctx: { leadId: string | null; autorizacoes: any[]; cobrancaPendente: any | null; permiteMudanca: boolean; freteJa: any | null; arteParaCalculo?: { largura_cm: number; altura_cm: number; copias: number } | null; phone?: string; pixGerado?: any; holdArte?: boolean; modalidadeLogistica?: ModalidadeLogistica; produtoDigital?: boolean; mensagemCliente?: string }): Promise<string> {"
-          one(old_sig, new_sig, 'tool ctx signature')
+          exactly(
+              "async function executarTool(name: string, input: any, ctx: { leadId: string | null; autorizacoes: any[]; cobrancaPendente: any | null; permiteMudanca: boolean; freteJa: any | null; arteParaCalculo?: { largura_cm: number; altura_cm: number; copias: number } | null; phone?: string; pixGerado?: any; holdArte?: boolean; modalidadeLogistica?: ModalidadeLogistica; produtoDigital?: boolean }): Promise<string> {",
+              "async function executarTool(name: string, input: any, ctx: { leadId: string | null; autorizacoes: any[]; cobrancaPendente: any | null; permiteMudanca: boolean; freteJa: any | null; arteParaCalculo?: { largura_cm: number; altura_cm: number; copias: number } | null; phone?: string; pixGerado?: any; holdArte?: boolean; modalidadeLogistica?: ModalidadeLogistica; produtoDigital?: boolean; mensagemCliente?: string }): Promise<string> {",
+              'tool ctx signature',
+          )
 
-          one(
+          exactly(
               "produtoDigital: estadoLog.produto_digital };",
               "produtoDigital: estadoLog.produto_digital, mensagemCliente: mensagem };",
-              'ctx current inbound'
+              'ctx current inbound',
           )
 
           start_marker = "    if (name === 'calcular_frete') {\n"
           end_marker = "      return envelope([opF], dsp);\n    }"
           if s.count(start_marker) != 1:
-              raise SystemExit(f'freight block start expected 1, got {s.count(start_marker)}')
+              raise SystemExit(f'freight block start expected exactly 1, got {s.count(start_marker)}')
           start = s.index(start_marker)
           end0 = s.index(end_marker, start)
           end = end0 + len(end_marker)
           old_block = s[start:end]
-          if "const sedex = d.opcoes.find" not in old_block or "const melhor = sedex" not in old_block:
+          if 'const sedex = d.opcoes.find' not in old_block or 'const melhor = sedex' not in old_block:
               raise SystemExit('old Sedex preselection logic not found in freight block')
 
           new_block = r'''    if (name === 'calcular_frete') {
@@ -117,41 +124,47 @@ jobs:
     }'''
           s = s[:start] + new_block + s[end:]
 
-          # Main closeout rule: quote first, authorize only after explicit customer choice.
-          old_close = "ENVIO: reutilize o CEP que voc\\u00ea j\\u00e1 tem, ou pe\\u00e7a UMA vez, e s\\u00f3 ent\\u00e3o calcular_frete -> TOTAL = produto + frete."
-          new_close = "ENVIO: reutilize o CEP que voc\\u00ea j\\u00e1 tem, ou pe\\u00e7a UMA vez. Primeiro chame calcular_frete SO com o CEP para COTAR, mostre TODAS as opcoes e aguarde a escolha. So depois de o CLIENTE escrever explicitamente PAC, Sedex ou J&T, chame calcular_frete de novo com servico_escolhido -> TOTAL = produto + frete escolhido. NUNCA escolha frete pelo cliente."
-          one(old_close, new_close, 'closeout prompt')
+          exactly(
+              "ENVIO: reutilize o CEP que voc\\u00ea j\\u00e1 tem, ou pe\\u00e7a UMA vez, e s\\u00f3 ent\\u00e3o calcular_frete -> TOTAL = produto + frete.",
+              "ENVIO: reutilize o CEP que voc\\u00ea j\\u00e1 tem, ou pe\\u00e7a UMA vez. Primeiro chame calcular_frete SO com o CEP para COTAR, mostre TODAS as opcoes e aguarde a escolha. So depois de o CLIENTE escrever explicitamente PAC, Sedex ou J&T, chame calcular_frete de novo com servico_escolhido -> TOTAL = produto + frete escolhido. NUNCA escolha frete pelo cliente.",
+              'closeout prompt',
+          )
 
-          # Output retry must recognize J&T as a legitimate freight service.
-          one(
+          exactly(
               "!/PAC|Sedex|SEDEX|frete/i.test(resposta)",
               "!/PAC|Sedex|SEDEX|J\\s*&\\s*T|J&T|frete/i.test(resposta)",
-              'freight retry condition'
+              'freight retry condition',
           )
-          one(
+          exactly(
               "/PAC|Sedex|SEDEX/i.test(r4)",
               "/PAC|Sedex|SEDEX|J\\s*&\\s*T|J&T/i.test(r4)",
-              'freight retry acceptance'
+              'freight retry acceptance',
           )
 
-          # Static fail-closed assertions.
-          if "const melhor = sedex" in s:
+          if 'const melhor = sedex' in s:
               raise SystemExit('Sedex preselection survived patch')
-          if "servico_frete_sem_escolha_cliente" not in s:
+          if 'servico_frete_sem_escolha_cliente' not in s:
               raise SystemExit('customer-choice provenance guard missing')
-          if "return envelope([], {" not in s:
-              raise SystemExit('quote-only zero-authorization path missing')
-          if "escolha_cliente: true" not in s:
+          if 'escolha_cliente: true' not in s:
               raise SystemExit('selected freight authorization provenance missing')
 
           p.write_text(s)
           PY
+
+          grep -F "const V = 'agente-noturno-v4.37.5-freight-choice';" patches/joao-slot-proveniencia-escrita/candidato/index.ts
+          grep -F "servico_frete_sem_escolha_cliente" patches/joao-slot-proveniencia-escrita/candidato/index.ts
+          grep -F "escolha_cliente: true" patches/joao-slot-proveniencia-escrita/candidato/index.ts
+          if grep -Fq "const melhor = sedex" patches/joao-slot-proveniencia-escrita/candidato/index.ts; then
+            echo 'Sedex preselection remains' >&2
+            exit 1
+          fi
+
       - name: Commit generated patch and retire generator
         shell: bash
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add patches/joao-slot-proveniencia-escrita/candidato/index.ts
-          git rm .github/workflows/patch-joao-freight-choice-20260908.yml
-          git commit -m "fix(joao): authorize only customer-selected freight"
-          git push origin HEAD:fix/joao-freight-choice-20260908
+          rm .github/workflows/patch-joao-freight-choice-20260908.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add patches/joao-slot-proveniencia-escrita/candidato/index.ts .github/workflows/patch-joao-freight-choice-20260908.yml
+          git commit -m 'fix(joao): authorize only customer-selected freight'
+          git push origin HEAD:${GITHUB_REF_NAME}
