@@ -1,0 +1,83 @@
+name: Generate clean João freight choice patch
+
+on:
+  push:
+    branches:
+      - fix/joao-freight-choice-v2-20260908
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+      - name: Apply exact fail-closed patch
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import base64, hashlib
+
+          p = Path('patches/joao-slot-proveniencia-escrita/candidato/index.ts')
+          s = p.read_text()
+
+          def exactly(old: str, new: str, label: str):
+              global s
+              n = s.count(old)
+              if n != 1:
+                  raise SystemExit(f'{label}: expected exactly 1 occurrence, got {n}')
+              s = s.replace(old, new, 1)
+
+          exactly("const V = 'agente-noturno-v4.37.4-canonical-price';", "const V = 'agente-noturno-v4.37.5-freight-choice';", 'agent version')
+          exactly("  { name: 'calcular_frete', description: 'Frete Correios por CEP de 8 digitos. CHAME de verdade, nunca prometa calcular depois.', input_schema: { type: 'object', properties: { cep_destino: { type: 'string' } }, required: ['cep_destino'] } },", "  { name: 'calcular_frete', description: 'Frete por CEP de 8 digitos. PRIMEIRA chamada: envie somente cep_destino para COTAR e mostrar as opcoes; isso NAO cria autorizacao financeira. SOMENTE depois de o CLIENTE escolher explicitamente PAC, Sedex ou J&T Standard, chame de novo com cep_destino + servico_escolhido exatamente igual a opcao escolhida. Nunca escolha pelo cliente.', input_schema: { type: 'object', properties: { cep_destino: { type: 'string' }, servico_escolhido: { type: 'string', enum: ['PAC', 'Sedex', 'J&T Standard'] } }, required: ['cep_destino'] } },", 'tool schema')
+          exactly("async function executarTool(name: string, input: any, ctx: { leadId: string | null; autorizacoes: any[]; cobrancaPendente: any | null; permiteMudanca: boolean; freteJa: any | null; arteParaCalculo?: { largura_cm: number; altura_cm: number; copias: number } | null; phone?: string; pixGerado?: any; holdArte?: boolean; modalidadeLogistica?: ModalidadeLogistica; produtoDigital?: boolean }): Promise<string> {", "async function executarTool(name: string, input: any, ctx: { leadId: string | null; autorizacoes: any[]; cobrancaPendente: any | null; permiteMudanca: boolean; freteJa: any | null; arteParaCalculo?: { largura_cm: number; altura_cm: number; copias: number } | null; phone?: string; pixGerado?: any; holdArte?: boolean; modalidadeLogistica?: ModalidadeLogistica; produtoDigital?: boolean; mensagemCliente?: string }): Promise<string> {", 'ctx signature')
+          exactly("produtoDigital: estadoLog.produto_digital };", "produtoDigital: estadoLog.produto_digital, mensagemCliente: mensagem };", 'current inbound')
+
+          start_marker = "    if (name === 'calcular_frete') {\n"
+          end_marker = "      return envelope([opF], dsp);\n    }"
+          if s.count(start_marker) != 1:
+              raise SystemExit(f'freight block start expected exactly 1, got {s.count(start_marker)}')
+          start = s.index(start_marker)
+          end0 = s.index(end_marker, start)
+          end = end0 + len(end_marker)
+          old_block = s[start:end]
+          if 'const sedex = d.opcoes.find' not in old_block or 'const melhor = sedex' not in old_block:
+              raise SystemExit('old Sedex preselection logic not found')
+
+          new_block_b64 = 'ICAgIGlmIChuYW1lID09PSAnY2FsY3VsYXJfZnJldGUnKSB7CiAgICAgIGlmIChjdHguZnJldGVKYSAmJiAhY3R4LnBlcm1pdGVNdWRhbmNhKSByZXR1cm4gSlNPTi5zdHJpbmdpZnkoeyBvazogdHJ1ZSwgZmluYW5jaWFsX2F1dGhvcml6YXRpb25zOiBbXSwgZGlzcGxheV9kYXRhOiB7IGphX2NhbGN1bGFkbzogdHJ1ZSwgc2VydmljbzogY3R4LmZyZXRlSmEuc2Vydmljb19mcmV0ZSwgcHJlY286IGBSJCR7TnVtYmVyKGN0eC5mcmV0ZUphLnZhbG9yX2ZyZXRlKS50b0ZpeGVkKDIpfWAsIGNlcDogY3R4LmZyZXRlSmEuY2VwX2Rlc3Rpbm8sIGFjYW86ICdGcmV0ZSBqYSBjYWxjdWxhZG8uIE5BTyByZWNhbGN1bGUuJyB9IH0pOwogICAgICBjb25zdCBjZXAgPSBTdHJpbmcoaW5wdXQ/LmNlcF9kZXN0aW5vIHx8ICcnKS5yZXBsYWNlKC9cRC9nLCAnJyk7CiAgICAgIGlmIChjZXAubGVuZ3RoICE9PSA4KSByZXR1cm4gSlNPTi5zdHJpbmdpZnkoeyBvazogZmFsc2UsIGVycm86ICdjZXBfaW52YWxpZG8nLCBhY2FvOiAnTyBDRVAgcHJlY2lzYSB0ZXIgOCBkaWdpdG9zLiBQZWNhIG8gQ0VQIGNvbXBsZXRvLicgfSk7CgogICAgICBjb25zdCBjYW5vblNlcnZpY28gPSAodjogdW5rbm93bik6IHN0cmluZyB8IG51bGwgPT4gewogICAgICAgIGNvbnN0IHJhdyA9IFN0cmluZyh2ID8/ICcnKS50b0xvd2VyQ2FzZSgpOwogICAgICAgIGNvbnN0IGhpdHM6IHN0cmluZ1tdID0gW107CiAgICAgICAgaWYgKC9cYnBhY1xiL2kudGVzdChyYXcpKSBoaXRzLnB1c2goJ3BhYycpOwogICAgICAgIGlmICgvXGJzZWRleFxiL2kudGVzdChyYXcpKSBoaXRzLnB1c2goJ3NlZGV4Jyk7CiAgICAgICAgaWYgKC9qXHMqJlxzKnR8alxzK2Vccyt0fGpccyt0XHMrKD86c3RhbmRhcmR8ZXhwcmVzcykvaS50ZXN0KHJhdykpIGhpdHMucHVzaCgnanQnKTsKICAgICAgICByZXR1cm4gaGl0cy5sZW5ndGggPT09IDEgPyBoaXRzWzBdIDogbnVsbDsKICAgICAgfTsKICAgICAgY29uc3QgZXNjb2xoYVBlZGlkYSA9IGNhbm9uU2VydmljbyhpbnB1dD8uc2Vydmljb19lc2NvbGhpZG8pOwogICAgICBjb25zdCBlc2NvbGhhQ2xpZW50ZSA9IGNhbm9uU2VydmljbyhjdHgubWVuc2FnZW1DbGllbnRlKTsKICAgICAgaWYgKGlucHV0Py5zZXJ2aWNvX2VzY29saGlkbyAhPT0gdW5kZWZpbmVkICYmICghZXNjb2xoYVBlZGlkYSB8fCBlc2NvbGhhQ2xpZW50ZSAhPT0gZXNjb2xoYVBlZGlkYSkpIHsKICAgICAgICBhd2FpdCBsb2dFcnJvKCdmcmV0ZV9lc2NvbGhhX3NlbV9wcm92ZW5pZW5jaWFfY2xpZW50ZScsIHsKICAgICAgICAgIGxlYWQ6IGN0eC5sZWFkSWQsIHBob25lOiBTdHJpbmcoY3R4LnBob25lIHx8ICcnKS5zbGljZSgtNCksCiAgICAgICAgICBzZXJ2aWNvX3BlZGlkbzogU3RyaW5nKGlucHV0Py5zZXJ2aWNvX2VzY29saGlkbyB8fCAnJykuc2xpY2UoMCwgNDApLAogICAgICAgICAgY2xpZW50ZV9maW5hbDogU3RyaW5nKGN0eC5tZW5zYWdlbUNsaWVudGUgfHwgJycpLnNsaWNlKDAsIDEyMCksCiAgICAgICAgfSk7CiAgICAgICAgcmV0dXJuIEpTT04uc3RyaW5naWZ5KHsKICAgICAgICAgIG9rOiBmYWxzZSwgZXJybzogJ3NlcnZpY29fZnJldGVfc2VtX2VzY29saGFfY2xpZW50ZScsIGZpbmFuY2lhbF9hdXRob3JpemF0aW9uczogW10sCiAgICAgICAgICBhY2FvOiAnTkFPIGVzY29saGEgZnJldGUgcGVsbyBjbGllbnRlLiBNb3N0cmUgYXMgb3Bjb2VzIGUgYWd1YXJkZSBlbGUgZXNjcmV2ZXIgZXhwbGljaXRhbWVudGUgUEFDLCBTZWRleCBvdSBKJlQuIFNvIGRlcG9pcyBjaGFtZSBjYWxjdWxhcl9mcmV0ZSBjb20gc2Vydmljb19lc2NvbGhpZG8uJwogICAgICAgIH0pOwogICAgICB9CgogICAgICBjb25zdCByID0gYXdhaXQgZmV0Y2goYCR7U1VQQUJBU0VfVVJMfS9mdW5jdGlvbnMvdjEvY2FsY3VsYXItZnJldGVgLCB7IG1ldGhvZDogJ1BPU1QnLCBoZWFkZXJzOiB7ICdjb250ZW50LXR5cGUnOiAnYXBwbGljYXRpb24vanNvbicsIEF1dGhvcml6YXRpb246IGBCZWFyZXIgJHtTVVBBQkFTRV9TRVJWSUNFX0tFWX1gIH0sIGJvZHk6IEpTT04uc3RyaW5naWZ5KHsgY2VwX2Rlc3Rpbm86IGNlcCwgbWV0cm9zOiAxLCB2YWxvcl9kZWNsYXJhZG86IDYwIH0pLCBzaWduYWw6IEFib3J0U2lnbmFsLnRpbWVvdXQoMTIwMDApIH0pOwogICAgICBjb25zdCBkID0gYXdhaXQgci5qc29uKCk7CiAgICAgIGlmICghKGQ/Lm9rICYmIEFycmF5LmlzQXJyYXkoZC5vcGNvZXMpICYmIGQub3Bjb2VzLmxlbmd0aCA+IDApKSByZXR1cm4gSlNPTi5zdHJpbmdpZnkoeyBvazogZmFsc2UsIGVycm86ICdzZW1fb3Bjb2VzJyB9KTsKICAgICAgY29uc3Qgb3Bjb2VzID0gZC5vcGNvZXMubWFwKChvOiBhbnkpID0+ICh7IHNlcnZpY286IG8uc2VydmljbywgcHJlY286IG8ucHJlY29fZm9ybWF0YWRvLCBwcmF6bzogby5wcmF6b19mb3JtYXRhZG8gfSkpOwoKICAgICAgaWYgKCFlc2NvbGhhUGVkaWRhKSB7CiAgICAgICAgcmV0dXJuIGVudmVsb3BlKFtdLCB7CiAgICAgICAgICBvcGNvZXMsIGNlcCwgcXVvdGVfc25hcHNob3RfaWQ6IGQucXVvdGVfc25hcHNob3RfaWQgPz8gbnVsbCwKICAgICAgICAgIGluc3RydWNhbzogJ0NPVEFDQU8gQVBFTkFTLiBNQU5ERSBUT0RBUyBBUyBPUENPRVMgQUdPUkEgY29tIHNlcnZpY28sIHByZWNvIGUgcHJhem8gZSBwZXJndW50ZSBxdWFsIG8gY2xpZW50ZSBwcmVmZXJlLiBOQU8gZXhpc3RlIGF1dG9yaXphY2FvIGRlIGZyZXRlIGFpbmRhLiBOQU8gc29tZSB0b3RhbCBlIE5BTyBvZmVyZWNhIFBpeC9jYXJ0YW8gYW50ZXMgZGEgZXNjb2xoYS4nCiAgICAgICAgfSk7CiAgICAgIH0KCiAgICAgIGNvbnN0IHNlbGVjaW9uYWRhID0gZC5vcGNvZXMuZmluZCgobzogYW55KSA9PiBjYW5vblNlcnZpY28obz8uc2VydmljbykgPT09IGVzY29saGFQZWRpZGEpOwogICAgICBpZiAoIXNlbGVjaW9uYWRhKSByZXR1cm4gSlNPTi5zdHJpbmdpZnkoewogICAgICAgIG9rOiBmYWxzZSwgZXJybzogJ3NlcnZpY29fZnJldGVfbmFvX2NvdGFkbycsIGZpbmFuY2lhbF9hdXRob3JpemF0aW9uczogW10sIG9wY29lcywKICAgICAgICBhY2FvOiAnQSBvcGNhbyBlc2NvbGhpZGEgcGVsbyBjbGllbnRlIG5hbyBhcGFyZWNldSBuZXN0YSBjb3RhY2FvIGF0dWFsLiBNb3N0cmUgYXMgb3Bjb2VzIGF0dWFpcyBlIHBlY2Egbm92YSBlc2NvbGhhOyBuYW8gc3Vic3RpdHVhIHBvciBvdXRyYS4nCiAgICAgIH0pOwoKICAgICAgY29uc3QgZHNwID0gewogICAgICAgIG9wY29lcywgY2VwLCBxdW90ZV9zbmFwc2hvdF9pZDogZC5xdW90ZV9zbmFwc2hvdF9pZCA/PyBudWxsLAogICAgICAgIHNlcnZpY29fZXNjb2xoaWRvOiBzZWxlY2lvbmFkYS5zZXJ2aWNvLCBwcmVjb19lc2NvbGhpZG86IHNlbGVjaW9uYWRhLnByZWNvX2Zvcm1hdGFkbywKICAgICAgICBwcmF6b19lc2NvbGhpZG86IHNlbGVjaW9uYWRhLnByYXpvX2Zvcm1hdGFkbywKICAgICAgICBpbnN0cnVjYW86ICdFU0NPTEhBIERPIENMSUVOVEUgQ09ORklSTUFEQS4gVXNlIFNPTUVOVEUgZXN0YSBhdXRvcml6YWNhbyBkZSBmcmV0ZSBwYXJhIGNvbXBvcl90b3RhbCBjb20gbyBwcm9kdXRvLiBOYW8gdHJvcXVlIG8gc2VydmljbyBlIG5hbyB1c2Ugb3V0cmEgb3BjYW8uJwogICAgICB9OwogICAgICBjb25zdCBvcEYgPSBhd2FpdCBlbWl0aXJBdXRvcml6YWNhbyhjdHgubGVhZElkLCAnZnJldGUnLCBNYXRoLnJvdW5kKE51bWJlcihzZWxlY2lvbmFkYS5wcmVjbykgKiAxMDApIC8gMTAwLCAnY2FsY3VsYXJfZnJldGUnLCB7IHNlcnZpY286IHNlbGVjaW9uYWRhLnNlcnZpY28sIGNlcCwgcXVvdGVfc25hcHNob3RfaWQ6IGQucXVvdGVfc25hcHNob3RfaWQgPz8gbnVsbCwgZXNjb2xoYV9jbGllbnRlOiB0cnVlIH0pOwogICAgICBpZiAoIW9wRikgcmV0dXJuIGZhbGhhQXV0b3JpemFjYW8oZHNwKTsKICAgICAgcmV0dXJuIGVudmVsb3BlKFtvcEZdLCBkc3ApOwogICAgfQ=='
+          new_block = base64.b64decode(new_block_b64).decode()
+          if hashlib.sha256(new_block.encode()).hexdigest() != '282152a362a1be878f3472c6fad75c281c06d289872c79e684f79da4024f77a9':
+              raise SystemExit('new freight block hash mismatch')
+          s = s[:start] + new_block + s[end:]
+
+          exactly("ENVIO: reutilize o CEP que voc\\u00ea j\\u00e1 tem, ou pe\\u00e7a UMA vez, e s\\u00f3 ent\\u00e3o calcular_frete -> TOTAL = produto + frete.", "ENVIO: reutilize o CEP que voc\\u00ea j\\u00e1 tem, ou pe\\u00e7a UMA vez. Primeiro chame calcular_frete SO com o CEP para COTAR, mostre TODAS as opcoes e aguarde a escolha. So depois de o CLIENTE escrever explicitamente PAC, Sedex ou J&T, chame calcular_frete de novo com servico_escolhido -> TOTAL = produto + frete escolhido. NUNCA escolha frete pelo cliente.", 'closing prompt')
+          exactly("!/PAC|Sedex|SEDEX|frete/i.test(resposta)", "!/PAC|Sedex|SEDEX|J\\s*&\\s*T|J&T|frete/i.test(resposta)", 'retry condition')
+          exactly("/PAC|Sedex|SEDEX/i.test(r4)", "/PAC|Sedex|SEDEX|J\\s*&\\s*T|J&T/i.test(r4)", 'retry acceptance')
+
+          if 'const melhor = sedex' in s:
+              raise SystemExit('Sedex preselection survived')
+          if "const cep = String(input?.cep_destino || '').replace(/\\D/g, '');" not in s:
+              raise SystemExit('expected clean CEP line missing')
+          if 'servico_frete_sem_escolha_cliente' not in s or 'escolha_cliente: true' not in s:
+              raise SystemExit('freight provenance guard missing')
+          p.write_text(s)
+          PY
+
+          grep -F "const V = 'agente-noturno-v4.37.5-freight-choice';" patches/joao-slot-proveniencia-escrita/candidato/index.ts
+          grep -F "servico_frete_sem_escolha_cliente" patches/joao-slot-proveniencia-escrita/candidato/index.ts
+          grep -F "escolha_cliente: true" patches/joao-slot-proveniencia-escrita/candidato/index.ts
+
+      - name: Commit generated patch and retire generator
+        shell: bash
+        run: |
+          rm .github/workflows/patch-joao-freight-choice-v2-20260908.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add patches/joao-slot-proveniencia-escrita/candidato/index.ts .github/workflows/patch-joao-freight-choice-v2-20260908.yml
+          git commit -m 'fix(joao): authorize only customer-selected freight'
+          git push origin HEAD:${GITHUB_REF_NAME}
