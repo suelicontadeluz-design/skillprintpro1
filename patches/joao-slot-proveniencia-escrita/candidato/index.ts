@@ -359,7 +359,7 @@ const BOT_BASE = 'https://backend.botconversa.com.br/api/v1/webhook';
 // FALAR fato errado no texto — isso e ESPERADO aqui e e tratado na frente seguinte
 // (guarda de saida, v4.38.0). O que esta publicacao garante e que o texto errado NAO
 // contamina agente_noturno_estado.
-const V = 'agente-noturno-v4.37.4-canonical-price';
+const V = 'agente-noturno-v4.37.5-freight-choice';
 const MODEL = 'claude-haiku-4-5-20251001';
 const ASSINATURA = '*Jo\u00e3o Barros:*\n';
 const ASSINATURA_JULIA = '*Julia Bitencourt:*\n';
@@ -1254,7 +1254,7 @@ const TOOLS = [
   { name: 'calcular_rendimento_uv', description: 'DTF UV: quantos adesivos cabem por metro (largura util 28cm) e o VALOR pela AREA usada. SEM quantidade_desejada ela responde SO a capacidade: quantos cabem em 1 metro. COM quantidade_desejada devolve os metros reais (pode ser fracao, ex: 0.46m) e o total. Se o cliente so perguntou quantos cabem, chame SEM quantidade_desejada e NAO peca quantidade antes de responder. SEMPRE use esta tool para cotar adesivo: NUNCA calcule de cabeca.', input_schema: { type: 'object', properties: { largura_cm: { type: 'number' }, altura_cm: { type: 'number' }, quantidade_desejada: { type: 'integer' } }, required: ['largura_cm', 'altura_cm'] } },
   { name: 'consultar_modelos', description: 'Lista os modelos de peca que a Skillprint produz, ou confirma se um modelo especifico existe. Use SEMPRE antes de dizer que fazemos ou nao fazemos um modelo. Nao exige grade nem quantidade.', input_schema: { type: 'object', properties: { termo: { type: 'string', description: 'modelo citado pelo cliente, opcional' } } } },
   { name: 'orcar_camisetas', description: 'Orcamento oficial de camiseta, polo e moletom personalizados. Use o modelo que o CLIENTE falar: o banco resolve o apelido e recusa o que nao existe. Cada item precisa de quantidade e de um estampa_grupo_id. A GRADE POR TAMANHO E OPCIONAL e NAO altera o preco: orce sem ela quando o cliente ainda nao tiver os tamanhos, e diga que e previa. Mande a grade so quando o cliente informar. Cada estampa precisa de posicao e CLASSE de area. Classes: quadrado_pequeno, nomes_gola, a4, quadrado_grande, a3, extra_grande. Posicoes: frente, costas, gola_nuca, lateral, manga. O minimo de 10 pecas vale por GRUPO DE ESTAMPA, somando modelos diferentes. NUNCA calcule preco de camiseta de cabeca: use esta ferramenta.', input_schema: { type: 'object', properties: { itens: { type: 'array', items: { type: 'object', properties: { modelo: { type: 'string', description: 'Modelo conforme o cliente falar. O banco resolve por apelido. Exemplos: basica, baby look, infantil, plus size, baby look plus, oversized, polo, moletom, canguru. Se o modelo nao existir a ferramenta recusa e devolve a lista valida.' }, quantidade: { type: 'integer', minimum: 1 }, cor: { type: 'string' }, grade: { type: 'object', description: 'OPCIONAL. Quantidade por tamanho. NAO altera o preco — so serve para a producao. Omita quando o cliente ainda nao tiver os tamanhos.', additionalProperties: { type: 'integer' } }, estampa_grupo_id: { type: 'string' } }, required: ['modelo', 'quantidade', 'estampa_grupo_id'] } }, estampas: { type: 'array', items: { type: 'object', properties: { estampa_grupo_id: { type: 'string' }, posicao: { type: 'string', enum: ['frente', 'costas', 'gola_nuca', 'lateral', 'manga'] }, classe: { type: 'string', enum: ['quadrado_pequeno', 'nomes_gola', 'a4', 'quadrado_grande', 'a3', 'extra_grande'] } }, required: ['estampa_grupo_id', 'posicao', 'classe'] } } }, required: ['itens', 'estampas'] } },
-  { name: 'calcular_frete', description: 'Frete Correios por CEP de 8 digitos. CHAME de verdade, nunca prometa calcular depois.', input_schema: { type: 'object', properties: { cep_destino: { type: 'string' } }, required: ['cep_destino'] } },
+  { name: 'calcular_frete', description: 'Frete por CEP de 8 digitos. PRIMEIRA chamada: envie somente cep_destino para COTAR e mostrar as opcoes; isso NAO cria autorizacao financeira. SOMENTE depois de o CLIENTE escolher explicitamente PAC, Sedex ou J&T Standard, chame de novo com cep_destino + servico_escolhido exatamente igual a opcao escolhida. Nunca escolha pelo cliente.', input_schema: { type: 'object', properties: { cep_destino: { type: 'string' }, servico_escolhido: { type: 'string', enum: ['PAC', 'Sedex', 'J&T Standard'] } }, required: ['cep_destino'] } },
   { name: 'gerar_pix', description: 'Cobranca oficial. Use o operation_id devolvido em financial_authorizations pela ferramenta de calculo. NAO existe parametro de valor.', input_schema: { type: 'object', properties: { operation_id: { type: 'string' }, produto: { type: 'string' }, quantidade: { type: 'integer' } }, required: ['operation_id'] } },
   { name: 'compor_total', description: 'Soma oficial de duas ou mais autorizacoes (ex: produto + frete). Devolve um operation_id novo do total.', input_schema: { type: 'object', properties: { operation_ids: { type: 'array', items: { type: 'string' } } }, required: ['operation_ids'] } },
 ];
@@ -1693,7 +1693,7 @@ async function registrarObservacaoSlots(row: any) {
   catch (e: any) { L('shadow_slots_obs_falhou', { erro: String(e?.message ?? e).slice(0, 120) }); }
 }
 
-async function executarTool(name: string, input: any, ctx: { leadId: string | null; autorizacoes: any[]; cobrancaPendente: any | null; permiteMudanca: boolean; freteJa: any | null; arteParaCalculo?: { largura_cm: number; altura_cm: number; copias: number } | null; phone?: string; pixGerado?: any; holdArte?: boolean; modalidadeLogistica?: ModalidadeLogistica; produtoDigital?: boolean }): Promise<string> {
+async function executarTool(name: string, input: any, ctx: { leadId: string | null; autorizacoes: any[]; cobrancaPendente: any | null; permiteMudanca: boolean; freteJa: any | null; arteParaCalculo?: { largura_cm: number; altura_cm: number; copias: number } | null; phone?: string; pixGerado?: any; holdArte?: boolean; modalidadeLogistica?: ModalidadeLogistica; produtoDigital?: boolean; mensagemCliente?: string }): Promise<string> {
   try {
     if (name === 'consultar_catalogo') {
       const termo = String(input?.termo || '').toLowerCase().trim();
@@ -1951,17 +1951,57 @@ async function executarTool(name: string, input: any, ctx: { leadId: string | nu
       }
     }
     if (name === 'calcular_frete') {
-      if (ctx.freteJa && !ctx.permiteMudanca) return JSON.stringify({ ok: true, financial_authorizations: [], display_data: { ja_calculado: true, servico: ctx.freteJa.servico_frete, preco: `R$${Number(ctx.freteJa.valor_frete).toFixed(2)}`, cep: ctx.freteJa.cep_destino, acao: 'Frete ja calculado. NAO recalcule.' } });
-      const cep = String(input?.cep_destino || '').replace(/\D/g, '');
-      if (cep.length !== 8) return JSON.stringify({ ok: false, erro: 'cep_invalido', acao: 'O CEP precisa ter 8 digitos. Peca o CEP completo.' });
-      const r = await fetch(`${SUPABASE_URL}/functions/v1/calcular-frete`, { method: 'POST', headers: { 'content-type': 'application/json', Authorization: `Bearer ${SUPABASE_SERVICE_KEY}` }, body: JSON.stringify({ cep_destino: cep, metros: 1, valor_declarado: 60 }), signal: AbortSignal.timeout(12000) });
+      if (ctx.freteJa && !ctx.permiteMudanca) return JSON.stringify({ ok: true, financial_authorizations: [], display_data: { ja_calculado: true, servico: ctx.freteJa.servico_frete, preco: `R${Number(ctx.freteJa.valor_frete).toFixed(2)}`, cep: ctx.freteJa.cep_destino, acao: 'Frete ja calculado. NAO recalcule.' } });
+      const cep = String(in`ut?.cep_destino || '').replace(/\D/g, '');
+      if (cep.length !== 8) return JSON.stringify({ ok: false, erro: 'cep_invalido', acao: 'O CEP Ĩprecisa ter 8 digitos. Peca o CEP completo.' });
+
+      const canonServico = (v: unknown): string | null => {
+        const raw = String(v ?? '').toLowerCase();
+        const hits: string[] = [];
+        if (/\bpac\b/i.test(raw)) hits.push('pac');
+        if (/\bsedex\b/i.test(raw)) hits.push('sedex');
+        if (/j[\s]*&\[\s*t|j\s+e\s+t|j\s+t\s++(?:standard|express)/i.test(raw)) hits.push('jt');
+        return hits.length === 1 ? hits[0] : null;
+      };
+      const escolhaPedida = canonServico(input?.servico_escolhido);
+      const escolhaCliente = canonServico(ctx.mensagemCliente);
+      if (input?.servico_escolhido !== undefined && (!escolhaPedida || escolhaCliente !== escolhaPedida)) {
+        await logErro('frete_escolha_sem_proveniencia_cliente', {
+          lead: ctx.leadId, phone: String(ctx.phone || '').slice(-4),
+          servico_pedido: String(input?.servico_escolhido || '').slice(0, 40),
+          cliente_final: String(ctx.mensagemCliente || '').slice(0, 120),
+        });
+        return JSON.stringify({
+          ok: false, erro: 'servico_frete_sem_escolha_cliente', financial_authorizations: [],
+          acao: 'NAO yscolha frete pelo cliente. Mostre as opcoes e aguarde ele escrever explicitamente PAC, Sedex ou J&T. So depois chame calcular_frete com servico_escolhido.'
+        });
+      }
+
+      const r = await fetch(`${SUPABASE_URL}/functions/v1/calcular-frete, { method: 'POST', headers: { 'content-type': 'application/json', Authorization: `Bearer ${SUPABASE_SERVICE_KEY}` }, body: JSON.stringify({ cep_destino: cep, metros: 1, valor_declarado: 60 }), signal: AbortSignal.timeout(12000) });
       const d = await r.json();
       if (!(d?.ok && Array.isArray(d.opcoes) && d.opcoes.length > 0)) return JSON.stringify({ ok: false, erro: 'sem_opcoes' });
       const opcoes = d.opcoes.map((o: any) => ({ servico: o.servico, preco: o.preco_formatado, prazo: o.prazo_formatado }));
-      const sedex = d.opcoes.find((o: any) => String(o.servico || '').toLowerCase().includes('sedex'));
-      const melhor = sedex || [...d.opcoes].sort((a: any, b: any) => Number(a.preco) - Number(b.preco))[0];
-      const dsp = { opcoes, servico_recomendado: melhor.servico, cep, instrucao: 'MANDE AS OPCOES AGORA com preco, prazo e TOTAL. Se o Sedex for mais barato que o PAC, recomende o Sedex.' };
-      const opF = await emitirAutorizacao(ctx.leadId, 'frete', Math.round(Number(melhor.preco) * 100) / 100, 'calcular_frete', { servico: melhor.servico, cep });
+
+      if (!escolhaPedida) {
+        return envelope([], {
+          opcoes, cep, quote_snapshot_id: d.quote_snapshot_id ?? null,
+          instrucao: 'COTACAO APENAS. MANDE TODAS AS OPCOES AGORA com servico, preco e prazo e pergunte qual o cliente prefere. NAO existe autorizacao de frete ainda. NAO some total e NAO ofereca Pix/cartao antes da escolha.'
+        });
+      }
+
+      const selecionada = d.opcoes.find((o: any) => canonServico(o?.servico) === escolhaPedida);
+      if (!selecionada) return JSON.stringify({
+        ok: false, erro: 'servico_frete_nao_cotado', financial_authorizations: [], opcoes,
+        acao: 'A opcao escolhida pelo cliente nao apareceu nesta cotacao atual. Mostre as opcoes atuais e peca nova escolha; nao substitua por outra.'
+      });
+
+      const dsp = {
+        opcoes, cep, quote_snapshot_id: d.quote_snapshot_id ?? null,
+        servico_escolhido: selecionada.servico, preco_escolhido: selecionada.preco_formatado,
+        prazo_escolhido: selecionada.prazo_formatado,
+        instrucao: 'ESCOLHA DO CLIENTE CONFIRMADA. Use SOMENTE esta autorizacao de frete para compor_total com o produto. Nao troque o servico e nao use outra opcao.'
+      };
+      const opF = await emitirAutorizacao(ctx.leadId, 'frete', Math.round(Number(selecionada.preco) * 100) / 100, 'calcular_frete', { servico: selecionada.servico, cep, quote_snapshot_id: d.quote_snapshot_id ?? null, escolha_cliente: true });
       if (!opF) return falhaAutorizacao(dsp);
       return envelope([opF], dsp);
     }
@@ -2146,7 +2186,7 @@ RESOLVA A MODALIDADE ANTES DO CEP. Uma pergunta: "retirada aqui em Embu ou envio
 
 FECHAMENTO:
 1. Sinal positivo -> "Vamos fechar o pedido?"
-2. Resolva a MODALIDADE LOG\u00cdSTICA. RETIRADA ou MOTOBOY: n\u00e3o existe frete — siga direto para o TOTAL do produto, sem CEP. ENVIO: reutilize o CEP que voc\u00ea j\u00e1 tem, ou pe\u00e7a UMA vez, e s\u00f3 ent\u00e3o calcular_frete -> TOTAL = produto + frete.
+2. Resolva a MODALIDADE LOG\u00cdSTICA. RETIRADA ou MOTOBOY: n\u00e3o existe frete — siga direto para o TOTAL do produto, sem CEP. ENVIO: reutilize o CEP que voc\u00ea j\u00e1 tem, ou pe\u00e7a UMA vez. Primeiro chame calcular_frete SO com o CEP para COTAR, mostre TODAS as opcoes e aguarde a escolha. So depois de o CLIENTE escrever explicitamente PAC, Sedex ou J&T, chame calcular_frete de novo com servico_escolhido -> TOTAL = produto + frete escolhido. NUNCA escolha frete pelo cliente.
 3. "Pix ou cart\u00e3o?"
 4. gerar_pix com o operation_id que a ferramenta de calculo devolveu em financial_authorizations. Voce NUNCA informa valor ao gerar_pix. Se o total for produto + frete, chame compor_total antes e use o operation_id do total. Se devolver ja_existe: N\u00c3O gere outro.
    - PIX: fechamento + c\u00f3digo NO FINAL, sozinho na linha. Confirma AUTOMATICAMENTE.
@@ -3103,7 +3143,7 @@ async function atenderClienteInterno(phone: string, chatName: string, mensagem: 
   const arteParaCalculo = !pediuMetrosDiretos && larguraCtx > 0 && alturaCtx > 0 && copiasCtx > 0
     ? { largura_cm: larguraCtx, altura_cm: alturaCtx, copias: copiasCtx } : null;
   // v84: valores conversacionais nao autorizam cobranca. Somente operation_id tipado.
-  const ctx: any = { leadId, phone, autorizacoes: [] as any[], precosAutorizados: [] as any[], rendimentosAutorizados: [] as any[], rendimentosAuxiliares: [] as number[], cobrancaPendente: execucoes.cobrancaPendente, permiteMudanca: pediuMudanca, freteJa: execucoes.freteJa, arteParaCalculo, pixGerado: null, holdArte: RX_HOLD_ARTE_PAGAMENTO.test(mensagem), modalidadeLogistica: estadoLog.modalidade, produtoDigital: estadoLog.produto_digital };
+  const ctx: any = { leadId, phone, autorizacoes: [] as any[], precosAutorizados: [] as any[], rendimentosAutorizados: [] as any[], rendimentosAuxiliares: [] as number[], cobrancaPendente: execucoes.cobrancaPendente, permiteMudanca: pediuMudanca, freteJa: execucoes.freteJa, arteParaCalculo, pixGerado: null, holdArte: RX_HOLD_ARTE_PAGAMENTO.test(mensagem), modalidadeLogistica: estadoLog.modalidade, produtoDigital: estadoLog.produto_digital, mensagemCliente: mensagem };
   // v4.26.0: fonte canonica CalcMe, somente extracao validada e vigente.
   let calcmeVigente: any = null;
   try {
@@ -3772,11 +3812,11 @@ async function atenderClienteInterno(phone: string, chatName: string, mensagem: 
   }
   // v4.34.0 P0: `&& !estadoLog.bloqueia_frete` — este retry EXIGE PAC/Sedex no texto. Sob
   // retirada/motoboy ele seria a propria fonte da oferta de Correios que a frente proibe.
-  if (decisao.responde === true && !estadoLog.bloqueia_frete && toolsUsadas.includes('calcular_frete') && !execucoes.freteJa && !/PAC|Sedex|SEDEX|frete/i.test(resposta)) {
+  if (decisao.responde === true && !estadoLog.bloqueia_frete && toolsUsadas.includes('calcular_frete') && !execucoes.freteJa && !/PAC|Sedex|SEDEX|J\s*&\s*T|J&T|frete/i.test(resposta)) {
     try {
       const d4 = await chamarCerebro('[SISTEMA: voce chamou calcular_frete e nao colocou as opcoes na resposta. Reescreva informando PAC e Sedex com preco, prazo e TOTAL. Retorne APENAS o JSON.]');
       const r4 = aberturaCorreta(sanearMsg(d4.mensagem), !conversaAtivaHoje, false);
-      if (d4.responde === true && /PAC|Sedex|SEDEX/i.test(r4) && validarMsg(r4, ehPerguntaDireta) && validarPix(r4)) { decisao = d4; resposta = r4; }
+      if (d4.responde === true && /PAC|Sedex|SEDEX|J\s*&\s*T|J&T/i.test(r4) && validarMsg(r4, ehPerguntaDireta) && validarPix(r4)) { decisao = d4; resposta = r4; }
     } catch {}
   }
   // ── v4.21.1: PIX PROMETIDO OU PEDIDO E NAO GERADO ──────────────────────────
