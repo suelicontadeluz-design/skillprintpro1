@@ -1,15 +1,20 @@
 declare const Deno: any;
 
-// João Skill Router v1 — 08/09/2026
+// João Skill Router v1.1 — 08/09/2026
 // Escopo deliberadamente pequeno: quando qualification/v2 tem um próximo passo
 // inequívoco, o Córtex produz a decisão cognitiva e NÃO gasta uma chamada de LLM.
 // O agente-noturno continua responsável por todas as guardas e pelo transporte.
 // Nenhuma skill ganha autoridade de preço, frete, cobrança ou efeito externo.
+//
+// v1.1: quantidade explícita passa a ser extraída de frases naturais como
+// "Emblema dourado 4 cópias 9x9" e "Cristiano 1 cópia 13x20". Quando a pergunta
+// anterior era de quantidade, aceita também número inicial seguido de contexto,
+// ex. "3\nEu já tenho as camisetas". Medidas/decimais/CEP não viram quantidade.
 
 const SR_URL = (Deno.env.get('SUPABASE_URL') ?? '').replace(/\/$/, '');
 const SR_SERVICE = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
 const srBaseFetch = globalThis.fetch.bind(globalThis);
-const SR_VERSION = 'joao-skill-router/v1';
+const SR_VERSION = 'joao-skill-router/v1.1';
 let srCfgAt = 0;
 let srCfg = false;
 
@@ -78,13 +83,34 @@ function srShortInt(text: string): number | null {
   const m = c.match(/(?:^|\D)(\d{1,5})(?:\D|$)/); if (!m) return null;
   const n = Number(m[1]); return Number.isInteger(n) && n > 0 ? n : null;
 }
+function srExplicitQuantity(text: string): number | null {
+  const c = String(text || '').trim();
+  if (!c || /\b\d{8}\b/.test(c)) return null;
+  const m = c.match(/\b(\d{1,5})\s*(?:c[oó]pias?|unidades?|pe[cç]as?|adesivos?|camisetas?)\b/i);
+  if (!m) return null;
+  const n = Number(m[1]);
+  return Number.isInteger(n) && n > 0 ? n : null;
+}
+function srLeadingQuantity(text: string): number | null {
+  const c = String(text || '').trim();
+  if (!c || /^\d{8}(?:\D|$)/.test(c) || /^\d+[,.]\d+/.test(c) || /^\d+\s*[x×]\s*\d+/i.test(c)) return null;
+  const m = c.match(/^(\d{1,5})(?=\s|$|\n)/);
+  if (!m) return null;
+  const n = Number(m[1]);
+  return Number.isInteger(n) && n > 0 ? n : null;
+}
 function srSlots(system: string, inbound: string): any {
   const f = system.lastIndexOf('[FICHA:');
   const s0 = f >= 0 ? srJsonAfter(system, 'slots=', f) : null;
   const s = s0 && typeof s0 === 'object' ? { ...s0 } : {};
   const q = srQuestion(system).toLowerCase();
-  if (!(Number(s.quantidade) > 0) && /quant|c[oó]pia|unidade|pe[cç]a|quantas|quantos/.test(q)) {
-    const n = srShortInt(inbound); if (n) s.quantidade = n;
+  if (!(Number(s.quantidade) > 0)) {
+    const explicit = srExplicitQuantity(inbound);
+    if (explicit) s.quantidade = explicit;
+    else if (/quant|c[oó]pia|unidade|pe[cç]a|quantas|quantos/.test(q)) {
+      const n = srLeadingQuantity(inbound) ?? srShortInt(inbound);
+      if (n) s.quantidade = n;
+    }
   }
   if (!s.cep && /\bcep\b/.test(q)) {
     const cep = inbound.replace(/\D/g, ''); if (/^\d{8}$/.test(cep)) s.cep = cep;
