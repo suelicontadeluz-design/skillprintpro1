@@ -1,13 +1,22 @@
 declare const Deno: any;
 
-// João -> ERP orçamento v1 — 2026-09-08
-// Captura somente autorizações financeiras estruturadas já emitidas pelo core.
-// Produto cria proposta; total composto atualiza frete/total. Falha do ERP não altera preço/Pix.
+// João -> ERP orçamento v2 — 2026-09-08
+// Toda operação de produto só é considerada válida se o ERP materializar um produto canônico.
+// Se o ERP rejeitar, faltar produto ou a materialização não for canônica, o tool-call falha fechado.
 const JOE_MAIN_URL = Deno.env.get('SUPABASE_URL')!;
 const JOE_MAIN_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
 const JOE_ERP_URL = Deno.env.get('ERP_URL') ?? 'https://ynjsflvdfftcopibzxyo.supabase.co';
 const JOE_ERP_KEY = Deno.env.get('ERP_SERVICE_KEY') ?? Deno.env.get('ERP_SERVICE_ROLE_KEY') ?? '';
 const joeBaseFetch = globalThis.fetch.bind(globalThis);
+
+type JoeSyncResult = {
+  attempted: boolean;
+  ok: boolean;
+  canonical: boolean;
+  code?: string;
+  status?: number;
+  result?: any;
+};
 
 function joeUrl(input: RequestInfo | URL): string {
   return typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
@@ -43,14 +52,18 @@ async function joeComponentDetails(components: any): Promise<any[]> {
   const rows = await r.json().catch(() => []);
   return Array.isArray(rows) ? rows : [];
 }
-async function joeSync(row: any): Promise<void> {
-  if (!JOE_ERP_KEY || !row) return;
+async function joeSync(row: any): Promise<JoeSyncResult> {
+  if (!row) return { attempted: false, ok: true, canonical: true };
   const kind = String(row.kind ?? '');
-  if (kind !== 'produto' && kind !== 'total') return;
+  if (kind !== 'produto' && kind !== 'total') return { attempted: false, ok: true, canonical: true };
+  if (!JOE_ERP_KEY) return { attempted: true, ok: false, canonical: false, code: 'ERP_KEY_MISSING' };
+
   const operationId = String(row.id ?? row.operation_id ?? '');
   const leadId = String(row.lead_id ?? '');
   const amount = Number(row.amount ?? 0);
-  if (!/^[0-9a-f-]{36}$/i.test(operationId) || !/^[0-9a-f-]{36}$/i.test(leadId) || !(amount > 0)) return;
+  if (!/^[0-9a-f-]{36}$/i.test(operationId) || !/^[0-9a-f-]{36}$/i.test(leadId) || !(amount > 0)) {
+    return { attempted: true, ok: false, canonical: false, code: 'ERP_SYNC_PAYLOAD_INVALID' };
+  }
   const phone = await joePhone(leadId);
   const details = kind === 'total' ? await joeComponentDetails(row.components) : [];
   const payload = {
@@ -72,10 +85,29 @@ async function joeSync(row: any): Promise<void> {
   if (!r.ok && r.status >= 500) { await new Promise(res => setTimeout(res, 180)); r = await call(); }
   if (!r.ok) {
     console.error(JSON.stringify({ event: 'JOAO_ERP_ORCAMENTO_FAIL', status: r.status, kind, operation_id: operationId }));
-    return;
+    return { attempted: true, ok: false, canonical: false, code: 'ERP_HTTP_FAIL', status: r.status };
   }
   const out = await r.json().catch(() => null);
+  const semanticOk = !!out && out.ok === true;
+  const canonical = kind === 'produto' ? semanticOk && out.canonical === true : semanticOk;
+  if (!semanticOk || !canonical) {
+    const code = String(out?.code ?? (kind === 'produto' ? 'ERP_CANONICAL_PRODUCT_REQUIRED' : 'ERP_SYNC_REJECTED'));
+    console.error(JSON.stringify({ event: 'JOAO_ERP_ORCAMENTO_REJECTED', kind, operation_id: operationId, code, result: out }));
+    return { attempted: true, ok: false, canonical, code, result: out };
+  }
   console.log(JSON.stringify({ event: 'JOAO_ERP_ORCAMENTO_SYNC', kind, operation_id: operationId, result: out }));
+  return { attempted: true, ok: true, canonical, code: String(out?.code ?? 'OK'), result: out };
+}
+
+function joeFailClosed(sync: JoeSyncResult): Response {
+  return new Response(JSON.stringify({
+    error: 'ERP_CANONICAL_PRODUCT_REQUIRED',
+    code: sync.code ?? 'ERP_CANONICAL_PRODUCT_REQUIRED',
+    canonical: false,
+  }), {
+    status: 424,
+    headers: { 'content-type': 'application/json; charset=utf-8' },
+  });
 }
 
 globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
@@ -98,9 +130,11 @@ globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit): Promise
       if (!row.source_tool) row.source_tool = req?.p_source_tool;
       if (!row.components) row.components = req?.p_components;
     }
-    await joeSync(row);
+    const sync = await joeSync(row);
+    if (sync.attempted && !sync.ok) return joeFailClosed(sync);
   } catch (e: any) {
     console.error(JSON.stringify({ event: 'JOAO_ERP_ORCAMENTO_EXCEPTION', error: String(e?.message ?? e).slice(0, 160) }));
+    return joeFailClosed({ attempted: true, ok: false, canonical: false, code: 'ERP_SYNC_EXCEPTION' });
   }
   return response;
 };
