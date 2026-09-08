@@ -359,7 +359,7 @@ const BOT_BASE = 'https://backend.botconversa.com.br/api/v1/webhook';
 // FALAR fato errado no texto — isso e ESPERADO aqui e e tratado na frente seguinte
 // (guarda de saida, v4.38.0). O que esta publicacao garante e que o texto errado NAO
 // contamina agente_noturno_estado.
-const V = 'agente-noturno-v4.37.3';
+const V = 'agente-noturno-v4.37.4-canonical-price';
 const MODEL = 'claude-haiku-4-5-20251001';
 const ASSINATURA = '*Jo\u00e3o Barros:*\n';
 const ASSINATURA_JULIA = '*Julia Bitencourt:*\n';
@@ -423,7 +423,7 @@ const RX_PROD_COPO = /\b(copo|caneca|garrafa|cuia|t[e\u00e9]rmic|vaso)\b/i;
 const RX_PECA_PROPRIA = /\b(meu|minha|meus|minhas|que eu tenho|que tenho|pr[o\u00f3]prio|pr[o\u00f3]pria|j[a\u00e1] tenho|de vidro|colar? (no|na|em))\b/i;
 // v106: PRECOS DE TABELA FIXA QUE O PROMPT JA ENTREGA AO AGENTE.
 // O guardrail 'preco_sem_tool' exigia chamada de ferramenta para QUALQUER valor em R$. Mas a
-// FICHA TECNICA do system prompt entrega precos fixos ao agente ("A4 R$29,90, A3 R$39,90",
+// FICHA TECNICA do system prompt entrega precos fixos ao agente ("A4 R$29,90, A3 R$39,00",
 // "copo R$35,90 abaixo de 10 e R$29,90 a partir de 10", "packs a partir de R$6,90", a tabela
 // de DTF textil). O agente obedecia o prompt, falava o valor CERTO, e era derrubado por isso.
 // MEDIDO em 14 dias: 59 bloqueios, e 31 deles eram o preco EXATO da tabela oficial.
@@ -432,7 +432,7 @@ const RX_PECA_PROPRIA = /\b(meu|minha|meus|minhas|que eu tenho|que tenho|pr[o\u0
 // Estes valores sao FATO FIXO, nao calculo. Qualquer outro valor continua exigindo ferramenta.
 // v4.21.1: precos confirmados pelo Alessandro em 03/08/2026.
 const PRECOS_DE_FICHA = new Set<number>([
-  2990, 3990,              // folha A4 e folha A3 de DTF UV
+  2990, 3900,              // folha A4 e folha A3 de DTF UV
   3590,                    // copo termico avulso
   690, 990, 1990,          // packs de estampas
   5990, 5490, 4990, 4490, 3990, // tabela de DTF textil por faixa
@@ -442,7 +442,7 @@ const PRECOS_DE_FICHA = new Set<number>([
 // e preco unitario e o total depende da metragem, entao emitir autorizacao com ele cobraria
 // 1 metro num pedido de 10.
 const PRECOS_FICHA_FECHADOS = new Set<number>([
-  2990, 3990,        // folha A4 e folha A3 de DTF UV
+  2990, 3900,        // folha A4 e folha A3 de DTF UV
   3590,              // copo termico avulso
   690, 990, 1990,    // packs de estampas
 ]);
@@ -2156,7 +2156,7 @@ N\u00c3O EXISTE: pagamento na entrega, boleto, desconto fora da tabela. N\u00c3O
 
 FICHA T\u00c9CNICA SAGRADA:
 - COPO T\u00c9RMICO inox 473ml que N\u00d3S vendemos: LISO ou PERSONALIZADO, use calcular_copo. Personalizado R$35,90 abaixo de 10 e R$29,90 a partir de 10.
-- DTF UV: adesivo pronto para copo, vidro, metal, madeira, MDF, acr\u00edlico. Sem prensa, resistente \u00e0 \u00e1gua. Largura \u00fatil 28cm. Cobrado pelo consumo do filme com unidade m\u00ednima de folha: at\u00e9 0,25m A4 R$29,90; acima de 0,25m at\u00e9 0,50m A3 R$39,90; depois seguem os degraus oficiais da ferramenta.
+- DTF UV: adesivo pronto para copo, vidro, metal, madeira, MDF, acr\u00edlico. Sem prensa, resistente \u00e0 \u00e1gua. Largura \u00fatil 28cm. Cobrado pelo consumo do filme com unidade m\u00ednima de folha: at\u00e9 0,25m A4 R$29,90; acima de 0,25m at\u00e9 0,50m A3 R$39,00; depois seguem os degraus oficiais da ferramenta.
 - DTF T\u00caXTIL: pel\u00edcula para tecido, precisa de prensa. Largura \u00fatil 57cm. Por metro, c\u00e1lculo pela ARTE.
 - CAMISETA, POLO E MOLETOM PERSONALIZADOS: FAZEMOS e voc\u00ea COTA usando orcar_camisetas. NAO decore lista de modelos: passe o modelo do jeito que o cliente falou e deixe a ferramenta resolver. Se ela recusar, ela devolve os modelos validos: ofereca esses. Colete modelo, cor, grade por tamanho e as estampas de cada grupo, com posicao e classe. Nunca calcule de cabeca. Se a ferramenta recusar o modelo, ofereca os que ela listar; so encaminhe para a equipe se o cliente insistir em algo que nao temos.
 - ESTAMPARIA (cliente traz a pr\u00f3pria pe\u00e7a e n\u00f3s aplicamos): voc\u00ea N\u00c3O cota. Quem passa o valor \u00e9 a Tamires. A tabela de DTF por metro \u00e9 do FILME, JAMAIS do servi\u00e7o de aplica\u00e7\u00e3o.
@@ -2179,7 +2179,7 @@ INFOS: SITE ${SITE_LOJA} | ${INSTA} | Rua \u00c1gua Branca, 185, Jardim Laila, E
 RESPONDA APENAS O JSON, mensagem curta: {"responde": true|false, "mensagem": "...", "tema": "copo|adesivo_uv|dtf_metro|site|horario|frete|pack|camiseta|acolhimento_venda|fechamento_pix|fechamento_cartao|fechamento_transferencia|fechamento_educado|despedida|complexo|ruido", "encaminhou_venda": true|false, "etapa": "sondagem|orcamento|fechamento|pos_pagamento|despedida", "slots": {"produto": "...ou null", "arte": "...ou null", "quantidade": "...ou null", "envio_retirada": "...ou null", "modalidade_logistica": "retirada|motoboy|envio ou null", "cep": "...ou null", "pagamento": "...ou null", "grade": [{"modelo": "basica|baby look", "cor": "...", "tamanhos": {"P": 0, "M": 0, "G": 0, "GG": 0}, "estampa_grupo_id": "arte-1"}], "estampas": [{"estampa_grupo_id": "arte-1", "posicao": "frente|costas|gola_nuca|lateral|manga", "classe": "quadrado_pequeno|nomes_gola|a4|quadrado_grande|a3|extra_grande"}]}}`;
 
 const REGRAS_EXTRA = `\n\nREGRAS ADICIONAIS:
-- DTF UV POR AREA: 30 adesivos de 5x7cm ocupam cerca de 0,424m e entram na folha A3 de R$39,90, NAO em 1 metro de R$99,00. Chame calcular_rendimento_uv com quantidade_desejada e use o total que ela devolver, sem arredondar para cima.
+- DTF UV POR AREA: 30 adesivos de 5x7cm ocupam cerca de 0,424m e entram na folha A3 de R$39,00, NAO em 1 metro de R$99,00. Chame calcular_rendimento_uv com quantidade_desejada e use o total que ela devolver, sem arredondar para cima.
 - OBJECAO DE PRECO NO UV: explique a formacao do preco e quantos adesivos cabem por metro. A ferramenta devolve cabem_ainda_no_material: use para mostrar que ele leva mais pelo mesmo filme.
 - MUDANCA DE ASSUNTO: se o cliente perguntar por outro produto, RESPONDA SOBRE ELE com preco. Cliente que repete a pergunta foi ignorado.
 - NAO REPETIR ACAO JA FEITA: com [J\u00c1 EXECUTADO], PROIBIDO gerar Pix de novo, recalcular frete ou pedir CEP.
@@ -3617,9 +3617,8 @@ async function atenderClienteInterno(phone: string, chatName: string, mensagem: 
         // Ex.: R$39,90 em dtf_textil pode ser preco POR METRO de uma faixa.
         // A fonte precisa representar unidade fechada.
         const FONTES_UNIDADE_FECHADA = (f: string) =>
-          f === 'ficha_preco_fechado'
-          || f === 'dtf_uv_degraus'
-          || (f === 'catalogo_produtos' && !produtoGuarda);
+          f === 'dtf_uv_degraus'
+          || f === 'catalogo_produtos';
 
         // ── v4.37.3: PRECO UNITARIO NAO AUTORIZA O TOTAL ────────────────────
         // MEDIDO em 16 autorizacoes preco_de_ficha ja emitidas: 4 nasceram de frase
@@ -3653,7 +3652,6 @@ async function atenderClienteInterno(phone: string, chatName: string, mensagem: 
         );
         const ehProduto = soUm
           && !valorEUnitario
-          && PRECOS_FICHA_FECHADOS.has(conferidos[0].centavos)
           && FONTES_UNIDADE_FECHADA(conferidos[0].fonte);
         if (soUm && valorEUnitario) {
           await logErro('preco_unitario_nao_autoriza_total', {
