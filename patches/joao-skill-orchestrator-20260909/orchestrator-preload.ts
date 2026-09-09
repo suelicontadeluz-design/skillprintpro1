@@ -1,16 +1,18 @@
 declare const Deno: any;
 
-// João Skill Orchestrator v1 — 09/09/2026
+// João Skill Orchestrator v1.1 — 09/09/2026
 // Camada única de orquestração entre skills já existentes.
 // 1) deriva o estado da jornada do turno a partir do contexto conversacional atual;
 // 2) publica precedência explícita para os gates internos;
 // 3) deduplica chamadas Anthropic idênticas em janela curta, sem tabela nova.
+// v1.1: orçamento explícito continua em QUALIFICATION mesmo quando menciona envio;
+// LOGISTICS fica restrito a CEP/frete/entrega como assunto principal.
 // Não cria efeito externo, preço, frete, proposta ou cobrança.
 
 const JO_URL = (Deno.env.get('SUPABASE_URL') ?? '').replace(/\/$/, '');
 const JO_SERVICE = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
 const joBaseFetch = globalThis.fetch.bind(globalThis);
-const JO_VERSION = 'joao-skill-orchestrator/v1';
+const JO_VERSION = 'joao-skill-orchestrator/v1.1';
 const JO_TTL_MS = 2200;
 let joCfgAt = 0;
 let joCfg = true;
@@ -64,8 +66,11 @@ function joCloseIntent(text: string): boolean {
 function joLogisticsIntent(text: string): boolean {
   return /\b(cep|frete|sedex|pac|motoboy|retirada|retirar|envio|entrega|transportadora)\b/i.test(text);
 }
+function joStrongQuoteIntent(text: string): boolean {
+  return /\b(or[cç]amento|or[cç]ar|cota[cç][aã]o|proposta)\b/i.test(text);
+}
 function joQuoteIntent(text: string): boolean {
-  return /\b(or[cç]amento|or[cç]ar|cota[cç][aã]o|pre[cç]o|valor|quanto\s+(?:fica|custa)|proposta)\b/i.test(text);
+  return joStrongQuoteIntent(text) || /\b(pre[cç]o|valor|quanto\s+(?:fica|custa))\b/i.test(text);
 }
 function joShortContinuation(text: string): boolean {
   const t = text.trim();
@@ -82,6 +87,7 @@ function joJourney(messages: any[]): { stage:string; source:string; inbound:stri
   if (joShortContinuation(inbound) && /\b(pix|pagamento|pagar|cart[aã]o|link\s+(?:de\s+)?pagamento|cobran[cç]a|fech(?:ar|amento))\b/i.test(prior)) {
     return { stage:'CLOSING', source:'RECENT_CLOSE_CONTEXT', inbound };
   }
+  if (joStrongQuoteIntent(inbound)) return { stage:'QUALIFICATION', source:'CURRENT_EXPLICIT_QUOTE_INTENT', inbound };
   if (joLogisticsIntent(inbound)) return { stage:'LOGISTICS', source:'CURRENT_LOGISTICS_INTENT', inbound };
   if (joQuoteIntent(inbound)) return { stage:'QUALIFICATION', source:'CURRENT_QUOTE_INTENT', inbound };
   return { stage:'CONVERSATION', source:'DEFAULT', inbound };
