@@ -1,18 +1,17 @@
 declare const Deno: any;
 
-// João Qualification Production Gate v1.1 — 09/09/2026
+// João Qualification Production Gate v1.2 — 09/09/2026
 // Qualification/v2 como gate cognitivo obrigatório antes de avanço comercial.
-// v1.1 fecha dois gaps do primeiro corte:
-// 1) reaproveita invalidations da FICHA quando existirem, sem apagar prova atual do cliente;
-// 2) reconhece múltiplas quantidades por item/tamanho como evidência de quantidade,
-//    sem gravar uma quantidade sintética no estado real.
+// v1.2 mantém as correções de invalidations/multi-quantidade e adiciona precedência de jornada:
+// CLOSING > LOGISTICS > QUALIFICATION. Qualification não pode reabrir produto/quantidade
+// durante fechamento nem voltar a sondagem durante logística sem mudança explícita do cliente.
 // A skill NÃO ganha autoridade de preço, frete, cobrança ou efeito externo.
 // Kill switch: public.sistema_config.chave = 'joao_qualification_gate_ativo'.
 
 const QG_URL = (Deno.env.get('SUPABASE_URL') ?? '').replace(/\/$/, '');
 const QG_SERVICE = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
 const qgBaseFetch = globalThis.fetch.bind(globalThis);
-const QG_VERSION = 'joao-qualification-gate/v1.1';
+const QG_VERSION = 'joao-qualification-gate/v1.2';
 let qgCfgAt = 0;
 let qgCfg = false;
 
@@ -56,6 +55,10 @@ function qgInbound(messages: any[]): string {
     return t;
   }
   return '';
+}
+function qgJourneyStage(system: string): string {
+  const m = String(system || '').match(/\[CORTEX JOURNEY v1 stage=([A-Z_]+)/);
+  return m?.[1] ?? 'UNKNOWN';
 }
 function qgJsonValueAfter(text: string, marker: string, from = 0): any | null {
   const mi = text.indexOf(marker, from); if (mi < 0) return null;
@@ -155,7 +158,6 @@ function qgBuildContext(system: string, inbound: string): { slots: any; evalSlot
   const shipping = qgShippingProof(inbound);
   if (!s.envio_retirada && /(retirada|retirar|envio|receber|buscar|motoboy)/.test(q) && shipping) s.envio_retirada = shipping;
 
-  // Prova atual vence invalidação antiga do mesmo slot; o resto continua chegando ao evaluator.
   invalidations = invalidations.filter((x: any) => {
     const slot = String(x?.slot ?? '');
     if (slot === 'produto' && inboundFam) return false;
@@ -165,7 +167,7 @@ function qgBuildContext(system: string, inbound: string): { slots: any; evalSlot
     return true;
   });
   const evalSlots = { ...s };
-  if (!(Number(evalSlots.quantidade) > 0) && multiQty) evalSlots.quantidade = 1; // só para o evaluator; nunca persiste no output.
+  if (!(Number(evalSlots.quantidade) > 0) && multiQty) evalSlots.quantidade = 1;
   return { slots: s, evalSlots, invalidations, switched, multiQty };
 }
 async function qgEval(snapshot: any): Promise<any | null> {
@@ -195,16 +197,16 @@ function qgAnthropic(decision: any): Response {
   const text = JSON.stringify(decision);
   return new Response(JSON.stringify({ id: `msg_${crypto.randomUUID().replace(/-/g, '').slice(0, 20)}`, type: 'message', role: 'assistant', model: 'cortex-qualification-gate', content: [{ type: 'text', text }], stop_reason: 'end_turn', stop_sequence: null, usage: { input_tokens: 0, output_tokens: Math.max(1, Math.ceil(text.length / 4)) } }), { status: 200, headers: { 'content-type': 'application/json', 'x-cortex-qualification-gate': QG_VERSION } });
 }
-async function qgAudit(status: string, inbound: string, ctx: any) {
+async function qgAudit(evento: string, status: string, inbound: string, ctx: any, extra: any = {}) {
   try {
     await qgBaseFetch(`${QG_URL}/rest/v1/sistema_logs`, {
       method: 'POST', headers: { 'content-type': 'application/json', apikey: QG_SERVICE, authorization: `Bearer ${QG_SERVICE}`, prefer: 'return=minimal' },
-      body: JSON.stringify({ agente_slug: 'agente-noturno', funcao: 'qualification-production-gate', versao: QG_VERSION, nivel: 'info', categoria: 'skill_runtime', evento: 'qualification_hold_enforced', status: 'applied', mensagem: status, detalhe: { skill_ref: 'qualification', qualification_status: status, authority_granted: true, authority_scope: 'cognitive_pre_quote_gate', external_authority: false, effect_class: 'MODEL_BYPASS', inbound: inbound.slice(0, 240), product_switched: !!ctx?.switched, multi_quantity_evidence: !!ctx?.multiQty } }),
+      body: JSON.stringify({ agente_slug: 'agente-noturno', funcao: 'qualification-production-gate', versao: QG_VERSION, nivel: 'info', categoria: 'skill_runtime', evento, status: 'applied', mensagem: status, detalhe: { skill_ref: 'qualification', qualification_status: status, authority_granted: evento === 'qualification_hold_enforced', authority_scope: 'cognitive_pre_quote_gate', external_authority: false, effect_class: evento === 'qualification_hold_enforced' ? 'MODEL_BYPASS' : 'NONE', inbound: inbound.slice(0, 240), product_switched: !!ctx?.switched, multi_quantity_evidence: !!ctx?.multiQty, ...extra } }),
       signal: AbortSignal.timeout(2000),
     });
   } catch {}
 }
-const QG_RULE = `\n\n[SKILL qualification/v2 — PRODUCTION GATE]\nQualification é obrigatória antes de orçamento, frete ou fechamento. Se o status atual for HOLD_*, NÃO orce, NÃO gere cobrança, NÃO avance para pagamento e NÃO reutilize dados conflitantes/antigos. Pergunte somente o dado material faltante. A skill não autoriza preço, frete ou cobrança; esses continuam dependentes das ferramentas canônicas.\n[/SKILL]\n`;
+const QG_RULE = `\n\n[SKILL qualification/v2 — PRODUCTION GATE]\nQualification é obrigatória antes de orçamento. Se o status atual for HOLD_*, NÃO orce e pergunte somente o dado material faltante. Em estágio CLOSING ou LOGISTICS, respeite a precedência da jornada e não reabra produto/quantidade já resolvidos sem mudança explícita do cliente. A skill não autoriza preço, frete ou cobrança; esses continuam dependentes das ferramentas canônicas.\n[/SKILL]\n`;
 
 globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
   const url = qgUrl(input);
@@ -214,12 +216,28 @@ globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit): Promise
   let body: any; try { body = JSON.parse(raw); } catch { return qgBaseFetch(input, init); }
   if (typeof body?.system !== 'string' || !Array.isArray(body?.messages)) return qgBaseFetch(input, init);
   const inbound = qgInbound(body.messages); if (!inbound) return qgBaseFetch(input, init);
+  const journeyStage = qgJourneyStage(body.system);
+
+  if (journeyStage === 'CLOSING') {
+    void qgAudit('qualification_suppressed_by_precedence', 'SUPPRESSED_BY_CLOSING', inbound, {}, { journey_stage: journeyStage, precedence_winner: 'closing' });
+    return qgBaseFetch(input, init);
+  }
+
   const ctx = qgBuildContext(body.system, inbound);
   const q = await qgEval({ source: `${QG_VERSION}:premodel`, slots_after: ctx.evalSlots, invalidations: ctx.invalidations, produto_macro: String(ctx.evalSlots?.produto ?? ''), cep_disponivel: /^\d{8}$/.test(String(ctx.evalSlots?.cep ?? '').replace(/\D/g, '')), latest_inbound_message: inbound, source_temporality: 'PRE_MODEL_CURRENT_TURN', quantity_evidence_mode: ctx.multiQty ? 'MULTI_LINE_ITEMS' : 'SINGLE_OR_SLOT' });
   const status = String(q?.status ?? '');
+
+  if (journeyStage === 'LOGISTICS' && ['HOLD_MISSING_PRODUCT','HOLD_MISSING_QUANTITY','HOLD_PRODUCT_CONFLICT','HOLD_TOPIC_SHIFT_REQUALIFY'].includes(status)) {
+    void qgAudit('qualification_suppressed_by_precedence', status, inbound, ctx, { journey_stage: journeyStage, precedence_winner: 'logistics' });
+    return qgBaseFetch(input, init);
+  }
+
   const decision = qgDecision(status, ctx.slots);
-  if (decision && qgCommercialIntent(inbound)) { void qgAudit(status, inbound, ctx); return qgAnthropic(decision); }
-  if (status.startsWith('HOLD_')) {
+  if (decision && qgCommercialIntent(inbound)) {
+    void qgAudit('qualification_hold_enforced', status, inbound, ctx, { journey_stage: journeyStage });
+    return qgAnthropic(decision);
+  }
+  if (status.startsWith('HOLD_') && (journeyStage === 'QUALIFICATION' || journeyStage === 'LOGISTICS' || journeyStage === 'UNKNOWN')) {
     body.system += `${QG_RULE}\nStatus atual: ${status}.`;
     const headers = new Headers(init?.headers ?? (typeof Request !== 'undefined' && input instanceof Request ? input.headers : undefined)); headers.delete('content-length');
     return qgBaseFetch(input, { ...(init ?? {}), headers, body: JSON.stringify(body) });
