@@ -1,6 +1,6 @@
 declare const Deno: any;
 
-// João Qualification Production Gate v1.3 — 09/09/2026
+// João Qualification Production Gate v1.4 — 09/09/2026
 // Qualification/v2 como gate cognitivo obrigatório antes de avanço comercial.
 // v1.2 mantém as correções de invalidations/multi-quantidade e adiciona precedência de jornada:
 // CLOSING > LOGISTICS > QUALIFICATION. Qualification não pode reabrir produto/quantidade
@@ -8,13 +8,15 @@ declare const Deno: any;
 // v1.3 corrige regressão observada em produção: "camisa" passa a ser apparel, expressões de
 // uma unidade ("um apenas", "um só") viram evidência explícita de quantidade e linguagem
 // natural de preço ("quanto sairia/sai/ficaria") mantém o gate comercial ativo.
+// v1.4 corrige o contrato interno: slots canônicos dtf_uv/dtf_textil agora são reconhecidos
+// pela mesma classificação de família usada para texto natural; plurais de camisa/camiseta também.
 // A skill NÃO ganha autoridade de preço, frete, cobrança ou efeito externo.
 // Kill switch: public.sistema_config.chave = 'joao_qualification_gate_ativo'.
 
 const QG_URL = (Deno.env.get('SUPABASE_URL') ?? '').replace(/\/$/, '');
 const QG_SERVICE = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
 const qgBaseFetch = globalThis.fetch.bind(globalThis);
-const QG_VERSION = 'joao-qualification-gate/v1.3';
+const QG_VERSION = 'joao-qualification-gate/v1.4';
 let qgCfgAt = 0;
 let qgCfg = false;
 
@@ -117,11 +119,11 @@ function qgMultiQuantityEvidence(text: string): boolean {
 }
 function qgFamilyText(text: string): string | null {
   const t = String(text || '').toLowerCase();
-  if (/dtf\s*uv|adesiv.*uv/.test(t)) return 'dtf_uv';
-  if (/dtf\s*(?:textil|t[eê]xtil)/.test(t)) return 'dtf_textil';
-  if (/camis(?:a|eta)|baby\s*look|oversized|moletom|polo/.test(t)) return 'apparel';
-  if (/caneca|copo/.test(t)) return 'drinkware';
-  if (/sacola|ecobag/.test(t)) return 'bag';
+  if (/dtf[\s_]*uv|adesiv.*uv/.test(t)) return 'dtf_uv';
+  if (/dtf[\s_]*(?:textil|t[eê]xtil)/.test(t)) return 'dtf_textil';
+  if (/camis(?:a|eta)s?|baby\s*look|oversized|moletom|polo/.test(t)) return 'apparel';
+  if (/canecas?|copos?/.test(t)) return 'drinkware';
+  if (/sacolas?|ecobags?/.test(t)) return 'bag';
   return null;
 }
 function qgFamilySlots(slots: any): string | null { return qgFamilyText(String(slots?.produto ?? '')); }
