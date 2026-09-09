@@ -1,8 +1,9 @@
 declare const Deno: any;
 
-// João Current Product Precedence Guard v1 — 09/09/2026
+// João Current Product Precedence Guard v1.1 — 09/09/2026
 // Incidente Jeff 5521981317423: DTF UV recuperado do histórico contaminou um turno novo de camisa preta.
 // Contrato: produto explicitamente citado no turno atual vence produto recuperado do histórico.
+// v1.1: aceita plural de camisa/camiseta e grafias canônicas dtf_uv/dtf_textil.
 // Esta camada NÃO precifica, NÃO cria produto, NÃO faz frete/pagamento e NÃO inventa capacidade.
 // Ela apenas impede que uma resposta/slot carregue uma família antiga quando o cliente mudou explicitamente.
 // Kill switch: public.sistema_config.chave = 'joao_current_product_precedence_ativo'.
@@ -10,7 +11,7 @@ declare const Deno: any;
 const CP_URL = (Deno.env.get('SUPABASE_URL') ?? '').replace(/\/$/, '');
 const CP_SERVICE = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
 const cpBaseFetch = globalThis.fetch.bind(globalThis);
-const CP_VERSION = 'joao-current-product-precedence/v1';
+const CP_VERSION = 'joao-current-product-precedence/v1.1';
 let cpCfgAt = 0;
 let cpCfg = false;
 
@@ -63,11 +64,11 @@ function cpInbound(messages: any[]): string {
 function cpFamily(text: string): Family | null {
   const t = cpNorm(text);
   // Produto físico explícito tem precedência sobre técnica citada na mesma frase.
-  if (/\b(camis(?:a|eta)|baby\s*look|oversized|moletom|polo)\b/.test(t)) return 'apparel';
-  if (/\b(caneca|copo)\b/.test(t)) return 'drinkware';
-  if (/\b(sacola|ecobag)\b/.test(t)) return 'bag';
-  if (/dtf\s*uv|adesiv.*uv/.test(t)) return 'dtf_uv';
-  if (/dtf\s*(?:textil|textil)/.test(t)) return 'dtf_textil';
+  if (/\b(camis(?:a|eta)s?|baby\s*look|oversized|moletom|polo)\b/.test(t)) return 'apparel';
+  if (/\b(canecas?|copos?)\b/.test(t)) return 'drinkware';
+  if (/\b(sacolas?|ecobags?)\b/.test(t)) return 'bag';
+  if (/dtf[\s_]*uv|adesiv.*uv/.test(t)) return 'dtf_uv';
+  if (/dtf[\s_]*(?:textil|t[eê]xtil)/.test(t)) return 'dtf_textil';
   return null;
 }
 function cpCanonical(f: Family, inbound: string): string {
@@ -78,8 +79,8 @@ function cpCanonical(f: Family, inbound: string): string {
     if (/baby\s*look/.test(t)) return 'baby_look';
     return 'camiseta';
   }
-  if (f === 'drinkware') return /\bcaneca\b/.test(t) ? 'caneca' : 'copo';
-  if (f === 'bag') return /\becobag\b/.test(t) ? 'ecobag' : 'sacola';
+  if (f === 'drinkware') return /\bcaneca/.test(t) ? 'caneca' : 'copo';
+  if (f === 'bag') return /\becobag/.test(t) ? 'ecobag' : 'sacola';
   return f;
 }
 function cpStripStalePrefix(message: string, family: Family): { text: string; changed: boolean; reason: string | null } {
