@@ -163,7 +163,7 @@ function qgBuildContext(system: string, inbound: string): { slots: any; evalSlot
   }
   const inboundCep = qgCepProof(inbound);
   const cepProven = !!inboundCep;
-  if (!s.cep && (\/\bcep\b\/.test(q) || /\bcep\b/i.test(inbound)) && inboundCep) s.cep = inboundCep;
+  if (!s.cep && (q.includes('cep') || /\bcep\b/i.test(inbound)) && inboundCep) s.cep = inboundCep;
   const shipping = qgShippingProof(inbound);
   if (!s.envio_retirada && /(retirada|retirar|envio|receber|buscar|motoboy)/.test(q) && shipping) s.envio_retirada = shipping;
 
