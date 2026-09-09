@@ -20,7 +20,7 @@ import "https://raw.githubusercontent.com/suelicontadeluz-design/skillprintpro1/
 import "https://raw.githubusercontent.com/suelicontadeluz-design/skillprintpro1/0ac9fd346460faf5e4a75ef22d59508c132b6d2b/patches/joao-capability-guard-20260908/capability-guard-preload.ts";
 import "https://raw.githubusercontent.com/suelicontadeluz-design/skillprintpro1/13dcea75a309d4bddf467646a638ef1f5b5bf0de/patches/joao-layout-disambiguation-20260908/layout-disambiguation-preload.ts";
 import "https://raw.githubusercontent.com/suelicontadeluz-design/skillprintpro1/0bd29b6563292368fa2968b903967fa5dea9be36/patches/joao-slot-proveniencia-escrita/candidato/index.ts";
-import "https://raw.githubusercontent.com/suelicontadeluz-design/skillprintpro1/16d7bd29e234c1d6159ec8b26c89e68720e3f416/patches/joao-qualification-production-gate-20260909/qualification-gate-preload.ts";
+import "https://raw.githubusercontent.com/suelicontadeluz-design/skillprintpro1/0c6ad7b510c4d1702b7711720db26c3041c50cd3/patches/joao-qualification-production-gate-20260909/qualification-gate-preload.ts";
 import "https://raw.githubusercontent.com/suelicontadeluz-design/skillprintpro1/dea569ca42ce187b1eff627c1f3b1c25e1adcd87/patches/joao-closing-production-gate-20260909/closing-gate-preload.ts";
 import "https://raw.githubusercontent.com/suelicontadeluz-design/skillprintpro1/4326788ebc29b584bc08f3bfb20fbdd5c9084a0c/patches/joao-artwork-context-20260909/artwork-context-preload.ts";
 import "https://raw.githubusercontent.com/suelicontadeluz-design/skillprintpro1/5a941229c889f205f31913c4cd69194d2836bea2/patches/joao-skill-orchestrator-20260909/orchestrator-preload.ts";
