@@ -1,6 +1,6 @@
 declare const Deno: any;
 
-// João Closing Production Gate v1 — 09/09/2026
+// João Closing Production Gate v1.1 — 09/09/2026
 // Promove a skill closing certificada para autoridade cognitiva limitada.
 // Escopo: impedir fechamento prematuro, promessa de cobrança inexistente e confirmação
 // de PIX/link sem tool_result canônico. Não cria cobrança, não altera preço/frete e não
@@ -10,7 +10,7 @@ declare const Deno: any;
 const CL_URL = (Deno.env.get('SUPABASE_URL') ?? '').replace(/\/$/, '');
 const CL_SERVICE = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
 const clBaseFetch = globalThis.fetch.bind(globalThis);
-const CL_VERSION = 'joao-closing-gate/v1';
+const CL_VERSION = 'joao-closing-gate/v1.1';
 let clCfgAt = 0;
 let clCfg = false;
 
@@ -94,15 +94,20 @@ function clPaymentObject(value: any): any | null {
   }
   return null;
 }
+function clMoney(v: any): number | null {
+  if (typeof v === 'number' && Number.isFinite(v) && v >= 0) return v;
+  if (typeof v !== 'string') return null;
+  let s = v.trim().replace(/R\$/gi, '').replace(/\s/g, '').replace(/[^0-9,.-]/g, '');
+  if (!s) return null;
+  if (s.includes(',')) s = s.replace(/\./g, '').replace(',', '.');
+  const n = Number(s);
+  return Number.isFinite(n) && n >= 0 ? n : null;
+}
 function clFirstNumber(obj: any, keys: string[]): number | null {
   if (!obj || typeof obj !== 'object') return null;
   for (const k of keys) {
-    const v = obj[k];
-    if (typeof v === 'number' && Number.isFinite(v)) return v;
-    if (typeof v === 'string') {
-      const n = Number(v.replace(/\./g, '').replace(',', '.').replace(/[^0-9.-]/g, ''));
-      if (Number.isFinite(n) && n >= 0) return n;
-    }
+    const n = clMoney(obj[k]);
+    if (n != null) return n;
   }
   return null;
 }
