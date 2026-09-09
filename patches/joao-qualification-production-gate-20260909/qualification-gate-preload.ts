@@ -1,16 +1,18 @@
 declare const Deno: any;
 
-// João Qualification Production Gate v1 — 09/09/2026
-// Converte qualification/v2 de advisor/shadow em gate cognitivo obrigatório antes
-// de orçamento/frete/fechamento. A skill NÃO ganha autoridade de preço, frete,
-// cobrança ou qualquer efeito externo; ela apenas impede avanço comercial quando
-// a própria qualification/v2 informa HOLD.
+// João Qualification Production Gate v1.1 — 09/09/2026
+// Qualification/v2 como gate cognitivo obrigatório antes de avanço comercial.
+// v1.1 fecha dois gaps do primeiro corte:
+// 1) reaproveita invalidations da FICHA quando existirem, sem apagar prova atual do cliente;
+// 2) reconhece múltiplas quantidades por item/tamanho como evidência de quantidade,
+//    sem gravar uma quantidade sintética no estado real.
+// A skill NÃO ganha autoridade de preço, frete, cobrança ou efeito externo.
 // Kill switch: public.sistema_config.chave = 'joao_qualification_gate_ativo'.
 
 const QG_URL = (Deno.env.get('SUPABASE_URL') ?? '').replace(/\/$/, '');
 const QG_SERVICE = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
 const qgBaseFetch = globalThis.fetch.bind(globalThis);
-const QG_VERSION = 'joao-qualification-gate/v1';
+const QG_VERSION = 'joao-qualification-gate/v1.1';
 let qgCfgAt = 0;
 let qgCfg = false;
 
@@ -30,8 +32,7 @@ async function qgEnabled(): Promise<boolean> {
   qgCfgAt = Date.now();
   try {
     const r = await qgBaseFetch(`${QG_URL}/rest/v1/sistema_config?select=valor_bool&chave=eq.joao_qualification_gate_ativo&limit=1`, {
-      headers: { apikey: QG_SERVICE, authorization: `Bearer ${QG_SERVICE}` },
-      signal: AbortSignal.timeout(2500),
+      headers: { apikey: QG_SERVICE, authorization: `Bearer ${QG_SERVICE}` }, signal: AbortSignal.timeout(2500),
     });
     const rows = r.ok ? await r.json() : [];
     qgCfg = Array.isArray(rows) && rows[0]?.valor_bool === true;
@@ -56,16 +57,22 @@ function qgInbound(messages: any[]): string {
   }
   return '';
 }
-function qgJsonAfter(text: string, marker: string, from = 0): any | null {
+function qgJsonValueAfter(text: string, marker: string, from = 0): any | null {
   const mi = text.indexOf(marker, from); if (mi < 0) return null;
-  const start = text.indexOf('{', mi + marker.length); if (start < 0) return null;
+  let start = -1;
+  for (let i = mi + marker.length; i < text.length; i++) {
+    if (text[i] === '{' || text[i] === '[') { start = i; break; }
+    if (!/\s|=/.test(text[i])) break;
+  }
+  if (start < 0) return null;
+  const opener = text[start]; const closer = opener === '{' ? '}' : ']';
   let depth = 0, quoted = false, escaped = false;
   for (let i = start; i < text.length; i++) {
     const ch = text[i];
     if (quoted) { if (escaped) escaped = false; else if (ch === '\\') escaped = true; else if (ch === '"') quoted = false; continue; }
     if (ch === '"') { quoted = true; continue; }
-    if (ch === '{') depth++;
-    if (ch === '}' && --depth === 0) { try { return JSON.parse(text.slice(start, i + 1)); } catch { return null; } }
+    if (ch === opener) depth++;
+    else if (ch === closer && --depth === 0) { try { return JSON.parse(text.slice(start, i + 1)); } catch { return null; } }
   }
   return null;
 }
@@ -81,39 +88,91 @@ function qgShortInt(text: string): number | null {
   const n = Number(m[1]); return Number.isInteger(n) && n > 0 ? n : null;
 }
 function qgExplicitQuantity(text: string): number | null {
-  const m = String(text || '').match(/\b(\d{1,5})\s*(?:c[oó]pias?|unidades?|pe[cç]as?|adesivos?|camisetas?)\b/i);
+  const m = String(text || '').match(/\b(\d{1,5})\s*(?:c[oó]pias?|unidades?|pe[cç]as?|adesivos?|camisetas?|folhas?|metros?)\b/i);
   if (!m) return null;
   const n = Number(m[1]); return Number.isInteger(n) && n > 0 ? n : null;
 }
-function qgSlots(system: string, inbound: string): any {
+function qgMultiQuantityEvidence(text: string): boolean {
+  let c = String(text || '').toLowerCase();
+  c = c.replace(/\b\d+(?:[,.]\d+)?\s*[x×]\s*\d+(?:[,.]\d+)?(?:\s*(?:cm|mm|m))?/gi, ' ');
+  c = c.replace(/\b\d+[,.]\d+\s*(?:cm|mm|m)?\b/gi, ' ');
+  const nums = [...c.matchAll(/\b\d{1,5}\b/g)].map(x => Number(x[0])).filter(n => n > 0 && n < 100000);
+  if (nums.length < 2) return false;
+  return /\b(menor|maior|outros?|cada|c[oó]pias?|unidades?|pe[cç]as?|adesivos?|artes?|tamanhos?|modelos?)\b/i.test(c);
+}
+function qgFamilyText(text: string): string | null {
+  const t = String(text || '').toLowerCase();
+  if (/dtf\s*uv|adesiv.*uv/.test(t)) return 'dtf_uv';
+  if (/dtf\s*(?:textil|t[eê]xtil)/.test(t)) return 'dtf_textil';
+  if (/camiset|baby\s*look|oversized|moletom|polo/.test(t)) return 'apparel';
+  if (/caneca|copo/.test(t)) return 'drinkware';
+  if (/sacola|ecobag/.test(t)) return 'bag';
+  return null;
+}
+function qgFamilySlots(slots: any): string | null { return qgFamilyText(String(slots?.produto ?? '')); }
+function qgCanonicalProduct(fam: string, inbound: string): string {
+  if (fam === 'dtf_uv') return 'dtf_uv';
+  if (fam === 'dtf_textil') return 'dtf_textil';
+  if (fam === 'apparel') {
+    const t = inbound.toLowerCase();
+    if (/moletom/.test(t)) return 'moletom'; if (/polo/.test(t)) return 'polo'; if (/baby\s*look/.test(t)) return 'baby_look';
+    return 'camiseta';
+  }
+  if (fam === 'drinkware') return /caneca/i.test(inbound) ? 'caneca' : 'copo';
+  if (fam === 'bag') return /ecobag/i.test(inbound) ? 'ecobag' : 'sacola';
+  return fam;
+}
+function qgShippingProof(text: string): string | null {
+  if (/\b(retir|buscar|busco|vou buscar)\w*/i.test(text)) return 'retirada';
+  if (/\b(motoboy|moto)\b/i.test(text)) return 'motoboy';
+  if (/\b(envio|enviar|receber|entrega|correios|transportadora)\b/i.test(text)) return 'envio';
+  return null;
+}
+function qgBuildContext(system: string, inbound: string): { slots: any; evalSlots: any; invalidations: any[]; switched: boolean; multiQty: boolean } {
   const f = system.lastIndexOf('[FICHA:');
-  const s0 = f >= 0 ? qgJsonAfter(system, 'slots=', f) : null;
-  const s = s0 && typeof s0 === 'object' ? { ...s0 } : {};
+  const s0 = f >= 0 ? qgJsonValueAfter(system, 'slots=', f) : null;
+  const inv0 = f >= 0 ? qgJsonValueAfter(system, 'invalidations=', f) : null;
+  const s = s0 && typeof s0 === 'object' && !Array.isArray(s0) ? { ...s0 } : {};
+  let invalidations = Array.isArray(inv0) ? inv0.filter((x: any) => x && typeof x === 'object') : [];
   const q = qgQuestion(system).toLowerCase();
+  const inboundFam = qgFamilyText(inbound); const slotFam = qgFamilySlots(s);
+  const switched = !!(inboundFam && slotFam && inboundFam !== slotFam);
+  if (inboundFam && (!slotFam || switched)) {
+    s.produto = qgCanonicalProduct(inboundFam, inbound);
+    if (switched) { delete s.quantidade; delete s.cep; delete s.cep_confirmado_para_envio; delete s.envio_retirada; delete s.modalidade_logistica; }
+  }
+  const explicitQty = qgExplicitQuantity(inbound);
+  const multiQty = qgMultiQuantityEvidence(inbound);
   if (!(Number(s.quantidade) > 0)) {
-    const explicit = qgExplicitQuantity(inbound);
-    if (explicit) s.quantidade = explicit;
+    if (explicitQty) s.quantidade = explicitQty;
     else if (/quant|c[oó]pia|unidade|pe[cç]a|quantas|quantos/.test(q)) {
       const n = qgShortInt(inbound); if (n) s.quantidade = n;
     }
   }
-  if (!s.cep && /\bcep\b/.test(q)) {
-    const cep = inbound.replace(/\D/g, ''); if (/^\d{8}$/.test(cep)) s.cep = cep;
-  }
-  if (!s.envio_retirada && /(retirada|retirar|envio|receber|buscar|motoboy)/.test(q)) {
-    if (/\b(retir|buscar|busco|vou buscar)\w*/i.test(inbound)) s.envio_retirada = 'retirada';
-    else if (/\b(motoboy|moto)\b/i.test(inbound)) s.envio_retirada = 'motoboy';
-    else if (/\b(envio|enviar|receber|entrega|correios|transportadora)\b/i.test(inbound)) s.envio_retirada = 'envio';
-  }
-  return s;
+  const inboundCep = inbound.replace(/\D/g, '');
+  const cepProven = /^\d{8}$/.test(inboundCep);
+  if (!s.cep && /\bcep\b/.test(q) && cepProven) s.cep = inboundCep;
+  const shipping = qgShippingProof(inbound);
+  if (!s.envio_retirada && /(retirada|retirar|envio|receber|buscar|motoboy)/.test(q) && shipping) s.envio_retirada = shipping;
+
+  // Prova atual vence invalidação antiga do mesmo slot; o resto continua chegando ao evaluator.
+  invalidations = invalidations.filter((x: any) => {
+    const slot = String(x?.slot ?? '');
+    if (slot === 'produto' && inboundFam) return false;
+    if (slot === 'quantidade' && (explicitQty || multiQty)) return false;
+    if ((slot === 'cep' || slot === 'cep_confirmado_para_envio') && cepProven) return false;
+    if ((slot === 'envio_retirada' || slot === 'modalidade_logistica') && shipping) return false;
+    return true;
+  });
+  const evalSlots = { ...s };
+  if (!(Number(evalSlots.quantidade) > 0) && multiQty) evalSlots.quantidade = 1; // só para o evaluator; nunca persiste no output.
+  return { slots: s, evalSlots, invalidations, switched, multiQty };
 }
 async function qgEval(snapshot: any): Promise<any | null> {
   try {
     const r = await qgBaseFetch(`${QG_URL}/rest/v1/rpc/fn_qualification_evaluate_v2`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json', apikey: QG_SERVICE, authorization: `Bearer ${QG_SERVICE}` },
-      body: JSON.stringify({ p_snapshot: snapshot, p_as_of: new Date().toISOString() }),
-      signal: AbortSignal.timeout(3000),
+      method: 'POST', headers: { 'content-type': 'application/json', apikey: QG_SERVICE, authorization: `Bearer ${QG_SERVICE}` },
+      body: JSON.stringify({ p_snapshot: snapshot, p_as_of: new Date().toISOString() }), signal: AbortSignal.timeout(3000),
     });
     return r.ok ? await r.json() : null;
   } catch { return null; }
@@ -121,62 +180,30 @@ async function qgEval(snapshot: any): Promise<any | null> {
 function qgCommercialIntent(text: string): boolean {
   return /\b(or[cç]amento|or[cç]ar|cota[cç][aã]o|cot(?:ar|e)|pre[cç]o|valor|quanto(?:\s+(?:fica|custa))?|total|frete|cep|envio|entrega|retirada|prazo|pix|cart[aã]o|pagar|pagamento|fech(?:ar|a|amos|ado)|pedido|comprar|quero\s+fechar)\b/i.test(text);
 }
-function qgProductFamily(slots: any): string {
-  const p = String(slots?.produto ?? '').toLowerCase();
-  if (/camiset|baby|oversized|moletom|polo/.test(p)) return 'apparel';
-  if (/dtf.*uv|adesiv.*uv/.test(p)) return 'dtf_uv';
-  if (/dtf.*text|t[eê]xtil/.test(p)) return 'dtf_textil';
-  return p;
-}
 function qgDecision(status: string, slots: any): any | null {
-  const fam = qgProductFamily(slots);
-  if (status === 'HOLD_PRODUCT_CONFLICT' || status === 'HOLD_TOPIC_SHIFT_REQUALIFY') {
-    return { responde: true, mensagem: 'Só pra eu não misturar com o pedido anterior: qual produto você quer orçar agora?', tema: 'sondagem', encaminhou_venda: false, etapa: 'sondagem', slots };
-  }
-  if (status === 'HOLD_MISSING_PRODUCT') {
-    return { responde: true, mensagem: 'Qual produto você quer orçar?', tema: 'sondagem', encaminhou_venda: false, etapa: 'sondagem', slots };
-  }
+  const fam = qgFamilySlots(slots);
+  if (status === 'HOLD_PRODUCT_CONFLICT' || status === 'HOLD_TOPIC_SHIFT_REQUALIFY') return { responde: true, mensagem: 'Só pra eu não misturar com o pedido anterior: qual produto você quer orçar agora?', tema: 'sondagem', encaminhou_venda: false, etapa: 'sondagem', slots };
+  if (status === 'HOLD_MISSING_PRODUCT') return { responde: true, mensagem: 'Qual produto você quer orçar?', tema: 'sondagem', encaminhou_venda: false, etapa: 'sondagem', slots };
   if (status === 'HOLD_MISSING_QUANTITY') {
-    const msg = fam === 'apparel' ? 'Quantas peças você precisa?'
-      : fam === 'dtf_textil' ? 'Quantas cópias dessa arte você precisa?'
-      : fam === 'dtf_uv' ? 'Quantos adesivos você precisa?'
-      : 'Qual quantidade você precisa?';
+    const msg = fam === 'apparel' ? 'Quantas peças você precisa?' : fam === 'dtf_textil' ? 'Quantas cópias dessa arte você precisa?' : fam === 'dtf_uv' ? 'Quantos adesivos você precisa?' : 'Qual quantidade você precisa?';
     return { responde: true, mensagem: msg, tema: 'sondagem', encaminhou_venda: false, etapa: 'sondagem', slots };
   }
-  if (status === 'HOLD_MISSING_CEP_FOR_SHIPPING') {
-    return { responde: true, mensagem: 'Me passa o CEP de entrega que eu calculo as opções de frete.', tema: 'frete', encaminhou_venda: false, etapa: 'orcamento', slots };
-  }
+  if (status === 'HOLD_MISSING_CEP_FOR_SHIPPING') return { responde: true, mensagem: 'Me passa o CEP de entrega que eu calculo as opções de frete.', tema: 'frete', encaminhou_venda: false, etapa: 'orcamento', slots };
   return null;
 }
 function qgAnthropic(decision: any): Response {
   const text = JSON.stringify(decision);
-  return new Response(JSON.stringify({
-    id: `msg_${crypto.randomUUID().replace(/-/g, '').slice(0, 20)}`,
-    type: 'message', role: 'assistant', model: 'cortex-qualification-gate',
-    content: [{ type: 'text', text }], stop_reason: 'end_turn', stop_sequence: null,
-    usage: { input_tokens: 0, output_tokens: Math.max(1, Math.ceil(text.length / 4)) },
-  }), { status: 200, headers: { 'content-type': 'application/json', 'x-cortex-qualification-gate': QG_VERSION } });
+  return new Response(JSON.stringify({ id: `msg_${crypto.randomUUID().replace(/-/g, '').slice(0, 20)}`, type: 'message', role: 'assistant', model: 'cortex-qualification-gate', content: [{ type: 'text', text }], stop_reason: 'end_turn', stop_sequence: null, usage: { input_tokens: 0, output_tokens: Math.max(1, Math.ceil(text.length / 4)) } }), { status: 200, headers: { 'content-type': 'application/json', 'x-cortex-qualification-gate': QG_VERSION } });
 }
-async function qgAudit(status: string, inbound: string) {
+async function qgAudit(status: string, inbound: string, ctx: any) {
   try {
     await qgBaseFetch(`${QG_URL}/rest/v1/sistema_logs`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json', apikey: QG_SERVICE, authorization: `Bearer ${QG_SERVICE}`, prefer: 'return=minimal' },
-      body: JSON.stringify({
-        agente_slug: 'agente-noturno', funcao: 'qualification-production-gate', versao: QG_VERSION,
-        nivel: 'info', categoria: 'skill_runtime', evento: 'qualification_hold_enforced', status: 'applied',
-        mensagem: status,
-        detalhe: {
-          skill_ref: 'qualification', qualification_status: status,
-          authority_granted: true, authority_scope: 'cognitive_pre_quote_gate', external_authority: false,
-          effect_class: 'MODEL_BYPASS', inbound: inbound.slice(0, 240),
-        },
-      }),
+      method: 'POST', headers: { 'content-type': 'application/json', apikey: QG_SERVICE, authorization: `Bearer ${QG_SERVICE}`, prefer: 'return=minimal' },
+      body: JSON.stringify({ agente_slug: 'agente-noturno', funcao: 'qualification-production-gate', versao: QG_VERSION, nivel: 'info', categoria: 'skill_runtime', evento: 'qualification_hold_enforced', status: 'applied', mensagem: status, detalhe: { skill_ref: 'qualification', qualification_status: status, authority_granted: true, authority_scope: 'cognitive_pre_quote_gate', external_authority: false, effect_class: 'MODEL_BYPASS', inbound: inbound.slice(0, 240), product_switched: !!ctx?.switched, multi_quantity_evidence: !!ctx?.multiQty } }),
       signal: AbortSignal.timeout(2000),
     });
   } catch {}
 }
-
 const QG_RULE = `\n\n[SKILL qualification/v2 — PRODUCTION GATE]\nQualification é obrigatória antes de orçamento, frete ou fechamento. Se o status atual for HOLD_*, NÃO orce, NÃO gere cobrança, NÃO avance para pagamento e NÃO reutilize dados conflitantes/antigos. Pergunte somente o dado material faltante. A skill não autoriza preço, frete ou cobrança; esses continuam dependentes das ferramentas canônicas.\n[/SKILL]\n`;
 
 globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
@@ -187,23 +214,14 @@ globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit): Promise
   let body: any; try { body = JSON.parse(raw); } catch { return qgBaseFetch(input, init); }
   if (typeof body?.system !== 'string' || !Array.isArray(body?.messages)) return qgBaseFetch(input, init);
   const inbound = qgInbound(body.messages); if (!inbound) return qgBaseFetch(input, init);
-  const slots = qgSlots(body.system, inbound);
-  const q = await qgEval({
-    source: `${QG_VERSION}:premodel`, slots_after: slots, invalidations: [],
-    produto_macro: String(slots?.produto ?? ''),
-    cep_disponivel: /^\d{8}$/.test(String(slots?.cep ?? '').replace(/\D/g, '')),
-    latest_inbound_message: inbound, source_temporality: 'PRE_MODEL_CURRENT_TURN',
-  });
+  const ctx = qgBuildContext(body.system, inbound);
+  const q = await qgEval({ source: `${QG_VERSION}:premodel`, slots_after: ctx.evalSlots, invalidations: ctx.invalidations, produto_macro: String(ctx.evalSlots?.produto ?? ''), cep_disponivel: /^\d{8}$/.test(String(ctx.evalSlots?.cep ?? '').replace(/\D/g, '')), latest_inbound_message: inbound, source_temporality: 'PRE_MODEL_CURRENT_TURN', quantity_evidence_mode: ctx.multiQty ? 'MULTI_LINE_ITEMS' : 'SINGLE_OR_SLOT' });
   const status = String(q?.status ?? '');
-  const decision = qgDecision(status, slots);
-  if (decision && qgCommercialIntent(inbound)) {
-    void qgAudit(status, inbound);
-    return qgAnthropic(decision);
-  }
+  const decision = qgDecision(status, ctx.slots);
+  if (decision && qgCommercialIntent(inbound)) { void qgAudit(status, inbound, ctx); return qgAnthropic(decision); }
   if (status.startsWith('HOLD_')) {
     body.system += `${QG_RULE}\nStatus atual: ${status}.`;
-    const headers = new Headers(init?.headers ?? (typeof Request !== 'undefined' && input instanceof Request ? input.headers : undefined));
-    headers.delete('content-length');
+    const headers = new Headers(init?.headers ?? (typeof Request !== 'undefined' && input instanceof Request ? input.headers : undefined)); headers.delete('content-length');
     return qgBaseFetch(input, { ...(init ?? {}), headers, body: JSON.stringify(body) });
   }
   return qgBaseFetch(input, init);
