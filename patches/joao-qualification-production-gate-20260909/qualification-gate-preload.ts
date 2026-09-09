@@ -1,17 +1,16 @@
 declare const Deno: any;
 
-// João Qualification Production Gate v1.2 — 09/09/2026
+// João Qualification Production Gate v1.3 — 09/09/2026
 // Qualification/v2 como gate cognitivo obrigatório antes de avanço comercial.
-// v1.2 mantém as correções de invalidations/multi-quantidade e adiciona precedência de jornada:
-// CLOSING > LOGISTICS > QUALIFICATION. Qualification não pode reabrir produto/quantidade
-// durante fechamento nem voltar a sondagem durante logística sem mudança explícita do cliente.
+// v1.3 mantém precedência CLOSING > LOGISTICS > QUALIFICATION e corrige captura de CEP
+// formatado dentro de mensagens com outros números (ex.: CEP 16.250.057 + número do endereço).
 // A skill NÃO ganha autoridade de preço, frete, cobrança ou efeito externo.
 // Kill switch: public.sistema_config.chave = 'joao_qualification_gate_ativo'.
 
 const QG_URL = (Deno.env.get('SUPABASE_URL') ?? '').replace(/\/$/, '');
 const QG_SERVICE = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
 const qgBaseFetch = globalThis.fetch.bind(globalThis);
-const QG_VERSION = 'joao-qualification-gate/v1.2';
+const QG_VERSION = 'joao-qualification-gate/v1.3';
 let qgCfgAt = 0;
 let qgCfg = false;
 
@@ -131,6 +130,16 @@ function qgShippingProof(text: string): string | null {
   if (/\b(envio|enviar|receber|entrega|correios|transportadora)\b/i.test(text)) return 'envio';
   return null;
 }
+function qgCepProof(text: string): string | null {
+  const t = String(text || '');
+  const labeled = t.match(/\bcep\b[^0-9]{0,12}(\d{2})[.\s-]?(\d{3})[.\s-]?(\d{3})\b/i);
+  if (labeled) return `${labeled[1]}${labeled[2]}${labeled[3]}`;
+  const standard = t.match(/\b(\d{5})[-.\s]?(\d{3})\b/);
+  if (standard) return `${standard[1]}${standard[2]}`;
+  const grouped = t.match(/\b(\d{2})[.\s-](\d{3})[.\s-](\d{3})\b/);
+  if (grouped) return `${grouped[1]}${grouped[2]}${grouped[3]}`;
+  return null;
+}
 function qgBuildContext(system: string, inbound: string): { slots: any; evalSlots: any; invalidations: any[]; switched: boolean; multiQty: boolean } {
   const f = system.lastIndexOf('[FICHA:');
   const s0 = f >= 0 ? qgJsonValueAfter(system, 'slots=', f) : null;
@@ -152,9 +161,9 @@ function qgBuildContext(system: string, inbound: string): { slots: any; evalSlot
       const n = qgShortInt(inbound); if (n) s.quantidade = n;
     }
   }
-  const inboundCep = inbound.replace(/\D/g, '');
-  const cepProven = /^\d{8}$/.test(inboundCep);
-  if (!s.cep && /\bcep\b/.test(q) && cepProven) s.cep = inboundCep;
+  const inboundCep = qgCepProof(inbound);
+  const cepProven = !!inboundCep;
+  if (!s.cep && (\/\bcep\b\/.test(q) || /\bcep\b/i.test(inbound)) && inboundCep) s.cep = inboundCep;
   const shipping = qgShippingProof(inbound);
   if (!s.envio_retirada && /(retirada|retirar|envio|receber|buscar|motoboy)/.test(q) && shipping) s.envio_retirada = shipping;
 
