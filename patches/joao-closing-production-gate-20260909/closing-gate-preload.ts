@@ -1,16 +1,18 @@
 declare const Deno: any;
 
-// João Closing Production Gate v1.1 — 09/09/2026
+// João Closing Production Gate v1.2 — 09/09/2026
 // Promove a skill closing certificada para autoridade cognitiva limitada.
-// Escopo: impedir fechamento prematuro, promessa de cobrança inexistente e confirmação
-// de PIX/link sem tool_result canônico. Não cria cobrança, não altera preço/frete e não
-// concede efeito externo. Usa fn_closing_evaluate_v1 quando há evidência canônica suficiente.
+// v1.2 corrige freshness/precedência:
+// 1) só considera tool_result ocorrido DEPOIS da mensagem atual do cliente;
+// 2) quando CORTEX JOURNEY existe, closing só atua em stage=CLOSING;
+// 3) continuação curta de fechamento mantém a jornada sem reusar falha antiga.
+// Não cria cobrança, não altera preço/frete e não concede efeito externo.
 // Kill switch: public.sistema_config.chave = 'joao_closing_gate_ativo'.
 
 const CL_URL = (Deno.env.get('SUPABASE_URL') ?? '').replace(/\/$/, '');
 const CL_SERVICE = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
 const clBaseFetch = globalThis.fetch.bind(globalThis);
-const CL_VERSION = 'joao-closing-gate/v1.1';
+const CL_VERSION = 'joao-closing-gate/v1.2';
 let clCfgAt = 0;
 let clCfg = false;
 
@@ -55,9 +57,26 @@ function clInbound(messages: any[]): string {
   }
   return '';
 }
-function clToolResults(messages: any[]): string[] {
+function clJourneyStage(system: string): string | null {
+  const m = String(system || '').match(/\[CORTEX JOURNEY v1 stage=([A-Z_]+)/);
+  return m?.[1] ?? null;
+}
+function clLatestInboundIndex(messages: any[]): number {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const m = messages[i];
+    if (m?.role !== 'user' || clHasToolResult(m?.content)) continue;
+    const t = clText(m?.content);
+    if (!t || /^\s*\[SISTEMA:/i.test(t)) continue;
+    return i;
+  }
+  return -1;
+}
+function clToolResultsCurrentTurn(messages: any[]): string[] {
   const out: string[] = [];
-  for (const m of messages) {
+  const inboundAt = clLatestInboundIndex(messages);
+  if (inboundAt < 0) return out;
+  for (let i = inboundAt + 1; i < messages.length; i++) {
+    const m = messages[i];
     if (m?.role !== 'user' || !Array.isArray(m?.content)) continue;
     for (const x of m.content) {
       if (x?.type !== 'tool_result') continue;
@@ -150,15 +169,20 @@ globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit): Promise
   if (typeof body?.system !== 'string' || !Array.isArray(body?.messages)) return clBaseFetch(input, init);
 
   const inbound = clInbound(body.messages); if (!inbound) return clBaseFetch(input, init);
-  const results = clToolResults(body.messages);
+  const journeyStage = clJourneyStage(body.system);
+  if (journeyStage && journeyStage !== 'CLOSING') {
+    return clBaseFetch(input, init);
+  }
+
+  const results = clToolResultsCurrentTurn(body.messages);
   const joined = results.join('\n');
   const closeIntent = clCloseIntent(inbound);
   const paymentFailure = /\"ok\"\s*:\s*false/i.test(joined) && /(pix|cobran[cç]a|pagamento|checkout|payment)/i.test(joined);
   const paymentSuccess = /\"ok\"\s*:\s*true/i.test(joined) && /(pix_copia_e_cola|checkout_url|payment_id)/i.test(joined);
 
   if (paymentFailure) {
-    body.system = clInject(body, 'CLOSING BLOCKED: a ferramenta de cobrança falhou ou recusou a operação. É PROIBIDO afirmar que o Pix/link foi gerado ou que o pedido foi fechado. Use o erro/ação do tool_result para corrigir AGORA; nunca encerre em promessa futura.');
-    void clAudit('closing_payment_failure_enforced', { closing_status: 'BLOCKED_BY_TOOL_RESULT', inbound: inbound.slice(0, 240), effect_class: 'HARD_RULE_INJECTION' });
+    body.system = clInject(body, 'CLOSING BLOCKED: a ferramenta de cobrança falhou ou recusou a operação NESTE TURNO. É PROIBIDO afirmar que o Pix/link foi gerado ou que o pedido foi fechado. Use o erro/ação do tool_result atual para corrigir AGORA; nunca encerre em promessa futura.');
+    void clAudit('closing_payment_failure_enforced', { closing_status: 'BLOCKED_BY_CURRENT_TURN_TOOL_RESULT', journey_stage: journeyStage ?? 'NO_MARKER', current_turn_tool_results: results.length, inbound: inbound.slice(0, 240), effect_class: 'HARD_RULE_INJECTION' });
   } else if (paymentSuccess) {
     let pobj: any | null = null;
     for (let i = results.length - 1; i >= 0 && !pobj; i--) pobj = clPaymentObject(clParseJson(results[i]));
@@ -185,14 +209,17 @@ globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit): Promise
     const status = String(evalResult?.status ?? 'CANONICAL_TOOL_RESULT_CONFIRMED');
     if (status === 'BLOCK_PREMATURE_CLOSE' || status === 'BLOCK_CLOSE_TERMS_MISMATCH' || status === 'HOLD_NO_CANONICAL_CHARGE') {
       body.system = clInject(body, `CLOSING BLOCKED pelo evaluator certificado: ${status}. Não confirme fechamento, não envie dado inventado e resolva apenas a condição material indicada antes de avançar.`);
-      void clAudit('closing_evaluator_block_enforced', { closing_status: status, inbound: inbound.slice(0, 240), effect_class: 'HARD_RULE_INJECTION' });
+      void clAudit('closing_evaluator_block_enforced', { closing_status: status, journey_stage: journeyStage ?? 'NO_MARKER', current_turn_tool_results: results.length, inbound: inbound.slice(0, 240), effect_class: 'HARD_RULE_INJECTION' });
     } else {
-      body.system = clInject(body, 'CLOSING READY por tool_result canônico. Envie somente o PIX/link/código EXATOS retornados pela ferramenta neste turno. Não diga “vou gerar”, não invente URL/código e não repita pergunta já resolvida.');
-      void clAudit('closing_canonical_success_enforced', { closing_status: status, inbound: inbound.slice(0, 240), effect_class: 'HARD_RULE_INJECTION', canonical_payment_id: paymentId });
+      body.system = clInject(body, 'CLOSING READY por tool_result canônico DO TURNO ATUAL. Envie somente o PIX/link/código EXATOS retornados pela ferramenta neste turno. Não diga “vou gerar”, não invente URL/código e não repita pergunta já resolvida.');
+      void clAudit('closing_canonical_success_enforced', { closing_status: status, journey_stage: journeyStage ?? 'NO_MARKER', current_turn_tool_results: results.length, inbound: inbound.slice(0, 240), effect_class: 'HARD_RULE_INJECTION', canonical_payment_id: paymentId });
     }
   } else if (closeIntent) {
-    body.system = clInject(body, 'CLOSING INTENT explícito. Neste MESMO turno execute as ferramentas necessárias. É proibido terminar com “vou gerar/enviar o Pix” ou qualquer promessa futura. Só afirme existência de cobrança depois de tool_result canônico confirmado.');
-    void clAudit('closing_intent_execution_required', { closing_status: 'INTENT_DETECTED', inbound: inbound.slice(0, 240), effect_class: 'HARD_RULE_INJECTION' });
+    body.system = clInject(body, 'CLOSING INTENT explícito. Neste MESMO turno execute as ferramentas necessárias. É proibido terminar com “vou gerar/enviar o Pix” ou qualquer promessa futura. Só afirme existência de cobrança depois de tool_result canônico confirmado neste turno.');
+    void clAudit('closing_intent_execution_required', { closing_status: 'INTENT_DETECTED', journey_stage: journeyStage ?? 'NO_MARKER', current_turn_tool_results: 0, inbound: inbound.slice(0, 240), effect_class: 'HARD_RULE_INJECTION' });
+  } else if (journeyStage === 'CLOSING') {
+    body.system = clInject(body, 'CLOSING CONTINUATION. O contexto recente já está em fechamento/pagamento. Não reabra produto, quantidade ou frete sem mudança explícita do cliente. Continue a etapa pendente e só confirme cobrança após tool_result canônico do turno atual.');
+    void clAudit('closing_continuation_enforced', { closing_status: 'CONTINUE_CLOSING_CONTEXT', journey_stage: 'CLOSING', current_turn_tool_results: 0, inbound: inbound.slice(0, 240), effect_class: 'HARD_RULE_INJECTION' });
   } else {
     return clBaseFetch(input, init);
   }
