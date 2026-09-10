@@ -3,7 +3,7 @@ declare const Deno: any;
 // João Skill Orchestrator v1.5 — 10/09/2026
 // Extensão mínima da v1.4 canônica. Preserva integralmente roteamento, continuidade e dedupe da v1.4.
 // Única adição: pergunta explícita sobre fornecedor não pode terminar com responde:false.
-import "https://raw.githubusercontent.com/suelicontadeluz-design/skillprintpro1/04378e47dac832c7969855e6084c4f2b95213a10/patches/joao-skill-orchestrator-20260909/orchestrator-preload-v1.4.ts";
+import "https://raw.githubusercontent.com/suelicontadeluz-design/skillprintpro1/cae1a08902ce864e6314cd1f66ab6b9a076c5641/patches/joao-skill-orchestrator-20260909/orchestrator-preload-v1.4.ts";
 
 const JO15_URL = (Deno.env.get('SUPABASE_URL') ?? '').replace(/\/$/, '');
 const JO15_SERVICE = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
