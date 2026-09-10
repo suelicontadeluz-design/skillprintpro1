@@ -210,6 +210,6 @@ globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit): Promise
   let responseText = '';
   try { responseText = await response.text(); } catch { return response; }
   const patched = ctpPatchDecisionEnvelope(responseText, mode);
-  if (patched.patched) void ctpAudit('current_turn_decision_recovered', { mode, reason: patched.reason, inbound: current.slice(0, 300) });
+  if (patched.patched) void ctpAudit('current_turn_decision_recovered', { mode, reason: patched.reason });
   return ctpResponseText(response, patched.raw);
 };
