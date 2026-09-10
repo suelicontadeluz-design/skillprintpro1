@@ -72,6 +72,17 @@ Deno.serve(async(req:Request)=>{
     return json({ok:guard.ok,version:VERSION,effect_state:'NONE',guard},guard.ok?200:guard.status);
   }
 
+  if(mode==='FULL_GUARD_PROBE'){
+    const message=String(body?.message||'').trim();
+    const leadId=uuidOrNull(body?.lead_id); const decisionId=uuidOrNull(body?.decision_id);
+    if(!/^55\d{10,11}$/.test(p)||!message) return json({ok:false,error:'phone_message_required',version:VERSION,effect_state:'NONE'},400);
+    const human=await humanGuard(p);
+    if(!human.ok) return json({ok:false,version:VERSION,effect_state:'NONE',guard_stage:'human_takeover',error:human.error,guard:human.guard??null},human.status);
+    const out=await outputGuard(p,message,leadId,decisionId);
+    if(!out.ok) return json({ok:false,version:VERSION,effect_state:'NONE',guard_stage:'output_guard',error:out.error,guard:out.guard??null},out.status);
+    return json({ok:true,version:VERSION,effect_state:'NONE',guard_stage:'pass',human_guard:human.guard??null,output_guard:out.guard??null},200);
+  }
+
   const message=String(body?.message||'').trim(); const key=String(body?.idempotency_key||'').trim();
   const leadId=uuidOrNull(body?.lead_id); const decisionId=uuidOrNull(body?.decision_id);
   if(!/^55\d{10,11}$/.test(p)||!message||!key) return json({ok:false,error:'phone_message_idempotency_required'},400);
