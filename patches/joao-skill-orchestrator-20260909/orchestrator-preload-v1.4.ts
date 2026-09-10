@@ -182,10 +182,21 @@ function joToolFingerprint(messages:any[]): string {
   }
   return parts.slice(-3).join('|');
 }
+// Retry intencional do core: mensagem user iniciada por "[SISTEMA:" (joDialogue a ignora para
+// a jornada; aqui ela ENTRA na identidade, senão o retry recebe a resposta original do cache).
+function joRetryFingerprint(messages:any[]): string {
+  const parts:string[] = [];
+  for (const m of messages) {
+    if (m?.role !== 'user' || joHasToolResult(m?.content)) continue;
+    const t = joText(m?.content);
+    if (/^\s*\[SISTEMA:/i.test(t)) parts.push(t.slice(0,400));
+  }
+  return parts.join('|');
+}
 function joKey(body:any, journey:{stage:string;inbound:string}): string {
   const model = String(body?.model ?? '');
   const q = typeof body?.system === 'string' ? (body.system.match(/\[VOCÊ ACABOU DE PERGUNTAR:[\s\S]{0,300}/)?.[0] ?? '') : '';
-  return [model, journey.stage, journey.inbound, q, joToolFingerprint(body?.messages ?? [])].join('§').slice(0,5000);
+  return [model, journey.stage, journey.inbound, q, joRetryFingerprint(body?.messages ?? []), joToolFingerprint(body?.messages ?? [])].join('§').slice(0,5000);
 }
 function joPrune(now:number) { for (const [k,v] of joCache) if (now - v.at > JO_TTL_MS * 3) joCache.delete(k); }
 async function joAudit(evento:string, detail:any) {
