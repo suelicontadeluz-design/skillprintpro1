@@ -39,15 +39,21 @@ export function pd5DetectFileState(inbound: string): Pd5FileState {
   const t = pd5Norm(inbound);
   if (!t) return 'UNKNOWN';
 
-  const mounted = /\b(?:arquivo|folha|gang\s*sheet|gangsheet)\b.{0,45}\b(?:montad[oa]s?|pront[oa]s?|fechad[oa]s?|diagramad[oa]s?)\b/.test(t)
-    || /\b(?:ja\s+)?(?:esta|ta)\s+(?:tudo\s+)?montad[oa]\b/.test(t)
-    || /\b(?:ja\s+)?tenho\s+(?:o\s+)?arquivo\s+(?:ja\s+)?(?:montad[oa]|pront[oa])\b/.test(t);
-  if (mounted) return 'MOUNTED_FILE';
-
+  // Precedencia deliberada: se o cliente diz que TEM artes separadas, essa evidencia
+  // vence uma negacao sobre "arquivo montado" na mesma frase.
   const separate = /\b(?:artes?|imagens?|arquivos?)\b.{0,30}\bseparad[oa]s?\b/.test(t)
     || /\b(?:tenho|possuo|ja\s+tenho)\s+(?:as|minhas?)\s+(?:artes?|imagens?)\b/.test(t)
     || /\b(?:artes?|imagens?)\s+soltas?\b/.test(t);
   if (separate) return 'SEPARATE_ARTWORKS';
+
+  const deniesMounted = /\bnao\s+(?:tenho|possuo)\b.{0,35}\b(?:arquivo|folha|gang\s*sheet|gangsheet)\b.{0,35}\bmontad[oa]s?\b/.test(t)
+    || /\b(?:arquivo|folha|gang\s*sheet|gangsheet)\b.{0,24}\bnao\s+(?:esta|ta)\s+montad[oa]\b/.test(t)
+    || /\bsem\s+(?:o\s+|um\s+)?(?:arquivo|folha)\b.{0,24}\bmontad[oa]\b/.test(t);
+
+  const mounted = /\b(?:arquivo|folha|gang\s*sheet|gangsheet)\b.{0,45}\b(?:montad[oa]s?|pront[oa]s?|fechad[oa]s?|diagramad[oa]s?)\b/.test(t)
+    || /\b(?:ja\s+)?(?:esta|ta)\s+(?:tudo\s+)?montad[oa]\b/.test(t)
+    || /\b(?:ja\s+)?tenho\s+(?:o\s+)?arquivo\s+(?:ja\s+)?(?:montad[oa]|pront[oa])\b/.test(t);
+  if (mounted && !deniesMounted) return 'MOUNTED_FILE';
 
   const noArt = /\b(?:nao\s+tenho|sem)\s+(?:nenhuma?s?\s+)?(?:arte|artes|imagem|imagens)\b/.test(t)
     || /\bpreciso\s+(?:que\s+)?(?:facam|fazer|criar)\s+(?:a\s+)?arte\b/.test(t);
