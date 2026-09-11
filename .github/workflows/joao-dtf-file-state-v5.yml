@@ -1,0 +1,25 @@
+name: Joao DTF file-state v5
+
+on:
+  pull_request:
+    paths:
+      - 'patches/joao-product-service-disambiguation-20260911-v5/**'
+      - '.github/workflows/joao-dtf-file-state-v5.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  replay:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      - name: Type-check v5 preload and core
+        run: deno check patches/joao-product-service-disambiguation-20260911-v5/product-service-disambiguation-preload-v5-file-state.ts
+      - name: Run deterministic replay matrix
+        run: deno test patches/joao-product-service-disambiguation-20260911-v5/file-state-core.test.ts
