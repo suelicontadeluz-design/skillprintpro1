@@ -1,3 +1,5 @@
+/// <reference lib="deno.ns" />
+
 import { pd5BuildDecision, pd5DetectFileState, pd5ExplicitApparelApply, pd5Kinds } from './file-state-core.ts';
 
 function assert(condition: unknown, message: string): asserts condition {
