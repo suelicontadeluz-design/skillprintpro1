@@ -1,6 +1,6 @@
 /// <reference lib="deno.ns" />
 
-import { pd5BuildDecision, pd5DetectFileState, pd5ExplicitApparelApply, pd5Kinds } from './file-state-core.ts';
+import { pd5BuildDecision, pd5DetectFileState, pd5ExplicitApparelApply, pd5Kinds, pd5Norm } from './file-state-core.ts';
 
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message);
@@ -46,7 +46,8 @@ Deno.test('sem arte oferece pack, Studio e criacao', () => {
   });
   assert(d !== null, 'decision missing');
   assert(d.slots.arquivo_estado === 'NO_ART', 'wrong state');
-  assert(/pack/i.test(d.mensagem) && /studio/i.test(d.mensagem) && /criacao/i.test(d.mensagem), 'must offer three paths');
+  const msg = pd5Norm(d.mensagem);
+  assert(/\bpack\b/.test(msg) && /\bstudio\b/.test(msg) && /\bcriacao\b/.test(msg), 'must offer three paths');
 });
 
 Deno.test('moletom singular e reconhecido como vestuario DTF textil', () => {
@@ -66,6 +67,10 @@ Deno.test('resposta de estado sem pergunta previa/confianca textil nao sequestra
   assert(d === null, 'must not hijack unrelated conversation');
 });
 
-Deno.test('detector nao confunde nao tenho arquivo montado com sem arte', () => {
+Deno.test('detector prioriza artes separadas quando cliente nega arquivo montado', () => {
   assert(pd5DetectFileState('Não tenho arquivo montado, tenho as artes separadas.') === 'SEPARATE_ARTWORKS', 'must detect separate artworks');
+});
+
+Deno.test('negacao simples de arquivo montado nao vira falso MOUNTED_FILE', () => {
+  assert(pd5DetectFileState('Não tenho arquivo montado ainda.') === 'UNKNOWN', 'negated mounted file must stay unknown');
 });
