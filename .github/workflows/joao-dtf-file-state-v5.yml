@@ -19,7 +19,11 @@ jobs:
       - uses: denoland/setup-deno@v2
         with:
           deno-version: v2.x
-      - name: Type-check v5 preload and core
-        run: deno check patches/joao-product-service-disambiguation-20260911-v5/product-service-disambiguation-preload-v5-file-state.ts
-      - name: Run deterministic replay matrix
-        run: deno test patches/joao-product-service-disambiguation-20260911-v5/file-state-core.test.ts
+      - name: Type-check v5 decision + Artwork Context extension
+        run: |
+          deno check patches/joao-product-service-disambiguation-20260911-v5/product-service-disambiguation-preload-v5-file-state.ts
+          deno check patches/joao-product-service-disambiguation-20260911-v5/artwork-context-preload-v2-preflight.ts
+      - name: Run deterministic replay matrices
+        run: |
+          deno test patches/joao-product-service-disambiguation-20260911-v5/file-state-core.test.ts
+          deno test patches/joao-product-service-disambiguation-20260911-v5/preflight-context-core.test.ts
