@@ -1,16 +1,18 @@
 declare const Deno: any;
 
-// João quantity ambiguity guard v1 — 12/09/2026
+// João quantity ambiguity guard v1.1 — 12/09/2026
 // Incidente real: "Seriam 32 brancos ou 16 de cada cor" chegou depois do CEP.
 // O core tratava como conversa genérica e continuava com 64 unidades, podendo cotar/fretar pedido errado.
 // Regra estreita: alternativa de distribuição por COR + contexto recente DTF UV + >=2 cores conhecidas.
 // Nesse turno: resposta determinística de confirmação, zero tools, zero mutação de slots.
+// v1.1: variantes de cor vêm preferencialmente de "N + cor" já confirmado; "contorno preto"
+// não vira uma quarta variante e portanto "16 de cada cor" resolve para 48, não 64.
 // Resolução curta subsequente (ex.: "16 de cada cor") recebe instrução forte no system para recalcular
 // quantidade/produto/frete com os dados já confirmados; não força valores e não inventa preço/frete.
 
 const QAG_URL = (Deno.env.get('SUPABASE_URL') ?? '').replace(/\/$/, '');
 const QAG_SERVICE = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
-const QAG_VERSION = 'joao-quantity-ambiguity/v1';
+const QAG_VERSION = 'joao-quantity-ambiguity/v1.1';
 const QAG_CONFIG_KEY = 'joao_quantity_color_split_ambiguity_v1_ativo';
 const qagBaseFetch = globalThis.fetch.bind(globalThis);
 let qagCfgAt = 0;
@@ -32,6 +34,7 @@ const COLORS: Array<{ canon: string; rx: RegExp }> = [
   { canon: 'cinza', rx: /\bcinzas?\b/i },
   { canon: 'bege', rx: /\bbeges?\b/i },
 ];
+const COLOR_WORD = '(branc[oa]s?|pret[oa]s?|dourad[oa]s?|pratead[oa]s?|azuis?|verdes?|vermelh[oa]s?|amarel[oa]s?|rosas?|rox[oa]s?|lil[aá]s|laranjas?|cinzas?|beges?)';
 
 function qagUrl(input: RequestInfo | URL): string {
   return typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
@@ -72,13 +75,31 @@ function qagRecentContext(req:any): string {
   const sys = typeof req?.system === 'string' ? req.system.slice(-6000) : '';
   return `${sys}\n${d}`;
 }
+function qagCanonColor(label:string): string | null {
+  for (const c of COLORS) if (c.rx.test(label)) return c.canon;
+  return null;
+}
 function qagColorsIn(text:string): string[] {
   const hits:Array<{canon:string;idx:number}> = [];
   for (const c of COLORS) {
     const m = c.rx.exec(text);
     if (m && typeof m.index === 'number') hits.push({ canon:c.canon, idx:m.index });
   }
-  return hits.sort((a,b)=>a.idx-b.idx).map(x=>x.canon);
+  return [...new Set(hits.sort((a,b)=>a.idx-b.idx).map(x=>x.canon))];
+}
+function qagCountedColorsIn(text:string): string[] {
+  const rx = new RegExp(`\\b\\d{1,4}\\s+${COLOR_WORD}\\b`, 'gi');
+  const out:string[] = [];
+  for (const m of String(text || '').matchAll(rx)) {
+    const canon = qagCanonColor(String(m[1] || ''));
+    if (canon && !out.includes(canon)) out.push(canon);
+  }
+  return out;
+}
+function qagVariantColors(ctx:string): string[] {
+  const counted = qagCountedColorsIn(ctx);
+  if (counted.length >= 2) return counted;
+  return qagColorsIn(ctx);
 }
 function qagJoinColors(colors:string[]): string {
   const u = [...new Set(colors)];
@@ -88,7 +109,7 @@ function qagJoinColors(colors:string[]): string {
 }
 function qagAmbiguousColorSplit(text:string): {first:number; firstLabel:string; each:number} | null {
   const t = String(text || '').trim();
-  const m = t.match(/^\s*(?:seriam?|ser[aã]o|s[aã]o|ficariam?|ficam?)?\s*(\d{1,4})\s+(branc[oa]s?|pret[oa]s?|dourad[oa]s?|pratead[oa]s?|azuis?|verdes?|vermelh[oa]s?|amarel[oa]s?|rosas?|rox[oa]s?|lil[aá]s|laranjas?|cinzas?|beges?)\s+ou\s+(\d{1,4})\s+de\s+cada\s+cor\b[?.!\s]*$/i);
+  const m = t.match(new RegExp(`^\\s*(?:seriam?|ser[aã]o|s[aã]o|ficariam?|ficam?)?\\s*(\\d{1,4})\\s+${COLOR_WORD}\\s+ou\\s+(\\d{1,4})\\s+de\\s+cada\\s+cor\\b[?.!\\s]*$`, 'i'));
   if (!m) return null;
   const first = Number(m[1]);
   const each = Number(m[3]);
@@ -137,7 +158,7 @@ async function qagAudit(evento:string, detalhe:any) {
     });
   } catch {}
 }
-function qagPatchAnthropic(original:string, req:any, message:string): string | null {
+function qagPatchAnthropic(original:string, message:string): string | null {
   try {
     const body = JSON.parse(original);
     if (!body || typeof body !== 'object') return null;
@@ -159,7 +180,7 @@ function qagEnrichResolutionRequest(req:any, resolution:{mode:'each'|'single';n:
   const dist = resolution.mode === 'each'
     ? colors.map(c => `${resolution.n} ${c}`).join(', ')
     : `${resolution.n} branco`;
-  const rule = `\n[CORTEX QUANTIDADE RESOLVIDA v1]\nO cliente acabou de resolver a ambiguidade de quantidade que voce perguntou no turno anterior. Interpretacao deterministica: ${dist}; total=${total}. Isto SUBSTITUI a quantidade anterior. Preserve medida, produto e CEP ja confirmados. Recalcule o produto com calcular_rendimento_uv usando a medida ja conhecida e quantidade_desejada=${total}. Depois cote o frete com o CEP ja conhecido. Nao reutilize preco/produto anterior se a quantidade mudou. Nao invente preco, frete ou cobertura. Atualize o slot quantidade para uma descricao explicita dessa distribuicao.\n[/CORTEX QUANTIDADE RESOLVIDA]`;
+  const rule = `\n[CORTEX QUANTIDADE RESOLVIDA v1.1]\nO cliente acabou de resolver a ambiguidade de quantidade que voce perguntou no turno anterior. Interpretacao deterministica: ${dist}; total=${total}. Isto SUBSTITUI a quantidade anterior. Preserve medida, produto e CEP ja confirmados. Recalcule o produto com calcular_rendimento_uv usando a medida ja conhecida e quantidade_desejada=${total}. Depois cote o frete com o CEP ja conhecido. Nao reutilize preco/produto anterior se a quantidade mudou. Nao invente preco, frete ou cobertura. Atualize o slot quantidade para uma descricao explicita dessa distribuicao.\n[/CORTEX QUANTIDADE RESOLVIDA]`;
   return { ...req, system:String(req?.system ?? '') + rule };
 }
 
@@ -176,21 +197,21 @@ globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit): Promise
 
   const inbound = qagLatestInbound(req.messages);
   const ctx = qagRecentContext(req);
-  const colors = qagColorsIn(ctx);
+  const colors = qagVariantColors(ctx);
   const ambiguous = qagAmbiguousColorSplit(inbound);
 
   if (ambiguous && qagIsUvContext(ctx) && colors.length >= 2) {
     const colorList = qagJoinColors(colors.slice(0,5));
-    const firstCanon = qagColorsIn(ambiguous.firstLabel)[0] || ambiguous.firstLabel.toLowerCase();
-    const clarification = `Só pra eu fechar certo: você quer ${ambiguous.first} adesivos ${firstCanon}${ambiguous.first === 1 ? '' : 's'} no total ou ${ambiguous.each} de cada cor${colorList ? ` (${colorList})` : ''}?`;
+    const firstLabel = String(ambiguous.firstLabel).toLowerCase();
+    const clarification = `Só pra eu fechar certo: você quer ${ambiguous.first} adesivos ${firstLabel} no total ou ${ambiguous.each} de cada cor${colorList ? ` (${colorList})` : ''}?`;
 
     const res = await qagBaseFetch(input, init);
     if (!res.ok) return res;
     let original:string;
     try { original = await res.clone().text(); } catch { return res; }
-    const patched = qagPatchAnthropic(original, req, clarification);
+    const patched = qagPatchAnthropic(original, clarification);
     if (!patched) return res;
-    void qagAudit('color_split_ambiguity_blocked_before_tools', { first:ambiguous.first, each:ambiguous.each, colors:colors.slice(0,5), tools_allowed:false, slots_mutation_allowed:false });
+    void qagAudit('color_split_ambiguity_blocked_before_tools', { first:ambiguous.first, each:ambiguous.each, variant_colors:colors.slice(0,5), tools_allowed:false, slots_mutation_allowed:false });
     const headers = new Headers(res.headers); headers.delete('content-length'); headers.set('x-cortex-quantity-ambiguity', QAG_VERSION);
     return new Response(patched, { status:res.status, statusText:res.statusText, headers });
   }
@@ -198,8 +219,9 @@ globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit): Promise
   const previous = qagPreviousClarification(req.messages);
   const resolution = qagResolution(inbound, previous);
   if (resolution && qagIsUvContext(ctx) && colors.length >= 2) {
-    const enriched = qagEnrichResolutionRequest(req, resolution, colors.slice(0,5));
-    void qagAudit('color_split_resolution_enriched', { mode:resolution.mode, n:resolution.n, colors:colors.slice(0,5), total:resolution.n * (resolution.mode === 'each' ? colors.slice(0,5).length : 1) });
+    const useColors = colors.slice(0,5);
+    const enriched = qagEnrichResolutionRequest(req, resolution, useColors);
+    void qagAudit('color_split_resolution_enriched', { mode:resolution.mode, n:resolution.n, variant_colors:useColors, total:resolution.n * (resolution.mode === 'each' ? useColors.length : 1) });
     return qagBaseFetch(input, { ...init, body:JSON.stringify(enriched) });
   }
 
