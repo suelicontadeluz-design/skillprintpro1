@@ -1,12 +1,14 @@
 declare const Deno:any;
 
-// João color-split continuation controller v1 — 12/09/2026
+// João color-split continuation controller v1.1 — 12/09/2026
 // Depois que o cliente resolve uma alternativa de quantidade por cor, preço e frete são sequência
 // operacional, não decisão linguística. Se o modelo parar após calcular_rendimento_uv apesar de CEP
 // já informado, força calcular_frete. Depois do tool_result de frete, fecha a resposta a partir dos
 // resultados canônicos e grava quantidade como a distribuição explicitamente dita pelo cliente.
+// v1.1: parser de tool_result tolera string, array de text blocks e wrappers; a prova de conclusão
+// usa o tool_result posterior ao tool_use, não depende só de parsed.ok no formato exato.
 
-const QCC_VERSION='joao-color-split-continuation/v1';
+const QCC_VERSION='joao-color-split-continuation/v1.1';
 const qccBaseFetch=globalThis.fetch.bind(globalThis);
 const COLOR_WORD='(branc[oa]s?|pret[oa]s?|dourad[oa]s?|pratead[oa]s?|azuis?|verdes?|vermelh[oa]s?|amarel[oa]s?|rosas?|rox[oa]s?|lil[aá]s|laranjas?|cinzas?|beges?)';
 const COLOR_MAP:Array<[RegExp,string]>=[
@@ -26,7 +28,9 @@ function canonColor(s:string):string|null{for(const[rx,c]of COLOR_MAP)if(rx.test
 function countedColors(text:string):string[]{const rx=new RegExp(`\\b\\d{1,4}\\s+${COLOR_WORD}\\b`,'gi');const out:string[]=[];for(const m of String(text||'').matchAll(rx)){const c=canonColor(String(m[1]||''));if(c&&!out.includes(c))out.push(c);}return out;}
 function lastCep(d:Array<{role:string,text:string}>):string|null{for(let i=d.length-1;i>=0;i--){if(d[i].role!=='user')continue;const all=[...d[i].text.matchAll(/\b(\d{5})-?(\d{3})\b/g)];if(all.length){const m=all[all.length-1];return m[1]+m[2];}}return null;}
 function toolUses(messages:any[]):Array<{id:string,name:string,input:any,index:number}>{const out:any[]=[];for(let i=0;i<(messages||[]).length;i++){const m=messages[i];if(m?.role!=='assistant'||!Array.isArray(m.content))continue;for(const b of m.content)if(b?.type==='tool_use')out.push({id:String(b.id||''),name:String(b.name||''),input:b.input??{},index:i});}return out;}
-function toolResults(messages:any[]):Map<string,any>{const out=new Map<string,any>();for(const m of messages||[]){if(m?.role!=='user'||!Array.isArray(m.content))continue;for(const b of m.content){if(b?.type!=='tool_result')continue;let v:any=b.content;try{if(typeof v==='string')v=JSON.parse(v);else if(Array.isArray(v)){const t=v.filter((x:any)=>x?.type==='text').map((x:any)=>String(x?.text??'')).join('');v=JSON.parse(t);}}catch{}out.set(String(b.tool_use_id||''),v);}}return out;}
+function toolResultRaw(messages:any[],toolUseId:string,afterIndex=-1):string|null{for(let i=Math.max(0,afterIndex+1);i<(messages||[]).length;i++){const m=messages[i];if(m?.role!=='user'||!Array.isArray(m.content))continue;for(const b of m.content){if(b?.type!=='tool_result')continue;if(toolUseId&&String(b.tool_use_id||'')!==toolUseId)continue;const c=b.content;if(typeof c==='string')return c;if(Array.isArray(c))return c.filter((x:any)=>x?.type==='text').map((x:any)=>String(x?.text??'')).join('');try{return JSON.stringify(c);}catch{return String(c??'');}}}return null;}
+function normalizeResult(raw:string|null):any{if(!raw)return null;let v:any=raw;for(let i=0;i<3;i++){if(typeof v!=='string')break;try{v=JSON.parse(v);}catch{break;}}if(v&&typeof v==='object'&&v.content&&typeof v.content==='string'){try{return JSON.parse(v.content);}catch{}}return v;}
+function resultOk(raw:string|null,parsed:any):boolean{if(parsed&&typeof parsed==='object'){if(parsed.ok===true)return true;if(parsed.ok===false||parsed.erro||parsed.error)return false;}const s=String(raw||'');if(/"ok"\s*:\s*true/i.test(s))return true;if(/"ok"\s*:\s*false|"erro"\s*:|"error"\s*:|autorizacao_nao_emitida|preco_indisponivel/i.test(s))return false;return !!s;}
 function anthToolUseResponse(req:any,name:string,input:any):Response{const id='toolu_'+crypto.randomUUID().replace(/-/g,'');return new Response(JSON.stringify({id:'msg_'+crypto.randomUUID().replace(/-/g,''),type:'message',role:'assistant',model:req?.model||'replay-controller',content:[{type:'tool_use',id,name,input}],stop_reason:'tool_use',stop_sequence:null,usage:{input_tokens:0,output_tokens:0}}),{status:200,headers:{'content-type':'application/json','x-cortex-color-split-controller':QCC_VERSION}});}
 function brl(v:any):string{const n=Number(v);return Number.isFinite(n)?`R$ ${n.toFixed(2).replace('.',',')}`:'';}
 function finalDecisionResponse(req:any,res:{mode:'each'|'single',n:number},colors:string[],cep:string,product:any,freight:any):Response{
@@ -45,9 +49,9 @@ globalThis.fetch=async(input:RequestInfo|URL,init?:RequestInit):Promise<Response
   const d=ordinaryDialogue(req.messages);const inbound=latestUser(d);const res=resolution(inbound);if(!res||!priorAmbiguous(d))return qccBaseFetch(input,init);
   const ctx=String(req?.system??'')+'\n'+d.slice(-12).map(x=>x.text).join('\n');if(!/\bdtf\s*uv\b|\badesivo(?:s)?\b/i.test(ctx))return qccBaseFetch(input,init);
   const colors=countedColors(ctx).slice(0,5);if(colors.length<2)return qccBaseFetch(input,init);const cep=lastCep(d);if(!cep)return qccBaseFetch(input,init);
-  const uses=toolUses(req.messages);const results=toolResults(req.messages);const prodUses=uses.filter(x=>x.name==='calcular_rendimento_uv');const freightUses=uses.filter(x=>x.name==='calcular_frete');
-  const latestProd=prodUses.length?prodUses[prodUses.length-1]:null;const product=latestProd?results.get(latestProd.id):null;const productOk=product?.ok===true;
-  const latestFreight=freightUses.length?freightUses[freightUses.length-1]:null;const freight=latestFreight?results.get(latestFreight.id):null;const freightOk=freight?.ok===true&&Array.isArray(freight?.display_data?.opcoes)&&freight.display_data.opcoes.length>0;
+  const uses=toolUses(req.messages);const prodUses=uses.filter(x=>x.name==='calcular_rendimento_uv');const freightUses=uses.filter(x=>x.name==='calcular_frete');
+  const latestProd=prodUses.length?prodUses[prodUses.length-1]:null;const productRaw=latestProd?toolResultRaw(req.messages,latestProd.id,latestProd.index):null;const product=normalizeResult(productRaw);const productOk=!!latestProd&&resultOk(productRaw,product);
+  const latestFreight=freightUses.length?freightUses[freightUses.length-1]:null;const freightRaw=latestFreight?toolResultRaw(req.messages,latestFreight.id,latestFreight.index):null;const freight=normalizeResult(freightRaw);const freightOk=!!latestFreight&&resultOk(freightRaw,freight)&&Array.isArray(freight?.display_data?.opcoes)&&freight.display_data.opcoes.length>0;
   if(productOk&&!latestFreight){
     console.log(JSON.stringify({event:'COLOR_SPLIT_CONTROLLER_FORCE_FREIGHT',version:QCC_VERSION,cep,colors,total:res.mode==='each'?res.n*colors.length:res.n}));
     return anthToolUseResponse(req,'calcular_frete',{cep_destino:cep});
