@@ -1,0 +1,57 @@
+import { AsyncLocalStorage } from 'node:async_hooks';
+
+declare const Deno:any;
+
+// João color-split request controller v1 — 12/09/2026
+// Escopo estreito: resposta curta a uma alternativa de quantidade por cor feita pelo próprio cliente
+// nos últimos 30 minutos. A partir daí, quantidade -> preço UV -> frete é controlado deterministicamente.
+// Não depende de prompt/slot antigo para escolher a quantidade e não cria nova regra para "N ou N" genérico.
+
+const QRC_VERSION='joao-color-split-request-controller/v1';
+const QRC_URL=(Deno.env.get('SUPABASE_URL')??'').replace(/\/$/,'');
+const QRC_SERVICE=Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')??'';
+const qrcBaseFetch=globalThis.fetch.bind(globalThis);
+const qrcNativeServe=Deno.serve.bind(Deno);
+
+type QrcCtx={
+  active:boolean;
+  phone:string;
+  leadId:string|null;
+  targetTotal:number;
+  distribution:string;
+  colors:string[];
+  cep:string;
+  measure:{largura_cm:number;altura_cm:number};
+};
+const qrcAls=new AsyncLocalStorage<QrcCtx>();
+
+const COLOR_WORD='(branc[oa]s?|pret[oa]s?|dourad[oa]s?|pratead[oa]s?|azuis?|verdes?|vermelh[oa]s?|amarel[oa]s?|rosas?|rox[oa]s?|lil[aá]s|laranjas?|cinzas?|beges?)';
+const COLOR_MAP:Array<[RegExp,string]>=[
+  [/\bbranc[oa]s?\b/i,'branco'],[/\bpret[oa]s?\b/i,'preto'],[/\bdourad[oa]s?\b/i,'dourado'],[/\bpratead[oa]s?\b/i,'prateado'],
+  [/\bazuis?\b/i,'azul'],[/\bverdes?\b/i,'verde'],[/\bvermelh[oa]s?\b/i,'vermelho'],[/\bamarel[oa]s?\b/i,'amarelo'],
+  [/\brosas?\b/i,'rosa'],[/\brox[oa]s?\b/i,'roxo'],[/\blil[aá]s\b/i,'lilás'],[/\blaranjas?\b/i,'laranja'],[/\bcinzas?\b/i,'cinza'],[/\bbeges?\b/i,'bege']
+];
+
+function qrcUrl(input:RequestInfo|URL):string{return typeof input==='string'?input:input instanceof URL?input.href:input.url;}
+async function qrcRaw(input:RequestInfo|URL,init?:RequestInit):Promise<string>{if(typeof init?.body==='string')return init.body;if(init?.body!=null)return String(init.body);if(typeof Request!=='undefined'&&input instanceof Request){try{return await input.clone().text();}catch{}}return '';}
+function qrcJson(body:any,status=200){return new Response(JSON.stringify(body),{status,headers:{'content-type':'application/json','x-cortex-color-split-request-controller':QRC_VERSION}});}
+function canonColor(s:string):string|null{for(const[rx,c]of COLOR_MAP)if(rx.test(s))return c;return null;}
+function countedColors(text:string):string[]{const rx=new RegExp(`\\b\\d{1,4}\\s+${COLOR_WORD}\\b`,'gi');const out:string[]=[];for(const m of String(text||'').matchAll(rx)){const c=canonColor(String(m[1]||''));if(c&&!out.includes(c))out.push(c);}return out;}
+function isAmbiguous(text:string):boolean{return new RegExp(`^\\s*(?:seriam?|ser[aã]o|s[aã]o|ficariam?|ficam?)?\\s*\\d{1,4}\\s+${COLOR_WORD}\\s+ou\\s+\\d{1,4}\\s+de\\s+cada\\s+cor\\b[?.!\\s]*$`,'i').test(String(text||'').trim());}
+function resolution(text:string):{mode:'each'|'single',n:number}|null{let m=String(text||'').trim().match(/^(?:quero\s+)?(\d{1,4})\s+de\s+cada\s+cor[?.!\s]*$/i);if(m)return{mode:'each',n:Number(m[1])};m=String(text||'').trim().match(/^(?:quero\s+)?(\d{1,4})\s+branc[oa]s?(?:\s+no\s+total)?[?.!\s]*$/i);if(m)return{mode:'single',n:Number(m[1])};return null;}
+function measureFrom(text:string):{largura_cm:number;altura_cm:number}|null{const ms=[...String(text||'').matchAll(/\b(\d{1,3}(?:[.,]\d+)?)\s*x\s*(\d{1,3}(?:[.,]\d+)?)\s*cm\b/gi)];if(ms.length){const m=ms[ms.length-1],a=Number(m[1].replace(',','.')),b=Number(m[2].replace(',','.'));if(a>0&&b>0)return{largura_cm:a,altura_cm:b};}return null;}
+function parseMaybe(raw:any):any{let v:any=raw;for(let i=0;i<4;i++){if(typeof v!=='string')break;try{v=JSON.parse(v);}catch{break;}}return v;}
+function toolUses(messages:any[]):Array<{id:string,name:string,index:number}>{const out:any[]=[];for(let i=0;i<(messages||[]).length;i++){const m=messages[i];if(m?.role!=='assistant'||!Array.isArray(m.content))continue;for(const b of m.content)if(b?.type==='tool_use')out.push({id:String(b.id||''),name:String(b.name||''),index:i});}return out;}
+function toolResultRaw(messages:any[],id:string,after:number):string|null{for(let i=after+1;i<(messages||[]).length;i++){const m=messages[i];if(m?.role!=='user'||!Array.isArray(m.content))continue;for(const b of m.content){if(b?.type!=='tool_result'||String(b.tool_use_id||'')!==id)continue;const c=b.content;if(typeof c==='string')return c;if(Array.isArray(c))return c.filter((x:any)=>x?.type==='text').map((x:any)=>String(x?.text??'')).join('');try{return JSON.stringify(c);}catch{return String(c??'');}}}return null;}
+function failed(raw:string|null,p:any):boolean{if(!raw)return true;if(p&&typeof p==='object'&&(p.ok===false||p.erro||p.error))return true;return /"ok"\s*:\s*false|"erro"\s*:|"error"\s*:/i.test(raw);}
+function toolResponse(req:any,name:string,input:any):Response{const id='toolu_'+crypto.randomUUID().replace(/-/g,'');return qrcJson({id:'msg_'+crypto.randomUUID().replace(/-/g,''),type:'message',role:'assistant',model:req?.model||'controller',content:[{type:'tool_use',id,name,input}],stop_reason:'tool_use',stop_sequence:null,usage:{input_tokens:0,output_tokens:0}});}
+function productAmount(p:any):number|null{const a=Array.isArray(p?.financial_authorizations)?p.financial_authorizations.find((x:any)=>x?.kind==='produto')?.amount:null;const n=Number(a);if(Number.isFinite(n)&&n>0)return n;const cents=Number(Array.isArray(p?.precos_verbalizaveis)?p.precos_verbalizaveis.find((x:any)=>x?.tipo==='preco_total')?.centavos:0);return cents>0?cents/100:null;}
+function finalResponse(req:any,ctx:QrcCtx,product:any,freight:any):Response|null{const amount=productAmount(product);const opcoes=Array.isArray(freight?.display_data?.opcoes)?freight.display_data.opcoes:null;if(!amount||!opcoes?.length)return null;const opts=opcoes.map((o:any)=>`${o.servico}: ${o.preco}, ${o.prazo}`).join(' | ');const msg=`Fechando em ${ctx.targetTotal} adesivos: DTF UV R$ ${amount.toFixed(2).replace('.',',')}. Frete para ${ctx.cep.slice(0,5)}-${ctx.cep.slice(5)}: ${opts}. Qual você prefere?`;const decision={responde:true,mensagem:msg,tema:'frete',encaminhou_venda:true,etapa:'fechamento',slots:{produto:'DTF UV',quantidade:`${ctx.targetTotal} adesivos (${ctx.distribution})`,cep:ctx.cep,envio_retirada:'envio',modalidade_logistica:'envio'}};return qrcJson({id:'msg_'+crypto.randomUUID().replace(/-/g,''),type:'message',role:'assistant',model:req?.model||'controller',content:[{type:'text',text:JSON.stringify(decision)}],stop_reason:'end_turn',stop_sequence:null,usage:{input_tokens:0,output_tokens:0}});}
+
+async function readState(phone:string):Promise<any|null>{try{const r=await qrcBaseFetch(`${QRC_URL}/rest/v1/agente_noturno_estado?select=lead_id,slots,updated_at&phone=eq.${encodeURIComponent(phone)}&order=updated_at.desc&limit=1`,{headers:{apikey:QRC_SERVICE,authorization:`Bearer ${QRC_SERVICE}`},signal:AbortSignal.timeout(1500)});if(!r.ok)return null;const rows=await r.json().catch(()=>[]);return Array.isArray(rows)?rows[0]??null:null;}catch{return null;}}
+async function recentHistory(phone:string):Promise<any[]>{try{const suf=phone.replace(/\D/g,'').slice(-8);const since=new Date(Date.now()-30*60*1000).toISOString();const r=await qrcBaseFetch(`${QRC_URL}/rest/v1/fact_conversations?select=direction,message_text,timestamp&phone=like.*${encodeURIComponent(suf)}&timestamp=gte.${encodeURIComponent(since)}&order=timestamp.desc&limit=40`,{headers:{apikey:QRC_SERVICE,authorization:`Bearer ${QRC_SERVICE}`},signal:AbortSignal.timeout(1800)});if(!r.ok)return[];const rows=await r.json().catch(()=>[]);return Array.isArray(rows)?rows:[];}catch{return[];}}
+async function buildCtx(body:any):Promise<QrcCtx|null>{const phone=String(body?.phone??'').replace(/\D/g,'');const msg=String(body?.mensagem??body?.message??'').trim();const res=resolution(msg);if(!phone||!res)return null;const [state,hist]=await Promise.all([readState(phone),recentHistory(phone)]);const slots=state?.slots??{};if(!/dtf\s*uv/i.test(String(slots?.produto??'')))return null;const prior=hist.find((r:any)=>r?.direction==='inbound'&&isAmbiguous(String(r?.message_text??'')));if(!prior)return null;const context=[String(slots?.quantidade??''),String(slots?.arte??''),...hist.map((r:any)=>String(r?.message_text??''))].join('\n');const colors=countedColors(context);if(colors.length<2)return null;const measure=measureFrom(String(slots?.arte??''))||measureFrom(context);const cep=String(slots?.cep??'').replace(/\D/g,'');if(!measure||cep.length!==8)return null;const target=res.mode==='each'?res.n*colors.length:res.n;const distribution=res.mode==='each'?colors.map(c=>`${res.n} ${c}`).join(', '):`${res.n} branco`;return{active:true,phone,leadId:state?.lead_id?String(state.lead_id):null,targetTotal:target,distribution,colors,cep,measure};}
+
+globalThis.fetch=async(input:RequestInfo|URL,init?:RequestInit):Promise<Response>=>{const ctx=qrcAls.getStore();const u=qrcUrl(input);if(!ctx?.active||!/^https:\/\/api\.anthropic\.com\/v1\/messages(?:\?|$)/i.test(u))return qrcBaseFetch(input,init);const raw=await qrcRaw(input,init);if(!raw)return qrcBaseFetch(input,init);let req:any;try{req=JSON.parse(raw);}catch{return qrcBaseFetch(input,init);}if(!Array.isArray(req?.messages)||req?.stream===true)return qrcBaseFetch(input,init);const us=toolUses(req.messages);const pu=us.filter(x=>x.name==='calcular_rendimento_uv');const fu=us.filter(x=>x.name==='calcular_frete');if(!pu.length)return toolResponse(req,'calcular_rendimento_uv',{largura_cm:ctx.measure.largura_cm,altura_cm:ctx.measure.altura_cm,quantidade_desejada:ctx.targetTotal});const pUse=pu[pu.length-1],pRaw=toolResultRaw(req.messages,pUse.id,pUse.index),p=parseMaybe(pRaw);if(failed(pRaw,p))return qrcBaseFetch(input,init);if(!fu.length)return toolResponse(req,'calcular_frete',{cep_destino:ctx.cep});const fUse=fu[fu.length-1],fRaw=toolResultRaw(req.messages,fUse.id,fUse.index),f=parseMaybe(fRaw);if(failed(fRaw,f))return qrcBaseFetch(input,init);return finalResponse(req,ctx,p,f)||qrcBaseFetch(input,init);};
+
+(Deno as any).serve=(...args:any[])=>{const idx=typeof args[0]==='function'?0:1;const handler=args[idx];if(typeof handler!=='function')throw new TypeError('Deno.serve handler missing');args[idx]=async(req:Request,info:any)=>{let ctx:QrcCtx|null=null;try{if(req.method==='POST'&&(req.headers.get('content-type')||'').toLowerCase().includes('application/json')){const body=await req.clone().json().catch(()=>null);if(body)ctx=await buildCtx(body);}}catch{}if(!ctx)return handler(req,info);console.log(JSON.stringify({event:'COLOR_SPLIT_REQUEST_CONTROLLER_ACTIVE',version:QRC_VERSION,phone_final:ctx.phone.slice(-4),target_total:ctx.targetTotal,colors:ctx.colors,cep:ctx.cep}));return await qrcAls.run(ctx,()=>handler(req,info));};return qrcNativeServe(...args as any);};
