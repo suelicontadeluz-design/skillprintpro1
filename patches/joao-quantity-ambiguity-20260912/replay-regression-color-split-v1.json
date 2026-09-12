@@ -1,0 +1,42 @@
+{
+  "name": "REAL_20260912_DTF_UV_COLOR_SPLIT_AFTER_CEP",
+  "source": "fact_conversations lead 75119a03-32ce-4237-8431-50ca6402d73e",
+  "product": "DTF UV",
+  "known_measure_cm": "6x1.6",
+  "known_cep": "11035220",
+  "previous_quantity": "64 adesivos (32 brancos, 16 dourados com contorno preto, 16 prateados com contorno preto)",
+  "trigger": "Seriam 32 brancos ou 16 de cada cor",
+  "expected_trigger_turn": {
+    "tools": [],
+    "must_preserve_slots": ["produto", "arte", "cep", "quantidade", "envio_retirada", "modalidade_logistica"],
+    "must_not_create_financial_operation": true,
+    "must_not_quote_freight": true,
+    "must_ask_clarification": true,
+    "acceptable_clarification": "Só pra eu fechar certo: você quer 32 adesivos brancos no total ou 16 de cada cor?"
+  },
+  "resolutions": [
+    {
+      "customer": "16 de cada cor",
+      "variant_colors": ["branco", "dourado", "prateado"],
+      "must_ignore_as_variant": ["preto em contorno"],
+      "expected_total_quantity": 48,
+      "expected_next_tools": ["calcular_rendimento_uv", "calcular_frete"],
+      "must_reuse_known_cep": true,
+      "must_not_reuse_previous_product_quote_if_quantity_changed": true
+    },
+    {
+      "customer": "32 brancos",
+      "expected_total_quantity": 32,
+      "expected_next_tools": ["calcular_rendimento_uv", "calcular_frete"],
+      "must_reuse_known_cep": true,
+      "must_not_reuse_previous_product_quote_if_quantity_changed": true
+    }
+  ],
+  "negative_controls": [
+    "90 ou 100",
+    "5 ou 10 metros",
+    "A3 ou A4?",
+    "5x5 ou 6x6 para copo long drink",
+    "Da para fazer 10 preto e 8 branco ou tem que ser uma cor só"
+  ]
+}
