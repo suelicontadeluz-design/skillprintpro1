@@ -15,7 +15,7 @@ declare const Deno: any;
 //    de o LLM reinterpretar a referência do cliente;
 // 7) não altera o caminho que já funciona quando o cliente escreve PAC/Sedex/J&T explicitamente.
 
-const FCC_VERSION = 'joao-freight-choice-context/v1';
+const FCC_VERSION = 'joao-freight-choice-context/v1.1';
 const FCC_URL = (Deno.env.get('SUPABASE_URL') ?? '').replace(/\/$/, '');
 const FCC_SERVICE = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
 const fccBaseFetch = globalThis.fetch.bind(globalThis);
@@ -57,6 +57,9 @@ function fccServiceCanon(s: string): string | null {
 function fccMoney(n: number): string {
   return Number(n).toFixed(2).replace('.', ',');
 }
+function fccCents(n: number): number {
+  return Math.round(Number(n) * 100);
+}
 function fccParseOptions(text: string): FccOption[] {
   const out: FccOption[] = [];
   const seen = new Set<string>();
@@ -90,14 +93,14 @@ function fccResolveChoice(text: string, options: FccOption[]): FccChoice | null 
   const amounts = [...String(text || '').matchAll(/([0-9]{1,4}[.,][0-9]{2})/g)]
     .map((m) => Number(m[1].replace(',', '.')))
     .filter((n) => Number.isFinite(n) && n > 0);
-  const amountHits = options.filter((o) => amounts.some((n) => Math.abs(n - o.preco) <= 0.01));
+  const amountHits = options.filter((o) => amounts.some((n) => fccCents(n) === fccCents(o.preco)));
   if (amountHits.length === 1) return { option: amountHits[0], method: 'amount' };
   if (amountHits.length > 1) return null;
 
   const t = fccNorm(text);
   if (/\b(mais barato|mais em conta|menor valor|menor preco)\b/.test(t)) {
-    const min = Math.min(...options.map((o) => o.preco));
-    const hits = options.filter((o) => Math.abs(o.preco - min) <= 0.01);
+    const minCents = Math.min(...options.map((o) => fccCents(o.preco)));
+    const hits = options.filter((o) => fccCents(o.preco) === minCents);
     return hits.length === 1 ? { option: hits[0], method: 'cheapest' } : null;
   }
 
