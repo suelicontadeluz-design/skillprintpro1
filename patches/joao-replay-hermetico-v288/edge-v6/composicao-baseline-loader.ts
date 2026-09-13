@@ -1,0 +1,1 @@
+import "https://raw.githubusercontent.com/suelicontadeluz-design/skillprintpro1/7fad2a5883798d4a673dc47bb8534243e4411f4b/patches/_vendor/b334521/patches/joao-harness-prompt-skills-v11/composicao-baseline-v1.ts";
