@@ -1,0 +1,7 @@
+{
+  "imports": {
+    "https://raw.githubusercontent.com/suelicontadeluz-design/skillprintpro1/d1fca97688c8160f664dbe8065fa68f5bedf50db/patches/joao-replay-hermetico-v288/composicao-v288.ts": "https://raw.githubusercontent.com/suelicontadeluz-design/skillprintpro1/1009e1ea85defab5ecb2f1e4048d61f614d28392/patches/_vendor/b334521/patches/joao-harness-prompt-skills-v11/composicao-baseline-v1.ts",
+    "https://raw.githubusercontent.com/suelicontadeluz-design/skillprintpro1/2c87962721f53fd919f8b964c4ee5b6ce9296049/patches/joao-harness-prompt-skills-v11/prompt-metrics-inner.ts": "https://raw.githubusercontent.com/suelicontadeluz-design/skillprintpro1/1009e1ea85defab5ecb2f1e4048d61f614d28392/patches/_vendor/465bba7/patches/joao-harness-prompt-skills-v11/prompt-metrics-inner.ts",
+    "https://raw.githubusercontent.com/suelicontadeluz-design/skillprintpro1/2c87962721f53fd919f8b964c4ee5b6ce9296049/patches/joao-harness-prompt-skills-v11/router-metrics-outer.ts": "https://raw.githubusercontent.com/suelicontadeluz-design/skillprintpro1/1009e1ea85defab5ecb2f1e4048d61f614d28392/patches/_vendor/f4cde19/patches/joao-harness-prompt-skills-v11/skill-quote-table-v2.ts"
+  }
+}
