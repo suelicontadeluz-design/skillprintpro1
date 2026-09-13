@@ -24,8 +24,8 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 
 declare const Deno: any;
 
-const HARNESS_VERSION = 'joao-replay-produto-candidato-20260913/harness-v2';
-const COMPOSICAO_SHA256 = '9b36f936abd4b1fc0b8abab2bf0f384eae6ed6a20659aa98b462d0e153404955';
+const HARNESS_VERSION = 'joao-replay-produto-candidato-20260913/harness-v3';
+const COMPOSICAO_SHA256 = '2f1da888cba3f0cd5a2fbf252153b14b6129ae1077be30224dd2e6c5387eab38';
 
 // Tarifa registrada no dia, fonte: public.go_ai_model_pricing (effective_from 2026-08-31T23:10:00Z)
 const TARIFA = {
