@@ -18,7 +18,7 @@ jobs:
           ref: joao-fix-produto-canonico-20260913
           fetch-depth: 1
 
-      - name: Aplicar patch por ancoras exatas
+      - name: Aplicar patch por marcadores unicos
         shell: bash
         run: |
           python3 - <<'PY'
@@ -27,11 +27,20 @@ jobs:
           p = Path('patches/joao-slot-proveniencia-escrita/candidato/index.ts')
           s = p.read_text(encoding='utf-8')
 
-          old1 = """  const provSlots = filtrarSlotsPorProveniencia({
-            anteriores: slotsAnteriores,
-            recebidos: decisao.slots || {},
-          """
-          new1 = """  // Produto canonico: resolver deterministico ja existente -> slot persistido.
+          marker_prov = "  const provSlots = filtrarSlotsPorProveniencia({"
+          marker_recebidos = "    recebidos: decisao.slots || {},"
+          marker_obs = "  if (!dryRun) {\n    const prodMacroObs = normalizarProdutoMacro(slotsNovos.produto ?? slotsAnteriores.produto);"
+
+          for nome, marker in [
+              ('provSlots', marker_prov),
+              ('recebidos', marker_recebidos),
+              ('observacao', marker_obs),
+          ]:
+              n = s.count(marker)
+              if n != 1:
+                  raise SystemExit(f'marcador {nome} esperado 1x, encontrado {n}x')
+
+          resolver = """  // Produto canonico: resolver deterministico ja existente -> slot persistido.
           // Precedencia: mensagem explicita do cliente > anuncio de origem (somente sem produto anterior)
           // > slot do modelo submetido ao filtro de proveniencia ja existente.
           const produtoMacroAnteriorResolvido = normalizarProdutoMacro(slotsAnteriores.produto);
@@ -47,50 +56,37 @@ jobs:
             ...(produtoDeterministico ? { produto: produtoDeterministico } : {}),
           };
 
-          const provSlots = filtrarSlotsPorProveniencia({
-            anteriores: slotsAnteriores,
-            recebidos: slotsParaProveniencia,
           """
-          if s.count(old1) != 1:
-              raise SystemExit(f'ancora 1 esperada 1x, encontrada {s.count(old1)}x')
-          s = s.replace(old1, new1, 1)
+          s = s.replace(marker_prov, resolver + marker_prov, 1)
+          s = s.replace(marker_recebidos, "    recebidos: slotsParaProveniencia,", 1)
 
-          old2 = """  const slotsNovos: any = {
-            ...slotsAnteriores,
-            ...slotsRecebidos,
-            grade: (Array.isArray(slotsRecebidos.grade) && slotsRecebidos.grade.length > 0) ? slotsRecebidos.grade : slotsAnteriores.grade,
-            estampas: (Array.isArray(slotsRecebidos.estampas) && slotsRecebidos.estampas.length > 0) ? slotsRecebidos.estampas : slotsAnteriores.estampas,
-          };
-          """
-          new2 = old2 + """
-          // Proveniencia observavel sem alterar o schema do estado: registra somente quando
-          // um produto canonico novo/mudado foi efetivamente aceito e persistido.
-          const produtoMacroDepoisResolvido = normalizarProdutoMacro(slotsNovos.produto);
-          const produtoFontePersistida = produtoMacroDepoisResolvido
-            && produtoMacroDepoisResolvido !== produtoMacroAnteriorResolvido
-            && slotsRecebidos.produto !== undefined
-              ? (produtoDeterministico
-                  && produtoMacroDepoisResolvido === produtoDeterministico
+          obs = """  if (!dryRun) {
+            const prodMacroObs = normalizarProdutoMacro(slotsNovos.produto ?? slotsAnteriores.produto);
+            // Proveniencia observavel sem schema novo: grava somente quando um produto
+            // canonico novo/mudado foi efetivamente aceito e persistido.
+            const produtoFontePersistida = prodMacroObs
+              && prodMacroObs !== produtoMacroAnteriorResolvido
+              && slotsRecebidos.produto !== undefined
+                ? (produtoDeterministico && prodMacroObs === produtoDeterministico
                     ? produtoDeterministicoFonte
                     : 'modelo_slot')
-              : null;
-          if (!dryRun && produtoFontePersistida) {
-            await logErro('produto_proveniencia_resolvida', {
-              phone: phone.slice(-4),
-              turn_id: obsTurnId,
-              produto_macro: produtoMacroDepoisResolvido,
-              fonte: produtoFontePersistida,
-            });
-          }
+                : null;
+            if (produtoFontePersistida) {
+              await logErro('produto_proveniencia_resolvida', {
+                phone: phone.slice(-4),
+                turn_id: obsTurnId,
+                produto_macro: prodMacroObs,
+                fonte: produtoFontePersistida,
+              });
+            }
           """
-          if s.count(old2) != 1:
-              raise SystemExit(f'ancora 2 esperada 1x, encontrada {s.count(old2)}x')
-          s = s.replace(old2, new2, 1)
+          s = s.replace(marker_obs, obs, 1)
 
           p.write_text(s, encoding='utf-8')
           PY
 
           git diff --check
+          git diff --stat
           git diff -- patches/joao-slot-proveniencia-escrita/candidato/index.ts
 
       - name: Commit do candidato
