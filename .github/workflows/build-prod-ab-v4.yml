@@ -1,0 +1,47 @@
+name: build-prod-ab-v4
+
+on:
+  push:
+    branches:
+      - joao-prod-ab-v4-20260913
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: joao-prod-ab-v4-20260913
+          fetch-depth: 1
+      - name: Gerar composição canônica de produção
+        shell: bash
+        run: |
+          set -euo pipefail
+          src='patches/agente-noturno-index-20260912/v288.ts'
+          dst='patches/agente-noturno-index-20260913/v291.ts'
+          mkdir -p "$(dirname "$dst")"
+          cp "$src" "$dst"
+          before='0bd29b6563292368fa2968b903967fa5dea9be36'
+          after='dab2cd850f940c939d3dc132fe8b442f5be111b4'
+          test "$(grep -o "$before" "$dst" | wc -l)" -eq 1
+          sed -i "s/$before/$after/" "$dst"
+          sed -i '1s/.*/\/\/ agente-noturno v291 — core canônico A+B v4 — 13\/09\/2026/' "$dst"
+          test "$(grep -o "$after" "$dst" | wc -l)" -eq 1
+          test "$(grep -o "$before" "$dst" | wc -l)" -eq 0
+          git diff --check
+          git diff -- "$dst"
+      - name: Commit e limpar workflow temporário
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add patches/agente-noturno-index-20260913/v291.ts
+          git rm .github/workflows/build-prod-ab-v4.yml
+          git commit -m 'fix(joao): promover core canônico A+B v4 na composição v291'
+          git push origin HEAD:joao-prod-ab-v4-20260913
