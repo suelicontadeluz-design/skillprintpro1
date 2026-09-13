@@ -36,31 +36,28 @@ jobs:
           old='0bd29b6563292368fa2968b903967fa5dea9be36/patches/joao-slot-proveniencia-escrita/candidato/index.ts'
           new='2a6aa7a6630a233a14f3e73e8fda282bb001de99/patches/joao-slot-proveniencia-escrita/candidato/index.ts'
           assert c.count(old)==1, c.count(old)
-          c=c.replace(old,new,1); cp.write_text(c,encoding='utf-8')
+          c=c.replace(old,new,1)
+          cp.write_text(c,encoding='utf-8')
           ch=hashlib.sha256(c.encode()).hexdigest()
           h=hp.read_text(encoding='utf-8')
           reps={
-            "const HARNESS_VERSION = 'joao-replay-hermetico-v288/harness-v2';":"const HARNESS_VERSION = 'joao-replay-produto-candidato-20260913/harness-v2';",
-            "const COMPOSICAO_SHA256 = 'b33776a0908ae7bf551a27512110446711e2a093d13bb97f9b763470bef7025b';":f"const COMPOSICAO_SHA256 = '{ch}';",
-            "await import('./composicao-v288.ts');":"await import('./composicao.ts');",
-            "  leituras: Leitura[];\n":"  leituras: Leitura[];\n  capturas_escrita?: any[];\n",
-            "function bloquear(raw: string, metodo: string, motivo: string, alvo?: string) {":"function bloquear(raw: string, metodo: string, motivo: string, alvo?: string, input?: any, init?: any) {",
-            "        if (d.decisao === 'BLOCK') return bloquear(raw, metodo, d.motivo, d.alvo);":"        if (d.decisao === 'BLOCK') return bloquear(raw, metodo, d.motivo, d.alvo, input, init);",
-            "  return bloquear(raw, metodo, motivo, alvo);":"  return bloquear(raw, metodo, motivo, alvo, input, init);",
-            "    bloqueios: st.bloqueios,\n":"    bloqueios: st.bloqueios,\n    capturas_escrita: st.capturas_escrita ?? [],\n",
+              "const HARNESS_VERSION = 'joao-replay-hermetico-v288/harness-v2';":"const HARNESS_VERSION = 'joao-replay-produto-candidato-20260913/harness-v2';",
+              "const COMPOSICAO_SHA256 = 'b33776a0908ae7bf551a27512110446711e2a093d13bb97f9b763470bef7025b';":f"const COMPOSICAO_SHA256 = '{ch}';",
+              "await import('./composicao-v288.ts');":"await import('./composicao.ts');",
+              "  leituras: Leitura[];\n":"  leituras: Leitura[];\n  capturas_escrita?: any[];\n",
+              "function bloquear(raw: string, metodo: string, motivo: string, alvo?: string) {":"function bloquear(raw: string, metodo: string, motivo: string, alvo?: string, input?: any, init?: any) {",
+              "        if (d.decisao === 'BLOCK') return bloquear(raw, metodo, d.motivo, d.alvo);":"        if (d.decisao === 'BLOCK') return bloquear(raw, metodo, d.motivo, d.alvo, input, init);",
+              "  return bloquear(raw, metodo, motivo, alvo);":"  return bloquear(raw, metodo, motivo, alvo, input, init);",
+              "    bloqueios: st.bloqueios,\n":"    bloqueios: st.bloqueios,\n    capturas_escrita: st.capturas_escrita ?? [],\n",
           }
           for a,b in reps.items():
-            assert h.count(a)==1,(a,h.count(a)); h=h.replace(a,b,1)
+              assert h.count(a)==1,(a,h.count(a))
+              h=h.replace(a,b,1)
           marker="    s.leituras.push({ alvo: alvo ?? raw, destino: 'BLOCK', filtro_aplicado: motivo });"
           assert h.count(marker)==1,h.count(marker)
-          add=marker+"""
-    if (alvo === 'agente_noturno_estado' || alvo === 'joao_slots_observacao' || alvo === 'error_log') {
-      let corpo: any = null;
-      try { const bruto = init?.body; corpo = typeof bruto === 'string' ? JSON.parse(bruto) : null; } catch { corpo = null; }
-      (s.capturas_escrita ??= []).push({ alvo, metodo, corpo });
-    }
-"""
-          h=h.replace(marker,add,1); hp.write_text(h,encoding='utf-8')
+          add=marker+"\n    if (alvo === 'agente_noturno_estado' || alvo === 'joao_slots_observacao' || alvo === 'error_log') {\n      let corpo: any = null;\n      try { const bruto = init?.body; corpo = typeof bruto === 'string' ? JSON.parse(bruto) : null; } catch { corpo = null; }\n      (s.capturas_escrita ??= []).push({ alvo, metodo, corpo });\n    }"
+          h=h.replace(marker,add,1)
+          hp.write_text(h,encoding='utf-8')
           (d/'META.txt').write_text(f'baseline_harness=b0d7bce7f08cda0392ccff9888123ce759b02bb9\ncandidate_core=2a6aa7a6630a233a14f3e73e8fda282bb001de99\ncomposition_sha256={ch}\n',encoding='utf-8')
           PY
           printf '%s\n' '/// <reference lib="deno.ns" />' > /tmp/harness-check.ts
