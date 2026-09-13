@@ -24,8 +24,8 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 
 declare const Deno: any;
 
-const HARNESS_VERSION = 'joao-replay-produto-candidato-20260913/harness-v1';
-const COMPOSICAO_SHA256 = 'fd993fa50560ad449db8a821e237f8586443a1b41f84efe6384544ca074c6a63';
+const HARNESS_VERSION = 'joao-replay-produto-candidato-20260913/harness-v2';
+const COMPOSICAO_SHA256 = '9b36f936abd4b1fc0b8abab2bf0f384eae6ed6a20659aa98b462d0e153404955';
 
 // Tarifa registrada no dia, fonte: public.go_ai_model_pricing (effective_from 2026-08-31T23:10:00Z)
 const TARIFA = {
@@ -331,15 +331,11 @@ function bloquear(raw: string, metodo: string, motivo: string, alvo?: string, in
   if (s) {
     s.bloqueios.push({ url: raw, metodo, motivo, origem: origemAproximada() });
     s.leituras.push({ alvo: alvo ?? raw, destino: 'BLOCK', filtro_aplicado: motivo });
-  if (alvo === 'agente_noturno_estado' || alvo === 'joao_slots_observacao' || alvo === 'error_log') {
-    let corpo: any = null;
-    try {
-      const bruto = init?.body;
-      corpo = typeof bruto === 'string' ? JSON.parse(bruto) : null;
-    } catch { corpo = null; }
-    (s.capturas_escrita ??= []).push({ alvo, metodo, corpo });
-  }
-
+    if (alvo === 'agente_noturno_estado' || alvo === 'joao_slots_observacao' || alvo === 'error_log') {
+      let corpo: any = null;
+      try { const bruto = init?.body; corpo = typeof bruto === 'string' ? JSON.parse(bruto) : null; } catch { corpo = null; }
+      (s.capturas_escrita ??= []).push({ alvo, metodo, corpo });
+    }
   }
   let target = raw;
   try { target = new URL(raw).host; } catch { /* mantém raw */ }
