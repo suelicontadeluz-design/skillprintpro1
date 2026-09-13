@@ -2827,7 +2827,7 @@ async function atenderClienteInterno(phone: string, chatName: string, mensagem: 
   } catch {}
   const prodAnuncio = categoriaParaProduto(anuncioTexto);
   const prodCategoria = categoriaParaProduto(categoriaAnuncio);
-  const prodOrigem = prodAnuncio || prodCategoria;
+  const prodOrigem = (anuncioRecente && prodAnuncio) ? prodAnuncio : (prodCategoria || prodAnuncio);
   if (anuncioRecente && prodAnuncio && prodCategoria && prodAnuncio !== prodCategoria) categoriaAnuncio = '';
 
   let conversaAtivaHoje = false; let ultimaMsgJoao = ''; let promessaJaDada = false; let jaDespediuHoje = false;
@@ -4500,20 +4500,26 @@ async function atenderClienteInterno(phone: string, chatName: string, mensagem: 
     const q = Number(it?.qtd); if (Number.isFinite(q) && q > 0) numerosFerramenta.push(q);
   }
   // Produto canonico: resolver deterministico ja existente -> slot persistido.
-// Precedencia: mensagem explicita do cliente > anuncio de origem (somente sem produto anterior)
-// > slot do modelo submetido ao filtro de proveniencia ja existente.
-const produtoMacroAnteriorResolvido = normalizarProdutoMacro(slotsAnteriores.produto);
-const produtoMacroMensagemResolvido = normalizarProdutoMacro(prodMsg);
-const produtoMacroOrigemResolvido = normalizarProdutoMacro(prodOrigem);
-const produtoDeterministico = produtoMacroMensagemResolvido
-  || (!produtoMacroAnteriorResolvido ? produtoMacroOrigemResolvido : null);
-const produtoDeterministicoFonte = produtoMacroMensagemResolvido
-  ? 'mensagem_cliente'
-  : (!produtoMacroAnteriorResolvido && produtoMacroOrigemResolvido ? 'anuncio' : null);
-const slotsParaProveniencia = {
-  ...(decisao.slots || {}),
-  ...(produtoDeterministico ? { produto: produtoDeterministico } : {}),
-};
+  // Precedencia estrita: mensagem explicita > estado anterior aceito > anuncio/origem > modelo filtrado.
+  // Qualquer fonte deterministica substitui apenas a PROPOSTA do modelo antes da porta de proveniencia;
+  // o merge final continua sendo o mesmo e anuncio nunca rebaixa um produto anterior aceito.
+  const produtoMacroAnteriorResolvido = normalizarProdutoMacro(slotsAnteriores.produto);
+  const produtoMacroMensagemResolvido = normalizarProdutoMacro(prodMsg);
+  const produtoMacroOrigemResolvido = normalizarProdutoMacro(prodOrigem);
+  const produtoDeterministico = produtoMacroMensagemResolvido
+    || produtoMacroAnteriorResolvido
+    || produtoMacroOrigemResolvido;
+  const produtoDeterministicoFonte = produtoMacroMensagemResolvido
+    ? 'mensagem_cliente'
+    : produtoMacroAnteriorResolvido
+      ? 'estado_anterior'
+      : produtoMacroOrigemResolvido
+        ? 'anuncio'
+        : null;
+  const slotsParaProveniencia = {
+    ...(decisao.slots || {}),
+    ...(produtoDeterministico ? { produto: produtoDeterministico } : {}),
+  };
 
   const provSlots = filtrarSlotsPorProveniencia({
     anteriores: slotsAnteriores,
