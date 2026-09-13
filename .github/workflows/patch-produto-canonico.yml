@@ -1,3 +1,4 @@
+# trigger do runner temporario definido no main
 name: patch-produto-canonico
 
 on:
@@ -18,86 +19,5 @@ jobs:
           ref: joao-fix-produto-canonico-20260913
           fetch-depth: 1
 
-      - name: Aplicar patch por marcadores unicos
-        shell: bash
-        run: |
-          python3 - <<'PY'
-          from pathlib import Path
-
-          p = Path('patches/joao-slot-proveniencia-escrita/candidato/index.ts')
-          s = p.read_text(encoding='utf-8')
-
-          marker_prov = "  const provSlots = filtrarSlotsPorProveniencia({"
-          marker_recebidos = "    recebidos: decisao.slots || {},"
-          marker_obs = "  if (!dryRun) {\n    const prodMacroObs = normalizarProdutoMacro(slotsNovos.produto ?? slotsAnteriores.produto);"
-
-          for nome, marker in [
-              ('provSlots', marker_prov),
-              ('recebidos', marker_recebidos),
-              ('observacao', marker_obs),
-          ]:
-              n = s.count(marker)
-              if n != 1:
-                  raise SystemExit(f'marcador {nome} esperado 1x, encontrado {n}x')
-
-          resolver = """  // Produto canonico: resolver deterministico ja existente -> slot persistido.
-          // Precedencia: mensagem explicita do cliente > anuncio de origem (somente sem produto anterior)
-          // > slot do modelo submetido ao filtro de proveniencia ja existente.
-          const produtoMacroAnteriorResolvido = normalizarProdutoMacro(slotsAnteriores.produto);
-          const produtoMacroMensagemResolvido = normalizarProdutoMacro(prodMsg);
-          const produtoMacroOrigemResolvido = normalizarProdutoMacro(prodOrigem);
-          const produtoDeterministico = produtoMacroMensagemResolvido
-            || (!produtoMacroAnteriorResolvido ? produtoMacroOrigemResolvido : null);
-          const produtoDeterministicoFonte = produtoMacroMensagemResolvido
-            ? 'mensagem_cliente'
-            : (!produtoMacroAnteriorResolvido && produtoMacroOrigemResolvido ? 'anuncio' : null);
-          const slotsParaProveniencia = {
-            ...(decisao.slots || {}),
-            ...(produtoDeterministico ? { produto: produtoDeterministico } : {}),
-          };
-
-          """
-          s = s.replace(marker_prov, resolver + marker_prov, 1)
-          s = s.replace(marker_recebidos, "    recebidos: slotsParaProveniencia,", 1)
-
-          obs = """  if (!dryRun) {
-            const prodMacroObs = normalizarProdutoMacro(slotsNovos.produto ?? slotsAnteriores.produto);
-            // Proveniencia observavel sem schema novo: grava somente quando um produto
-            // canonico novo/mudado foi efetivamente aceito e persistido.
-            const produtoFontePersistida = prodMacroObs
-              && prodMacroObs !== produtoMacroAnteriorResolvido
-              && slotsRecebidos.produto !== undefined
-                ? (produtoDeterministico && prodMacroObs === produtoDeterministico
-                    ? produtoDeterministicoFonte
-                    : 'modelo_slot')
-                : null;
-            if (produtoFontePersistida) {
-              await logErro('produto_proveniencia_resolvida', {
-                phone: phone.slice(-4),
-                turn_id: obsTurnId,
-                produto_macro: prodMacroObs,
-                fonte: produtoFontePersistida,
-              });
-            }
-          """
-          s = s.replace(marker_obs, obs, 1)
-
-          p.write_text(s, encoding='utf-8')
-          PY
-
-          git diff --check
-          git diff --stat
-          git diff -- patches/joao-slot-proveniencia-escrita/candidato/index.ts
-
-      - name: Commit do candidato
-        shell: bash
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add patches/joao-slot-proveniencia-escrita/candidato/index.ts
-          if git diff --cached --quiet; then
-            echo "Nenhuma alteracao a commitar"
-            exit 0
-          fi
-          git commit -m "fix(joao): persistir produto canonico com proveniencia"
-          git push origin HEAD:joao-fix-produto-canonico-20260913
+      - name: Guard rail local
+        run: echo "patch aplicado pelo runner temporario do main"
