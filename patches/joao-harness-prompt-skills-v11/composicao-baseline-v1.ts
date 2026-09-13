@@ -16,14 +16,10 @@ import "https://raw.githubusercontent.com/suelicontadeluz-design/skillprintpro1/
 import "https://raw.githubusercontent.com/suelicontadeluz-design/skillprintpro1/0086d4a402821604a66320e01f09431e2fc1a5f9/patches/joao-sales-continuity-20260907/sales-continuity-preload.ts";
 import "https://raw.githubusercontent.com/suelicontadeluz-design/skillprintpro1/0086d4a402821604a66320e01f09431e2fc1a5f9/patches/joao-sales-continuity-20260907/freshness-preload.ts";
 import "https://raw.githubusercontent.com/suelicontadeluz-design/skillprintpro1/af7c3dbef2ebcc81af86901efa0bd11321218d1d/patches/joao-external-link-intake-20260909/external-link-intake-preload-v3.ts";
-
-// Sonda interna: vê o corpo FINAL depois do Advisor; só mede contagens.
-import "https://raw.githubusercontent.com/suelicontadeluz-design/skillprintpro1/f3894fc0296658b29fdff86c22e57d9bb3d04f90/patches/joao-harness-prompt-skills-v11/prompt-metrics-inner.ts";
+import "https://raw.githubusercontent.com/suelicontadeluz-design/skillprintpro1/2c87962721f53fd919f8b964c4ee5b6ce9296049/patches/joao-harness-prompt-skills-v11/prompt-metrics-inner.ts";
 import "https://raw.githubusercontent.com/suelicontadeluz-design/skillprintpro1/a0c2fa421fb7ffda4247c6aa6b39a65fcb296fc5/patches/joao-skill-advisor-20260908/skill-advisor-preload.ts";
 import "https://raw.githubusercontent.com/suelicontadeluz-design/skillprintpro1/275aec6d1f89f0cd8de1ad33c266684a2ecf9491/patches/joao-skill-advisor-20260908/skill-router-preload.ts";
-// Sonda externa: vê se o Router devolveu resposta determinística sem provider.
-import "https://raw.githubusercontent.com/suelicontadeluz-design/skillprintpro1/f3894fc0296658b29fdff86c22e57d9bb3d04f90/patches/joao-harness-prompt-skills-v11/router-metrics-outer.ts";
-
+import "https://raw.githubusercontent.com/suelicontadeluz-design/skillprintpro1/2c87962721f53fd919f8b964c4ee5b6ce9296049/patches/joao-harness-prompt-skills-v11/router-metrics-outer.ts";
 import "https://raw.githubusercontent.com/suelicontadeluz-design/skillprintpro1/e713a01b0f252dad40113d472b4b6a4046d58b49/patches/joao-capability-guard-20260909/capability-guard-preload-v1.1.ts";
 import "https://raw.githubusercontent.com/suelicontadeluz-design/skillprintpro1/13dcea75a309d4bddf467646a638ef1f5b5bf0de/patches/joao-layout-disambiguation-20260908/layout-disambiguation-preload.ts";
 import "https://raw.githubusercontent.com/suelicontadeluz-design/skillprintpro1/dab2cd850f940c939d3dc132fe8b442f5be111b4/patches/joao-slot-proveniencia-escrita/candidato/index.ts";
