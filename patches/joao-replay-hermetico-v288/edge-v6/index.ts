@@ -1,1 +1,1 @@
-import "https://raw.githubusercontent.com/suelicontadeluz-design/skillprintpro1/1009e1ea85defab5ecb2f1e4048d61f614d28392/patches/joao-replay-hermetico-v288/wrapper-v6-ledger-obrigatorio.ts";
+import "https://raw.githubusercontent.com/suelicontadeluz-design/skillprintpro1/de81ac1e5122a5f2b74a5a6b9ea796f4ade90ba7/patches/joao-replay-hermetico-v288/wrapper-v6-ledger-obrigatorio.ts";
