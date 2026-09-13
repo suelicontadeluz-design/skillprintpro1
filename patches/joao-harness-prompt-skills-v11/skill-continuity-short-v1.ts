@@ -1,11 +1,13 @@
 import "https://raw.githubusercontent.com/suelicontadeluz-design/skillprintpro1/f4cde198f9a7876145abd21976e279161f9d6869/patches/joao-harness-prompt-skills-v11/skill-quote-table-v2.ts";
 
-// Harness-only candidate. Production implementation must use request-local phone/inbounds.
+// Harness-only candidate. Production implementation must use request-local phone/inbounds/ultimaMsgJoao.
 const CS_BASE_FETCH = globalThis.fetch.bind(globalThis);
-const CS_VERSION = 'skill_continuity_short/v1';
+const CS_VERSION = 'skill_continuity_short/v1.1';
 const CS_PREFIX = 'toolu_skill_continuity_short_';
 const csInboundByPhone = new Map<string, Array<{message_text:string;timestamp:string}>>();
+const csOutboundByPhone = new Map<string,string>();
 let csLastPhone = '';
+
 function csUrl(input: RequestInfo | URL): string { return typeof input === 'string' ? input : input instanceof URL ? input.href : input.url; }
 async function csBody(input: RequestInfo | URL, init?: RequestInit): Promise<string> { if (typeof init?.body === 'string') return init.body; if (init?.body != null) return String(init.body); if (typeof Request !== 'undefined' && input instanceof Request) { try { return await input.clone().text(); } catch {} } return ''; }
 function csText(content:any): string { if (typeof content === 'string') return content.trim(); if (!Array.isArray(content)) return ''; return content.filter((x:any)=>x?.type==='text').map((x:any)=>String(x?.text??'')).join('\n').trim(); }
@@ -22,13 +24,32 @@ function csFinal(raw:string,arteAnterior:string): any | null { let j:any; try{j=
 function csAnthropicText(decision:any): Response { const text=JSON.stringify(decision); const payload={id:`msg_${crypto.randomUUID().replace(/-/g,'').slice(0,20)}`,type:'message',role:'assistant',model:'cortex-skill-continuity-short',content:[{type:'text',text}],stop_reason:'end_turn',stop_sequence:null,usage:{input_tokens:0,output_tokens:0}}; return new Response(JSON.stringify(payload),{status:200,headers:{'content-type':'application/json','x-cortex-skill':CS_VERSION}}); }
 function csAnthropicTool(largura:number,altura:number,copias:number,arteAnterior:string): Response { const id=CS_PREFIX+crypto.randomUUID().replace(/-/g,'').slice(0,18); const payload={id:`msg_${crypto.randomUUID().replace(/-/g,'').slice(0,20)}`,type:'message',role:'assistant',model:'cortex-skill-continuity-short',content:[{type:'tool_use',id,name:'calcular_dtf_por_arte',input:{largura_cm:largura,altura_cm:altura,copias,_arte_anterior:arteAnterior}}],stop_reason:'tool_use',stop_sequence:null,usage:{input_tokens:0,output_tokens:0}}; return new Response(JSON.stringify(payload),{status:200,headers:{'content-type':'application/json','x-cortex-skill':CS_VERSION}}); }
 async function csMetric(event:string){try{await CS_BASE_FETCH(`https://harness-metrics.invalid/skill-continuity-short?event=${encodeURIComponent(event)}&version=${encodeURIComponent(CS_VERSION)}`,{method:'GET'});}catch{}}
-async function csObserveFact(url:string,res:Response){ try{const u=new URL(url); if(!u.pathname.endsWith('/rest/v1/fact_conversations'))return; const p=String(u.searchParams.get('phone')||'').replace(/^eq\./,''); if(!/^\d{10,13}$/.test(p))return; csLastPhone=p; const dir=String(u.searchParams.get('direction')||''); if(dir&&dir!=='eq.inbound')return; const rows=await res.clone().json(); if(!Array.isArray(rows))return; const good=rows.filter((r:any)=>typeof r?.message_text==='string').map((r:any)=>({message_text:String(r.message_text),timestamp:String(r.timestamp||'')})); if(good.length){csInboundByPhone.set(p,good); await csMetric(`cache_inbound_${good.length}`);} }catch{} }
+async function csObserveFact(url:string,res:Response){
+  try{
+    const u=new URL(url); if(!u.pathname.endsWith('/rest/v1/fact_conversations'))return;
+    const p=String(u.searchParams.get('phone')||'').replace(/^eq\./,''); if(!/^\d{10,13}$/.test(p))return; csLastPhone=p;
+    const dir=String(u.searchParams.get('direction')||''); const rows=await res.clone().json(); if(!Array.isArray(rows))return;
+    if(dir==='eq.inbound'){
+      const good=rows.filter((r:any)=>typeof r?.message_text==='string').map((r:any)=>({message_text:String(r.message_text),timestamp:String(r.timestamp||'')}));
+      if(good.length){csInboundByPhone.set(p,good); await csMetric(`cache_inbound_${good.length}`);}
+    } else if(dir==='eq.outbound'){
+      const chosen=rows.find((r:any)=>r?.source==='joao'&&typeof r?.message_text==='string') || rows.find((r:any)=>typeof r?.message_text==='string');
+      if(chosen?.message_text){csOutboundByPhone.set(p,String(chosen.message_text)); await csMetric('cache_last_outbound');}
+    }
+  }catch{}
+}
 
-globalThis.fetch=async(input:RequestInfo|URL,init?:RequestInit):Promise<Response>=>{ const url=csUrl(input); if(!/^https:\/\/api\.anthropic\.com\/v1\/messages(?:\?|$)/i.test(url)){ const res=await CS_BASE_FETCH(input,init); if(url.includes('/rest/v1/fact_conversations'))await csObserveFact(url,res); return res; } const raw=await csBody(input,init); if(!raw)return CS_BASE_FETCH(input,init); let body:any; try{body=JSON.parse(raw);}catch{return CS_BASE_FETCH(input,init);} if(typeof body?.system!=='string'||!Array.isArray(body?.messages))return CS_BASE_FETCH(input,init);
+globalThis.fetch=async(input:RequestInfo|URL,init?:RequestInit):Promise<Response>=>{
+  const url=csUrl(input);
+  if(!/^https:\/\/api\.anthropic\.com\/v1\/messages(?:\?|$)/i.test(url)){
+    const res=await CS_BASE_FETCH(input,init); if(url.includes('/rest/v1/fact_conversations'))await csObserveFact(url,res); return res;
+  }
+  const raw=await csBody(input,init); if(!raw)return CS_BASE_FETCH(input,init); let body:any; try{body=JSON.parse(raw);}catch{return CS_BASE_FETCH(input,init);} if(typeof body?.system!=='string'||!Array.isArray(body?.messages))return CS_BASE_FETCH(input,init);
   const own=csOwnResult(body.messages); if(own){const d=csFinal(own.raw,own.arteAnterior); if(!d){await csMetric('tool_result_unusable');return CS_BASE_FETCH(input,init);} await csMetric('final_deterministic'); return csAnthropicText(d);}
   const inbound=csInbound(body.messages); const n=csShortInt(inbound); if(!n)return CS_BASE_FETCH(input,init); await csMetric('bare_number_seen');
   const slots=csSlots(body.system); if(String(slots?.produto||'').toLowerCase()!=='dtf_textil'||Number(slots?.quantidade)>0){await csMetric('fail_product_or_quantity');return CS_BASE_FETCH(input,init);}
-  const q=csQuestion(body.system); if(!/(medida|largura|altura)/i.test(q)||!/(quant|c[oó]pias?)/i.test(q)){await csMetric('fail_question_contract');return CS_BASE_FETCH(input,init);}
+  const markerQuestion=csQuestion(body.system); const actualQuestion=csOutboundByPhone.get(csLastPhone)||''; const q=markerQuestion||actualQuestion;
+  if(!/(medida|largura|altura)/i.test(q)||!/(quant|c[oó]pias?)/i.test(q)){await csMetric(markerQuestion?'fail_marker_question_contract':'fail_outbound_question_contract');return CS_BASE_FETCH(input,init);}
   const rows=csInboundByPhone.get(csLastPhone)||[]; const dim=csDimension(rows); if(!dim){await csMetric(`no_recent_dimension_rows_${rows.length}`);return CS_BASE_FETCH(input,init);}
-  await csMetric('tool_request'); return csAnthropicTool(dim.largura,dim.altura,n,String(slots?.arte||''));
+  await csMetric(markerQuestion?'tool_request_marker':'tool_request_outbound'); return csAnthropicTool(dim.largura,dim.altura,n,String(slots?.arte||''));
 };
