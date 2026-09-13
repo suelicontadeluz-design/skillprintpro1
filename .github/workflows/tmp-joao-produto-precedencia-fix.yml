@@ -1,0 +1,124 @@
+name: tmp-joao-produto-precedencia-fix
+
+on:
+  push:
+    branches:
+      - joao-fix-produto-canonico-20260913
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: joao-fix-produto-canonico-20260913
+          fetch-depth: 1
+
+      - name: Aplicar precedencia estrita no core
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          p = Path('patches/joao-slot-proveniencia-escrita/candidato/index.ts')
+          s = p.read_text(encoding='utf-8')
+
+          lateral = "  const prodOrigem = prodAnuncio || prodCategoria;"
+          canonica = "  const prodOrigem = (anuncioRecente && prodAnuncio) ? prodAnuncio : (prodCategoria || prodAnuncio);"
+          if s.count(lateral) != 1:
+              raise SystemExit(f'prodOrigem lateral esperado 1x, encontrado {s.count(lateral)}x')
+          s = s.replace(lateral, canonica, 1)
+
+          ini = "  // Produto canonico: resolver deterministico ja existente -> slot persistido.\n"
+          fim = "\n  const provSlots = filtrarSlotsPorProveniencia({"
+          if s.count(ini) != 1 or s.count(fim) != 1:
+              raise SystemExit(f'bloco resolver ambiguo: ini={s.count(ini)} fim={s.count(fim)}')
+          a = s.index(ini)
+          b = s.index(fim, a)
+          resolver = """  // Produto canonico: resolver deterministico ja existente -> slot persistido.
+  // Precedencia estrita: mensagem explicita > estado anterior aceito > anuncio/origem > modelo filtrado.
+  // Qualquer fonte deterministica substitui apenas a PROPOSTA do modelo antes da porta de proveniencia;
+  // o merge final continua sendo o mesmo e anuncio nunca rebaixa um produto anterior aceito.
+  const produtoMacroAnteriorResolvido = normalizarProdutoMacro(slotsAnteriores.produto);
+  const produtoMacroMensagemResolvido = normalizarProdutoMacro(prodMsg);
+  const produtoMacroOrigemResolvido = normalizarProdutoMacro(prodOrigem);
+  const produtoDeterministico = produtoMacroMensagemResolvido
+    || produtoMacroAnteriorResolvido
+    || produtoMacroOrigemResolvido;
+  const produtoDeterministicoFonte = produtoMacroMensagemResolvido
+    ? 'mensagem_cliente'
+    : produtoMacroAnteriorResolvido
+      ? 'estado_anterior'
+      : produtoMacroOrigemResolvido
+        ? 'anuncio'
+        : null;
+  const slotsParaProveniencia = {
+    ...(decisao.slots || {}),
+    ...(produtoDeterministico ? { produto: produtoDeterministico } : {}),
+  };
+"""
+          s = s[:a] + resolver + s[b:]
+
+          p.write_text(s, encoding='utf-8')
+          PY
+
+          git diff --check
+          git diff -- patches/joao-slot-proveniencia-escrita/candidato/index.ts
+          test "$(git diff --name-only | wc -l)" -eq 1
+          test "$(git diff --name-only)" = "patches/joao-slot-proveniencia-escrita/candidato/index.ts"
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add patches/joao-slot-proveniencia-escrita/candidato/index.ts
+          git commit -m "fix(joao): aplicar precedencia estrita de produto"
+          git push origin HEAD:joao-fix-produto-canonico-20260913
+          echo "CORE_SHA=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
+
+      - name: Repinar replay e remover runner temporario
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import hashlib, os, re
+
+          core = os.environ['CORE_SHA']
+          comp = Path('patches/joao-replay-produto-candidato-20260913/composicao.ts')
+          text = comp.read_text(encoding='utf-8')
+          rx = r'(raw\.githubusercontent\.com/suelicontadeluz-design/skillprintpro1/)[0-9a-f]{40}(/patches/joao-slot-proveniencia-escrita/candidato/index\.ts)'
+          text2, n = re.subn(rx, rf'\g<1>{core}\g<2>', text, count=1)
+          if n != 1:
+              raise SystemExit(f'import core esperado 1x, encontrado {n}x')
+          comp.write_text(text2, encoding='utf-8')
+          comp_hash = hashlib.sha256(text2.encode()).hexdigest()
+
+          h = Path('patches/joao-replay-produto-candidato-20260913/harness.ts')
+          hs = h.read_text(encoding='utf-8')
+          hs, n1 = re.subn(r"const HARNESS_VERSION = 'joao-replay-produto-candidato-20260913/harness-v\d+';",
+                           "const HARNESS_VERSION = 'joao-replay-produto-candidato-20260913/harness-v3';", hs, count=1)
+          hs, n2 = re.subn(r"const COMPOSICAO_SHA256 = '[0-9a-f]{64}';",
+                           f"const COMPOSICAO_SHA256 = '{comp_hash}';", hs, count=1)
+          if n1 != 1 or n2 != 1:
+              raise SystemExit(f'harness markers invalidos: version={n1} hash={n2}')
+          h.write_text(hs, encoding='utf-8')
+
+          m = Path('patches/joao-replay-produto-candidato-20260913/META.txt')
+          ms = m.read_text(encoding='utf-8')
+          ms, n3 = re.subn(r'candidate_core=[0-9a-f]{40}', f'candidate_core={core}', ms, count=1)
+          ms, n4 = re.subn(r'composition_sha256=[0-9a-f]{64}', f'composition_sha256={comp_hash}', ms, count=1)
+          if n3 != 1 or n4 != 1:
+              raise SystemExit(f'META markers invalidos: core={n3} hash={n4}')
+          m.write_text(ms, encoding='utf-8')
+          PY
+
+          rm .github/workflows/tmp-joao-produto-precedencia-fix.yml
+          git diff --check
+          git add patches/joao-replay-produto-candidato-20260913/composicao.ts \
+                  patches/joao-replay-produto-candidato-20260913/harness.ts \
+                  patches/joao-replay-produto-candidato-20260913/META.txt \
+                  .github/workflows/tmp-joao-produto-precedencia-fix.yml
+          git commit -m "test(joao): repinar replay no core de precedencia estrita"
+          git push origin HEAD:joao-fix-produto-canonico-20260913
