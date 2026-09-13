@@ -247,3 +247,70 @@ HTTP. Publicação e bundle estão provados; o carregamento em runtime não.
 
 Falta rodar `POST {"modo":"inspecionar"}` com `Bearer REPLAY_RUNNER_JWT`. Esperado:
 `camadas_fetch_capturadas: 33`, `deno_serve_chamadas: 1`, `handler_producao: true`.
+
+---
+
+# Fase 0.2-pré-B (13/09/2026)
+
+## P16. `fn_joao_repeat_order_context_by_inbound_v1` fica bloqueada
+
+É `STABLE` e não escreve, mas lê estado **mutável** que o palco não capturou (histórico
+de pedidos por inbound). Não dá para servir do palco nem para rodar ao vivo sem furar o
+determinismo. Está em `BLOCK` por padrão (regra "leitura não classificada = BLOCK").
+
+O preload 27 (`repeat-order-history-preload-v1`) a chama. Casos que dependam de
+histórico de recompra vão ver a chamada bloqueada e podem divergir de produção.
+
+**Para fechar:** acrescentar a saída dela a `rpc_saidas` numa recaptura
+(`versao_palco = 2`), como já é feito com as outras três RPCs de contexto.
+
+---
+
+## P17. `REPLAY_RUNNER_JWT` não está no Vault — rota C1 indisponível
+
+`select name from vault.secrets` devolve 14 segredos; **nenhum é o do runner de
+replay**. Os que existem: `botconversa_api_key_v1`, `cortex_gate6c_supabase_anon_jwt`,
+`go_multimodel_edge_key_v1`, `internal_edge_cron_shared_secret_v1`,
+`meta_graph_access_token_v1`, `patricia_shadow_edge_token`,
+`rd_crm_webhook_shared_secret_v1`, `rd_legacy_oauth_client_id_v1`,
+`rd_legacy_oauth_client_secret_v1`, `rd_stage_sync_cron_token`,
+`ricardo_edge_cron_token`, `v5_auditor_patricia_runtime_password`,
+`v5_executor_worker_runtime_password`, `zapi_webhook_ingress_secret_v1`.
+
+O segredo existe apenas como **variável de ambiente da edge**
+(`Deno.env.get('REPLAY_RUNNER_JWT')`), que o banco não alcança.
+
+A sonda `fn_replay_v288_boot_probe_v1` foi criada e **falha fechada** com
+`SEGREDO_AUSENTE_NO_VAULT` e a instrução de cadastro. Assim que o valor for cadastrado
+como `replay_runner_jwt_v1`, a rota C1 passa a funcionar sem mais nenhuma mudança.
+
+Não cadastrei o segredo: não conheço o valor, e inventá-lo seria pior que parar.
+
+---
+
+## P18. `pixel_events` congelada por lead, não inteira
+
+32.565 linhas na tabela. Congelar inteira em 29 palcos seria inviável. O palco guarda
+só as linhas do `lead_id` do caso. Se algum caminho do núcleo ler `pixel_events` por
+outro critério (visitor_id, campanha), o filtro não vai bater e a leitura devolverá
+vazio em vez de bloquear — é o único ponto do roteamento onde "vazio" pode mascarar
+uma leitura fora do palco.
+
+Baixo risco (o núcleo lê `pixel_events` em 1 sítio), mas vale cravar na 0.1b.
+
+---
+
+## P19. `TZ` da edge não verificado
+
+O relógio congelado preserva o timezone do runtime; a §3.2 do briefing pede confirmar
+que a edge roda em `America/Sao_Paulo`. `modo: "inspecionar"` devolve o `TZ`, mas o
+boot não pôde ser executado (P17/P15). **Conferir junto com o boot.** Se a edge rodar
+em UTC e produção também, não há problema; divergência entre as duas é que quebraria
+horário comercial e saudação.
+
+---
+
+## P20. `max_casos` do ciclo não é aplicado por ninguém
+
+Já registrado em P4; reforçado agora que o palco existe: `fn_replay_pode_executar` não
+consulta `max_casos`, e o harness também não. O teto de 29 é hoje apenas documental.
