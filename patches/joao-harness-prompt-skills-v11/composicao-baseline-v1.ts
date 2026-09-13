@@ -1,9 +1,9 @@
-// Harness v11 baseline: mesma composição v291 + duas sondas sem efeito externo.
+// Harness v11 baseline: composição replay equivalente à v291 + duas sondas sem efeito externo.
 import "https://raw.githubusercontent.com/suelicontadeluz-design/skillprintpro1/0f9db02623b29d5ec3f9644986ce30876c1d947e/patches/joao-dry-run-effect-zero-20260912/dry-run-effect-zero-preload-v1.ts";
 import "https://raw.githubusercontent.com/suelicontadeluz-design/skillprintpro1/732306cd9d1aaea2f95feab5fb0f01a7cee46002/patches/joao-quantity-ambiguity-20260912/color-split-request-controller-v1.ts";
 import "https://raw.githubusercontent.com/suelicontadeluz-design/skillprintpro1/64f3e8be95a0801c51f20ceedb666ddc5688df83/patches/joao-erp-orcamentos-20260908/erp-orcamento-preload.ts";
 import "https://raw.githubusercontent.com/suelicontadeluz-design/skillprintpro1/8ae11b8eb7e96d1cde3b42c9bec0945432b8ca05/patches/joao-erp-propostas-20260908/proposal-receipt-preload.ts";
-import "https://raw.githubusercontent.com/suelicontadeluz-design/skillprintpro1/5104bec580b1376be5ac1c4d7c9fb81f2cb824a9/patches/joao-output-guard-20260906/auth-preload.ts";
+import "https://raw.githubusercontent.com/suelicontadeluz-design/skillprintpro1/0a16fb0d133d40b6ccdf4e7805052cd55f7fda56/patches/joao-replay-hermetico-v288/replay-authenticated-ingress-pass.ts";
 import "https://raw.githubusercontent.com/suelicontadeluz-design/skillprintpro1/0086d4a402821604a66320e01f09431e2fc1a5f9/patches/joao-sales-continuity-20260907/payment-status-preload.ts";
 import "https://raw.githubusercontent.com/suelicontadeluz-design/skillprintpro1/0086d4a402821604a66320e01f09431e2fc1a5f9/patches/joao-sales-continuity-20260907/order-status-preload.ts";
 import "https://raw.githubusercontent.com/suelicontadeluz-design/skillprintpro1/0086d4a402821604a66320e01f09431e2fc1a5f9/patches/joao-sales-continuity-20260907/fiscal-status-preload.ts";
