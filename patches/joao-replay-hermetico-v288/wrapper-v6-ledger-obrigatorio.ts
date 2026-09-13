@@ -21,12 +21,15 @@ let v5Handler: ((req: Request) => Response | Promise<Response>) | null = null;
 
 const WRAPPER_ID = 'wrapper-v6-ledger-obrigatorio';
 const V5_SOURCE_COMMIT = '8f5fa9854f5394437cedd75a1207087c9bba4eaf';
-const V5_VENDOR_COMMIT = 'd193a81e86b357f74e8d0c306e35823e15388678';
-const V5_VENDOR_URL = `https://raw.githubusercontent.com/suelicontadeluz-design/skillprintpro1/${V5_VENDOR_COMMIT}/patches/_vendor/8f5fa98/patches/joao-harness-prompt-skills-v11/wrapper-v5-fact-asof-auth.ts`;
+const V5_SOURCE_URL = `https://raw.githubusercontent.com/suelicontadeluz-design/skillprintpro1/${V5_SOURCE_COMMIT}/patches/joao-harness-prompt-skills-v11/wrapper-v5-fact-asof-auth.ts`;
+// O mesmo blob do v5 foi espelhado na main; a URL original continua sendo usada
+// porque já é a origem comprovadamente carregável pelo runtime da edge.
+const V5_MIRROR_MAIN_COMMIT = 'c821432a23b89af7557f0c7b722f3ed9a4ef7d0e';
+const V5_BLOB_SHA = '1e8a07a8e4be415cc69d86e38bc135ab4e29dcad';
 
 let importError: unknown = null;
 try {
-  await import(V5_VENDOR_URL);
+  await import(V5_SOURCE_URL);
 } catch (e) {
   importError = e;
 }
@@ -108,7 +111,8 @@ if (importError || !v5Handler) {
       wrapper: WRAPPER_ID,
       wrapper_commit: WRAPPER_COMMIT,
       wrapper_v5_source_commit: V5_SOURCE_COMMIT,
-      wrapper_v5_vendor_commit: V5_VENDOR_COMMIT,
+      wrapper_v5_mirror_main_commit: V5_MIRROR_MAIN_COMMIT,
+      wrapper_v5_blob_sha: V5_BLOB_SHA,
       deployment_id: DEPLOY_ID,
       candidate_sha_antes_v6: candidateAnterior,
     };
