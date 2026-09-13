@@ -29,7 +29,7 @@ const V5_BLOB_SHA = '1e8a07a8e4be415cc69d86e38bc135ab4e29dcad';
 
 let importError: unknown = null;
 try {
-  await import(V5_SOURCE_URL);
+  await import('https://raw.githubusercontent.com/suelicontadeluz-design/skillprintpro1/8f5fa9854f5394437cedd75a1207087c9bba4eaf/patches/joao-harness-prompt-skills-v11/wrapper-v5-fact-asof-auth.ts');
 } catch (e) {
   importError = e;
 }
