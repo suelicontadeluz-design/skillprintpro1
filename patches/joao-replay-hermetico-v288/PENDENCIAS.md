@@ -203,3 +203,47 @@ A linha `go04-budget-canary-20260901` está com `allow_edge_function_patch = tru
 
 Nenhuma chave foi alterada (regra 0.3). Registrado porque uma função futura que leia
 a linha errada herdaria permissões abertas.
+
+---
+
+## P13. `replay_execucao` não estava vazia
+
+O briefing (1.3) diz "`public.replay_execucao` — 0 linhas". Havia **26**:
+
+| ciclo | n | executado_por | quando |
+|---|---|---|---|
+| `7a522685` | 22 | `alessandro/claude-replay-engine-v1` | 2026-08-30 10:01:47 UTC |
+| `0c981cfa` | 4 | `alessandro/claude-replay-isabela` | 2026-08-30 10:16:12 UTC |
+
+Todas de 30/08, custo 0, dos dois ciclos bloqueados. Nenhuma do ciclo novo — nada foi
+executado nesta fase. A anotação do plano está desatualizada; quem for medir baseline
+precisa filtrar por `ciclo_id`, não contar a tabela inteira.
+
+---
+
+## P14. Índice único impede ciclo novo na mesma frente
+
+`replay_ciclo_um_vivo_por_alvo` é único em `(frente_slug, alvo)`
+`WHERE estado NOT IN ('promovido','descartado')`. Como `bloqueado` **não** está na
+lista de exceções, um ciclo bloqueado ocupa o slot para sempre.
+
+O ciclo `7a522685` (bloqueado, `joao-parametro-financeiro-sem-proveniencia` /
+`agente-noturno`) impediu abrir o ciclo desta fase nessa frente. Não foi descartado
+para liberar o slot — é a evidência do vazamento de 30/08. O ciclo novo foi aberto sob
+`joao-replay-hermetico-v288`.
+
+Consequência para o plano: ou "bloqueado" entra nas exceções do índice, ou cada ciclo
+novo precisa de um `frente_slug` distinto. Hoje o vocabulário de `estado`
+(`aberto`, `bloqueado`, `promovido`, `descartado`) não tem um estado terminal para
+"bloqueado e arquivado".
+
+---
+
+## P15. Teste de boot da edge não foi possível nesta sessão
+
+O proxy de egresso nega `ldrdtaibazplvrbwyrvx.supabase.co:443` (403, política da
+organização), então a edge `agente-noturno-replay-v288` não pôde ser invocada por
+HTTP. Publicação e bundle estão provados; o carregamento em runtime não.
+
+Falta rodar `POST {"modo":"inspecionar"}` com `Bearer REPLAY_RUNNER_JWT`. Esperado:
+`camadas_fetch_capturadas: 33`, `deno_serve_chamadas: 1`, `handler_producao: true`.
