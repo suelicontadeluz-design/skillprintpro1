@@ -1,1 +1,0 @@
-trigger=precedencia-estrita-2026-09-13-v3
