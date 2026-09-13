@@ -1,4 +1,4 @@
-name: build-produto-canonico-replay-candidate
+name: patch-produto-origem-candidato
 
 on:
   push:
@@ -9,94 +9,38 @@ permissions:
   contents: write
 
 jobs:
-  build:
+  patch:
     if: github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
-    timeout-minutes: 8
     steps:
       - uses: actions/checkout@v4
         with:
           ref: joao-fix-produto-canonico-20260913
           fetch-depth: 20
-      - uses: denoland/setup-deno@v2
-        with:
-          deno-version: v2.x
-
-      - name: Montar candidato a partir do harness baseline
+      - name: Corrigir precedencia do anuncio real
         shell: bash
         run: |
-          git fetch --depth=1 origin b0d7bce7f08cda0392ccff9888123ce759b02bb9
-          mkdir -p patches/joao-replay-produto-candidato-20260913
-          git show b0d7bce7f08cda0392ccff9888123ce759b02bb9:patches/joao-replay-hermetico-v288/harness.ts > patches/joao-replay-produto-candidato-20260913/harness.ts
-          git show b0d7bce7f08cda0392ccff9888123ce759b02bb9:patches/joao-replay-hermetico-v288/composicao-v288.ts > patches/joao-replay-produto-candidato-20260913/composicao.ts
-
           python3 - <<'PY'
           from pathlib import Path
-          import hashlib
-
-          d = Path('patches/joao-replay-produto-candidato-20260913')
-          cp = d / 'composicao.ts'
-          hp = d / 'harness.ts'
-
-          c = cp.read_text(encoding='utf-8')
-          old = '0bd29b6563292368fa2968b903967fa5dea9be36/patches/joao-slot-proveniencia-escrita/candidato/index.ts'
-          new = '3f4505438ac63dc33b8aab5c3f5e3f4d171cfbc0/patches/joao-slot-proveniencia-escrita/candidato/index.ts'
-          if c.count(old) != 1:
-              raise SystemExit(f'import do core baseline esperado 1x, encontrado {c.count(old)}x')
-          c = c.replace(old, new, 1)
-          cp.write_text(c, encoding='utf-8')
-          comp_hash = hashlib.sha256(c.encode()).hexdigest()
-
-          h = hp.read_text(encoding='utf-8')
-          replacements = {
-            "const HARNESS_VERSION = 'joao-replay-hermetico-v288/harness-v2';": "const HARNESS_VERSION = 'joao-replay-produto-candidato-20260913/harness-v1';",
-            "const COMPOSICAO_SHA256 = 'b33776a0908ae7bf551a27512110446711e2a093d13bb97f9b763470bef7025b';": f"const COMPOSICAO_SHA256 = '{comp_hash}';",
-            "await import('./composicao-v288.ts');": "await import('./composicao.ts');",
-            "  leituras: Leitura[];\n": "  leituras: Leitura[];\n  capturas_escrita?: any[];\n",
-            "function bloquear(raw: string, metodo: string, motivo: string, alvo?: string) {": "function bloquear(raw: string, metodo: string, motivo: string, alvo?: string, input?: any, init?: any) {",
-            "        if (d.decisao === 'BLOCK') return bloquear(raw, metodo, d.motivo, d.alvo);": "        if (d.decisao === 'BLOCK') return bloquear(raw, metodo, d.motivo, d.alvo, input, init);",
-            "  return bloquear(raw, metodo, motivo, alvo);": "  return bloquear(raw, metodo, motivo, alvo, input, init);",
-            "    bloqueios: st.bloqueios,\n": "    bloqueios: st.bloqueios,\n    capturas_escrita: st.capturas_escrita ?? [],\n",
-          }
-          for old_s, new_s in replacements.items():
-              n = h.count(old_s)
-              if n != 1:
-                  raise SystemExit(f'ancora harness esperada 1x, encontrada {n}x: {old_s[:80]}')
-              h = h.replace(old_s, new_s, 1)
-
-          marker = "    s.leituras.push({ alvo: alvo ?? raw, destino: 'BLOCK', filtro_aplicado: motivo });"
-          if h.count(marker) != 1:
-              raise SystemExit(f'ancora captura esperada 1x, encontrada {h.count(marker)}x')
-          addition = marker + """
-            if (alvo === 'agente_noturno_estado' || alvo === 'joao_slots_observacao' || alvo === 'error_log') {
-              let corpo: any = null;
-              try {
-                const bruto = init?.body;
-                corpo = typeof bruto === 'string' ? JSON.parse(bruto) : null;
-              } catch { corpo = null; }
-              (s.capturas_escrita ??= []).push({ alvo, metodo, corpo });
-            }
-          """
-          h = h.replace(marker, addition, 1)
-          hp.write_text(h, encoding='utf-8')
-
-          (d / 'META.txt').write_text(
-              f'baseline_harness=b0d7bce7f08cda0392ccff9888123ce759b02bb9\n'
-              f'candidate_core=3f4505438ac63dc33b8aab5c3f5e3f4d171cfbc0\n'
-              f'composition_sha256={comp_hash}\n', encoding='utf-8')
+          p = Path('patches/joao-slot-proveniencia-escrita/candidato/index.ts')
+          s = p.read_text(encoding='utf-8')
+          old = "const prodOrigem = (anuncioRecente && prodAnuncio) ? prodAnuncio : (prodCategoria || prodAnuncio);"
+          new = "const prodOrigem = prodAnuncio || prodCategoria;"
+          n = s.count(old)
+          if n != 1:
+              raise SystemExit(f'ancora prodOrigem esperada 1x, encontrada {n}x')
+          s = s.replace(old, new, 1)
+          p.write_text(s, encoding='utf-8')
           PY
-
-          printf '%s\n' '/// <reference lib="deno.ns" />' > /tmp/harness-check.ts
-          cat patches/joao-replay-produto-candidato-20260913/harness.ts >> /tmp/harness-check.ts
-          deno check --node-modules-dir=auto /tmp/harness-check.ts
           git diff --check
-
-      - name: Commit harness candidato
+          git diff -- patches/joao-slot-proveniencia-escrita/candidato/index.ts
+      - name: Commit candidato corrigido
         shell: bash
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add patches/joao-replay-produto-candidato-20260913
-          test -n "$(git diff --cached --name-only)"
-          git commit -m "test(joao): replay do candidato de produto canonico"
+          git add patches/joao-slot-proveniencia-escrita/candidato/index.ts
+          test "$(git diff --cached --name-only | wc -l)" -eq 1
+          test "$(git diff --cached --name-only)" = "patches/joao-slot-proveniencia-escrita/candidato/index.ts"
+          git commit -m "fix(joao): preferir anuncio real na origem canonica"
           git push origin HEAD:joao-fix-produto-canonico-20260913
