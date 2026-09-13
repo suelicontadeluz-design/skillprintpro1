@@ -68,7 +68,7 @@ jobs:
           if h.count(marker) != 1:
               raise SystemExit(f'ancora captura esperada 1x, encontrada {h.count(marker)}x')
           addition = marker + """
-            if (alvo === 'agente_noturno_estado' || alvo === 'joao_slots_observacao') {
+            if (alvo === 'agente_noturno_estado' || alvo === 'joao_slots_observacao' || alvo === 'error_log') {
               let corpo: any = null;
               try {
                 const bruto = init?.body;
@@ -88,7 +88,7 @@ jobs:
 
           printf '%s\n' '/// <reference lib="deno.ns" />' > /tmp/harness-check.ts
           cat patches/joao-replay-produto-candidato-20260913/harness.ts >> /tmp/harness-check.ts
-          deno check /tmp/harness-check.ts
+          deno check --node-modules-dir=auto /tmp/harness-check.ts
           git diff --check
 
       - name: Commit harness candidato
