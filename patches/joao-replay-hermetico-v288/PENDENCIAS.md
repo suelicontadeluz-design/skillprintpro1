@@ -314,3 +314,95 @@ horário comercial e saudação.
 
 Já registrado em P4; reforçado agora que o palco existe: `fn_replay_pode_executar` não
 consulta `max_casos`, e o harness também não. O teto de 29 é hoje apenas documental.
+
+---
+---
+
+# Descobertas da entrega v10 (13/09/2026)
+
+Registradas em separado, como manda o briefing: **nenhuma delas entrou no patch v10.**
+
+---
+
+## P-v10-1. `agente_noturno_estado.etapa` não é reconstruível em 26 de 31 casos
+
+O palco v3 reconstrói `slots` (de `replay_caso.slots_antes`) e `updated_at` (teto em
+`as_of`), mas `etapa` só existe historicamente quando `agente_decisoes_log` registrou
+`decisao->>'etapa'` até o `as_of`. Isso acontece em **5 de 31** casos. Nos outros 26 o
+palco mantém o valor da linha viva, declarado como
+`hashes.reconstrucao_v3.agente_noturno_estado.etapa_fonte = linha_viva_nao_reconstruivel`.
+
+`etapa` influencia comportamento (estágio da conversa). Enquanto for a etapa de hoje,
+26 casos rodam com um estágio que pode não ser o do `as_of`.
+
+**Não corrigível sem fonte nova.** Duas saídas possíveis, ambas fora do v10:
+(a) passar a gravar `etapa` em `replay_caso` na captura de caso; (b) fazer
+`agente_decisoes_log` registrar `etapa` em 100% dos turnos. A (b) resolve para o futuro,
+não para os 31 casos já capturados; a (a) exigiria recapturar os casos.
+
+---
+
+## P-v10-2. Tabelas de referência não têm versão as-of
+
+`sistema_config`, `catalogo_produtos`, `dtf_precos_faixa`, `dtf_uv_degraus` e
+`dtf_produto_config` não têm histórico versionado. O palco v3 as congela inteiras (com
+corte de existência por `created_at` onde a coluna existe) e conta os carimbos posteriores
+ao `as_of` em separado, como `referencia_posterior` — **779** nos 31 palcos v3, quase todos
+em `sistema_config.atualizado_em` (682) e `catalogo_produtos.updated_at` (~108).
+
+Recortá-las não é opção: sem tabela de preço o replay não roda. O que isso significa na
+prática é que o replay usa a **configuração e o preço de hoje** com o **estado do lead de
+então**. Para comparação de comportamento é aceitável (os dois lados veem a mesma
+configuração); para qualquer aceite que envolva **valor em reais**, não é.
+
+Encaminhamento sugerido: tabela de versões para `sistema_config` e para as tabelas de
+preço, com `vigente_de`/`vigente_ate`. Escopo próprio.
+
+---
+
+## P-v10-3. As 3 RPCs de contexto continuam sendo capturadas ao vivo
+
+`fn_contexto_comercial_do_lead`, `fn_contexto_aprendizados` e `fn_agente_pausado` leem o
+banco vivo; não existe versão as-of delas. O palco v3 congela a **saída de hoje**, igual à
+geração anterior, e declara isso em `hashes.reconstrucao_v3.rpc_sem_as_of`.
+
+`fn_contexto_comercial_do_lead` lê `vw_deal_estagio_atual`, `crm_deal_snapshot` e
+`fact_conversations` — todas com dado posterior ao `as_of` disponível. Vazamento temporal
+residual, menor que o do `pixel_events` porque não alimenta guard de descarte conhecido,
+mas real.
+
+---
+
+## P-v10-4. `bloquear` não lê corpo de escrita quando o chamador usa `Request`
+
+A captura de `escritas_estado_tentadas` (a prova de "promovido ao estado") lê
+`init.body` quando é string — que é como a v288 monta PATCH/POST do PostgREST. Se algum
+caminho passar um `Request` com corpo em stream, a captura registra
+`{"_corpo_indisponivel": "<metodo>"}` em vez do payload, e aquela execução não consegue
+distinguir promovido de apenas conhecido. **Fail-safe e declarado**, mas é um buraco.
+
+Ler o corpo exigiria `await` dentro de `bloquear`, que hoje é síncrona e é chamada de
+vários sítios. Fechável, mas mexe na cadeia de bloqueio — não no v10.
+
+---
+
+## P-v10-5. O runner gravava `replay_execucao` por INSERT direto
+
+Foi a causa raiz de `candidato_slots` null em 31/31: nada obrigava o runner a preencher os
+campos. O v10 cria `fn_replay_registrar_execucao_v10` como caminho canônico e a CHECK
+`replay_execucao_produto_macro_exige_fonte` fecha a porta do veredito aprovado sem fonte,
+mas **INSERT direto continua possível** para os demais campos: dá para gravar uma execução
+com `candidato_slots` null e veredito `EQUIVALENTE`, porque ausência de `produto_macro` não
+aciona a regra.
+
+Fechar de vez exigiria `REVOKE INSERT` na tabela para o papel do runner, deixando só a
+função. Depende de decidir qual papel o runner usa. Fora do v10.
+
+---
+
+## P-v10-6. A edge viva é `agente-noturno` v290, não v288
+
+O briefing fala em "v288". A edge `agente-noturno` está em **v290** (`updated_at`
+2026-09-13). Não foi tocada nesta entrega. Registro só para que "v288" não seja lido como
+"o que está no ar" — a composição pinada do harness continua sendo a v288, que é o
+correto para o replay, mas produção já andou.

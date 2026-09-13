@@ -1,7 +1,14 @@
-// João replay hermético v288 — harness v2 — 13/09/2026
+// João replay hermético v288 — harness v3 — 13/09/2026
 //
 // v1 (commit 85d55be): jaula de rede + captura do handler de produção.
-// v2 (esta):           palco congelado, relógio congelado, temperature=0, trilha de leituras.
+// v2 (commit b0d7bce): palco congelado, relógio congelado, temperature=0, trilha de leituras.
+// v3 (esta):           observabilidade de slot/proveniência (E1), palco as-of v3 (E2),
+//                      guard × modelo (E3). Ver RELATORIO-v10-OBSERVABILIDADE.md.
+//
+// v3 NÃO acrescenta nenhuma interceptação: não há uma sobrescrita nova de
+// `globalThis.fetch` nem de `Deno.serve`. A ponte e o relógio são os mesmos da v2;
+// o que mudou é que os pontos JÁ existentes (`anthropicNativa`, `bloquear`) passaram
+// a REGISTRAR o que viam e jogavam fora. Nenhuma linha do núcleo do João foi tocada.
 //
 // O que é: um wrapper que carrega a composição v288 (os mesmos 38 imports pinados
 // da edge `agente-noturno` viva) dentro de uma jaula, captura o handler de produção
@@ -21,10 +28,15 @@
 // comparadas veem exatamente o mesmo palco. Ver LEIA-ME.md §6.
 
 import { AsyncLocalStorage } from 'node:async_hooks';
+import {
+  aplicarRegraProduto,
+  observarExecucao,
+  type ObservacaoExecucao,
+} from './observabilidade-v10.ts';
 
 declare const Deno: any;
 
-const HARNESS_VERSION = 'joao-replay-hermetico-v288/harness-v2';
+const HARNESS_VERSION = 'joao-replay-hermetico-v288/harness-v3';
 const COMPOSICAO_SHA256 = 'b33776a0908ae7bf551a27512110446711e2a093d13bb97f9b763470bef7025b';
 
 // Tarifa registrada no dia, fonte: public.go_ai_model_pricing (effective_from 2026-08-31T23:10:00Z)
@@ -94,7 +106,27 @@ type Store = {
   anthropic: { calls: number; input_tokens: number; output_tokens: number; temperature_forcada: boolean };
   palco: Palco | null;
   relogio: { baseMs: number; inicioReal: number } | null;
+  // ── v3/E1: evidências de proveniência de produto ──
+  // `escritasEstadoTentadas`: payloads que o núcleo TENTOU gravar em
+  // `agente_noturno_estado` e a jaula bloqueou. É o estado final que produção teria:
+  // a diferença entre "promovido ao estado" e "apenas conhecido internamente".
+  escritasEstadoTentadas: any[];
+  // Só `content[].text` das RESPOSTAS do modelo. O prompt nunca é guardado.
+  textosModelo: string[];
 };
+
+const TABELA_ESTADO = 'agente_noturno_estado';
+const LIMITE_TEXTO_MODELO = 4000;   // por chamada
+const LIMITE_CHAMADAS_TEXTO = 5;    // teto de chamadas registradas
+
+function lojaVazia(palco: Palco | null, relogio: Store['relogio']): Store {
+  return {
+    bloqueios: [], leituras: [], palco, relogio,
+    anthropic: { calls: 0, input_tokens: 0, output_tokens: 0, temperature_forcada: false },
+    escritasEstadoTentadas: [], textosModelo: [],
+  };
+}
+
 const als = new AsyncLocalStorage<Store>();
 const store = (): Store | null => als.getStore() ?? null;
 
@@ -325,11 +357,27 @@ function origemAproximada(): string | undefined {
   return undefined;
 }
 
-function bloquear(raw: string, metodo: string, motivo: string, alvo?: string) {
+// E1: a escrita continua bloqueada — só o CORPO passou a ser lido antes do 409.
+// Sem isto não há como distinguir "o João promoveu o produto ao estado" de
+// "o João apenas soube o produto". Leitura síncrona de `init.body` quando é string
+// (é como a v288 monta o PATCH/POST do PostgREST); Request opaco fica declarado.
+function capturarEscritaEstado(s: Store, alvo: string | undefined, metodo: string, init?: any, input?: any) {
+  if (alvo !== TABELA_ESTADO) return;
+  if (metodo !== 'POST' && metodo !== 'PATCH' && metodo !== 'PUT') return;
+  const corpo = init?.body ?? (typeof input?.body === 'string' ? input.body : undefined);
+  if (typeof corpo === 'string' && corpo) {
+    try { s.escritasEstadoTentadas.push(JSON.parse(corpo)); return; }
+    catch { s.escritasEstadoTentadas.push({ _corpo_nao_json: corpo.slice(0, 2000) }); return; }
+  }
+  s.escritasEstadoTentadas.push({ _corpo_indisponivel: metodo });
+}
+
+function bloquear(raw: string, metodo: string, motivo: string, alvo?: string, init?: any, input?: any) {
   const s = store();
   if (s) {
     s.bloqueios.push({ url: raw, metodo, motivo, origem: origemAproximada() });
     s.leituras.push({ alvo: alvo ?? raw, destino: 'BLOCK', filtro_aplicado: motivo });
+    capturarEscritaEstado(s, alvo, metodo, init, input);
   }
   let target = raw;
   try { target = new URL(raw).host; } catch { /* mantém raw */ }
@@ -371,6 +419,13 @@ async function anthropicNativa(input: any, init?: any) {
       const body: any = await res.clone().json();
       s.anthropic.input_tokens += Number(body?.usage?.input_tokens ?? 0);
       s.anthropic.output_tokens += Number(body?.usage?.output_tokens ?? 0);
+      // E1: só o texto de SAÍDA do modelo, limitado. Nunca o prompt, nunca headers.
+      if (s.textosModelo.length < LIMITE_CHAMADAS_TEXTO) {
+        const partes = Array.isArray(body?.content)
+          ? body.content.map((c: any) => String(c?.text ?? '')).filter(Boolean)
+          : [];
+        if (partes.length) s.textosModelo.push(partes.join('\n').slice(0, LIMITE_TEXTO_MODELO));
+      }
     } catch { /* resposta não-JSON não invalida a execução */ }
   }
   return res;
@@ -423,7 +478,7 @@ async function baseFetch(input: any, init?: any): Promise<Response> {
     store()?.leituras.push({ alvo: alvo ?? raw, destino: 'NATIVO_CALC', filtro_aplicado: motivo });
     return await leituraNativa(input, init);
   }
-  return bloquear(raw, metodo, motivo, alvo);
+  return bloquear(raw, metodo, motivo, alvo, init, input);
 }
 
 // ───────────────────────────── ponte: captura cada reatribuição ─────────────────────────────
@@ -447,7 +502,7 @@ function instalarPonte() {
         const raw = urlDe(input);
         const metodo = metodoDe(input, init);
         const d = politica(raw, metodo);
-        if (d.decisao === 'BLOCK') return bloquear(raw, metodo, d.motivo, d.alvo);
+        if (d.decisao === 'BLOCK') return bloquear(raw, metodo, d.motivo, d.alvo, init, input);
         return await interna(input, init);
       };
     },
@@ -518,14 +573,46 @@ function projecaoDura(json: any, tools: any, jsonInvalido: boolean): any {
 
 // ───────────────────────────── palco e gate ─────────────────────────────
 
-async function carregarPalco(casoId: string): Promise<Palco | null> {
+// `versaoPalco` explícita torna a bateria reprodutível: sem ela o harness pega
+// sempre a captura mais recente e duas baterias podem rodar em palcos diferentes.
+async function carregarPalco(casoId: string, versaoPalco?: number | null): Promise<Palco | null> {
+  const filtroVersao = Number.isFinite(versaoPalco as number)
+    ? `&versao_palco=eq.${Number(versaoPalco)}` : '';
   const r = await leituraNativa(
-    `${SUPABASE_URL}/rest/v1/replay_palco_congelado?caso_id=eq.${encodeURIComponent(casoId)}` +
+    `${SUPABASE_URL}/rest/v1/replay_palco_congelado?caso_id=eq.${encodeURIComponent(casoId)}${filtroVersao}` +
     `&select=caso_id,versao_palco,as_of,estado,rpc_saidas,hashes&order=versao_palco.desc&limit=1`,
     { headers: { Authorization: `Bearer ${PUBLIC_API_KEY}` } },
   );
   const j = await r.json();
   return Array.isArray(j) && j[0] ? j[0] as Palco : null;
+}
+
+// E2: conta, no palco carregado, quantos carimbos de tempo são POSTERIORES ao `as_of`.
+// É a mesma contagem de `fn_replay_palco_futuro_v1`, feita do lado do harness para que
+// uma execução nunca rode em cima de um palco contaminado sem que isso fique no registro.
+const RE_TS = /^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}/;
+const COLECOES_EVENTO = new Set([
+  'pixel_events', 'orcamentos', 'vw_orcamento_calcme_vigente',
+  'leads_marketing', 'lead_identificadores', 'agente_noturno_estado',
+]);
+
+function futuroNoPalco(palco: Palco): { eventos_posteriores: number; referencia_posterior: number; detalhe: any[] } {
+  const corte = RealDate.parse(palco.as_of);
+  let eventos = 0, referencia = 0;
+  const detalhe: any[] = [];
+  for (const [tabela, linhas] of Object.entries(palco.estado ?? {})) {
+    if (!Array.isArray(linhas)) continue;
+    for (const linha of linhas) {
+      for (const [campo, valor] of Object.entries(linha ?? {})) {
+        if (typeof valor !== 'string' || !RE_TS.test(valor)) continue;
+        const t = RealDate.parse(valor);
+        if (!Number.isFinite(t) || t <= corte) continue;
+        if (COLECOES_EVENTO.has(tabela)) eventos++; else referencia++;
+        if (detalhe.length < 50) detalhe.push({ tabela, campo, valor, classe: COLECOES_EVENTO.has(tabela) ? 'evento' : 'referencia' });
+      }
+    }
+  }
+  return { eventos_posteriores: eventos, referencia_posterior: referencia, detalhe };
 }
 
 async function podeExecutar(cicloId: string): Promise<any> {
@@ -611,9 +698,7 @@ NATIVE_SERVE(async (req: Request) => {
     // Prova do relógio, dentro de um contexto com base conhecida.
     const baseIso = '2026-08-27T03:04:48.335Z';
     const provaRelogio = await als.run(
-      { bloqueios: [], leituras: [], palco: null,
-        anthropic: { calls: 0, input_tokens: 0, output_tokens: 0, temperature_forcada: false },
-        relogio: { baseMs: RealDate.parse(baseIso), inicioReal: RealDate.now() } },
+      lojaVazia(null, { baseMs: RealDate.parse(baseIso), inicioReal: RealDate.now() }),
       async () => {
         const a = new Date().toISOString();
         const t1 = Date.now(); const t2 = Date.now();
@@ -657,8 +742,17 @@ NATIVE_SERVE(async (req: Request) => {
   const caso = await carregarCaso(casoId);
   if (!caso?.id) return J(404, { ok: false, motivo: 'caso_inexistente' });
 
-  const palco = await carregarPalco(casoId);
-  if (!palco) return J(424, { ok: false, motivo: 'PALCO_AUSENTE', detalhe: 'rodar fn_replay_congelar_palco_v288 para este caso' });
+  const versaoPedida = body?.versao_palco == null ? null : Number(body.versao_palco);
+  const palco = await carregarPalco(casoId, versaoPedida);
+  if (!palco) {
+    return J(424, {
+      ok: false, motivo: 'PALCO_AUSENTE',
+      detalhe: versaoPedida == null
+        ? 'rodar fn_replay_congelar_palco_v3 para este caso'
+        : `caso sem palco na versao_palco=${versaoPedida}`,
+    });
+  }
+  const futuro = futuroNoPalco(palco);
 
   const entrada = entradaDoCaso(caso);
 
@@ -666,17 +760,14 @@ NATIVE_SERVE(async (req: Request) => {
   if (modo === 'ensaiar') {
     const planejadas = leiturasPlanejadas(palco);
     const relogio = { baseMs: RealDate.parse(palco.as_of), inicioReal: RealDate.now() };
-    const amostraRelogio = await als.run(
-      { bloqueios: [], leituras: [], palco,
-        anthropic: { calls: 0, input_tokens: 0, output_tokens: 0, temperature_forcada: false }, relogio },
-      async () => new Date().toISOString(),
-    );
+    const amostraRelogio = await als.run(lojaVazia(palco, relogio), async () => new Date().toISOString());
     return J(200, {
       ok: true,
       modo: 'ensaiar',
       harness: HARNESS_VERSION,
       caso_id: caso.id,
       palco: { versao_palco: palco.versao_palco, as_of: palco.as_of, hashes: palco.hashes },
+      palco_futuro: futuro,                       // E2: eventos_posteriores tem de ser 0
       body_que_enviaria: entrada,
       relogio_do_ensaio: amostraRelogio,
       leituras_planejadas: planejadas,
@@ -693,11 +784,7 @@ NATIVE_SERVE(async (req: Request) => {
   const gate = await podeExecutar(cicloId);
   if (gate?.pode !== true) return J(423, { ok: false, motivo: 'gate_replay_fechado', gate });
 
-  const st: Store = {
-    bloqueios: [], leituras: [], palco,
-    anthropic: { calls: 0, input_tokens: 0, output_tokens: 0, temperature_forcada: false },
-    relogio: { baseMs: RealDate.parse(palco.as_of), inicioReal: RealDate.now() },
-  };
+  const st: Store = lojaVazia(palco, { baseMs: RealDate.parse(palco.as_of), inicioReal: RealDate.now() });
   const t0 = RealDate.now();
 
   let resposta: any = null;
@@ -729,6 +816,22 @@ NATIVE_SERVE(async (req: Request) => {
     (l) => l.destino === 'NATIVO_CALC' && CONGELADAS.has(l.alvo),
   ).length;
 
+  // ── E1 + E3: observabilidade de produto e separação guard × modelo ──
+  const observacao: ObservacaoExecucao = observarExecucao({
+    mensagem_cliente: entrada.mensagem,
+    palco_estado: palco.estado as Record<string, any[]>,
+    resposta_json: resposta?.json ?? null,
+    textos_modelo: st.textosModelo,
+    escritas_estado_tentadas: st.escritasEstadoTentadas,
+    model_calls: st.anthropic.calls,
+  });
+
+  // Regra dura do Alessandro, aplicada AQUI e não no julgamento humano:
+  // `produto_macro` preenchido sem fonte identificável ⇒ INCONCLUSIVE, nunca PASS.
+  // O veredito final continua sendo de `fn_replay_comparar`; o harness só devolve o
+  // veto, e `fn_replay_registrar_execucao_v10` o reaplica antes de gravar.
+  const vetoProduto = aplicarRegraProduto('INDETERMINADO', false, observacao.proveniencia);
+
   return J(200, {
     ok: !erro,
     harness: HARNESS_VERSION,
@@ -745,7 +848,23 @@ NATIVE_SERVE(async (req: Request) => {
     bloqueios: st.bloqueios,
     leituras: st.leituras,
     nativo_em_mutavel: nativoEmMutavel,   // gate: tem de ser 0
+    palco_futuro: futuro,                 // E2: eventos_posteriores tem de ser 0
     anthropic: { ...st.anthropic, custo_usd: Number(custo_usd.toFixed(6)), tarifa: TARIFA },
     duracao_ms: RealDate.now() - t0,
+
+    // ── o que `fn_replay_registrar_execucao_v10` grava em replay_execucao ──
+    candidato_slots: {
+      produto: observacao.candidato_slots.produto,
+      produto_macro: observacao.candidato_slots.produto_macro,
+      macro_origem: observacao.candidato_slots.macro_origem,
+      origem_leitura: observacao.candidato_slots.origem_leitura,
+      slots: observacao.candidato_slots.slots_completos,
+    },
+    candidato_produto_proveniencia: observacao.proveniencia,
+    chegou_ao_modelo: observacao.chegou_ao_modelo,
+    guard_interruptor: observacao.guard_interruptor,
+    model_call_count: observacao.model_call_count,
+    observabilidade_inconsistencias: observacao.inconsistencias,
+    veto_produto: vetoProduto,            // veredito=INCONCLUSIVE quando a regra dura morde
   });
 });
