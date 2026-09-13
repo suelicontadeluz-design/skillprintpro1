@@ -49,20 +49,14 @@ jobs:
 
           h = hp.read_text(encoding='utf-8')
           replacements = {
-            "const HARNESS_VERSION = 'joao-replay-hermetico-v288/harness-v2';":
-              "const HARNESS_VERSION = 'joao-replay-produto-candidato-20260913/harness-v1';",
-            "const COMPOSICAO_SHA256 = 'b33776a0908ae7bf551a27512110446711e2a093d13bb97f9b763470bef7025b';":
-              f"const COMPOSICAO_SHA256 = '{comp_hash}';",
+            "const HARNESS_VERSION = 'joao-replay-hermetico-v288/harness-v2';": "const HARNESS_VERSION = 'joao-replay-produto-candidato-20260913/harness-v1';",
+            "const COMPOSICAO_SHA256 = 'b33776a0908ae7bf551a27512110446711e2a093d13bb97f9b763470bef7025b';": f"const COMPOSICAO_SHA256 = '{comp_hash}';",
             "await import('./composicao-v288.ts');": "await import('./composicao.ts');",
             "  leituras: Leitura[];\n": "  leituras: Leitura[];\n  capturas_escrita?: any[];\n",
-            "function bloquear(raw: string, metodo: string, motivo: string, alvo?: string) {":
-              "function bloquear(raw: string, metodo: string, motivo: string, alvo?: string, input?: any, init?: any) {",
-            "        if (d.decisao === 'BLOCK') return bloquear(raw, metodo, d.motivo, d.alvo);":
-              "        if (d.decisao === 'BLOCK') return bloquear(raw, metodo, d.motivo, d.alvo, input, init);",
-            "  return bloquear(raw, metodo, motivo, alvo);":
-              "  return bloquear(raw, metodo, motivo, alvo, input, init);",
-            "    bloqueios: st.bloqueios,\n":
-              "    bloqueios: st.bloqueios,\n    capturas_escrita: st.capturas_escrita ?? [],\n",
+            "function bloquear(raw: string, metodo: string, motivo: string, alvo?: string) {": "function bloquear(raw: string, metodo: string, motivo: string, alvo?: string, input?: any, init?: any) {",
+            "        if (d.decisao === 'BLOCK') return bloquear(raw, metodo, d.motivo, d.alvo);": "        if (d.decisao === 'BLOCK') return bloquear(raw, metodo, d.motivo, d.alvo, input, init);",
+            "  return bloquear(raw, metodo, motivo, alvo);": "  return bloquear(raw, metodo, motivo, alvo, input, init);",
+            "    bloqueios: st.bloqueios,\n": "    bloqueios: st.bloqueios,\n    capturas_escrita: st.capturas_escrita ?? [],\n",
           }
           for old_s, new_s in replacements.items():
               n = h.count(old_s)
@@ -70,16 +64,10 @@ jobs:
                   raise SystemExit(f'ancora harness esperada 1x, encontrada {n}x: {old_s[:80]}')
               h = h.replace(old_s, new_s, 1)
 
-          marker = """  if (s) {
-            s.bloqueios.push({ url: raw, metodo, motivo, origem: origemAproximada() });
-            s.leituras.push({ alvo: alvo ?? raw, destino: 'BLOCK', filtro_aplicado: motivo });
-          }
-          """
+          marker = "    s.leituras.push({ alvo: alvo ?? raw, destino: 'BLOCK', filtro_aplicado: motivo });"
           if h.count(marker) != 1:
               raise SystemExit(f'ancora captura esperada 1x, encontrada {h.count(marker)}x')
-          capture = """  if (s) {
-            s.bloqueios.push({ url: raw, metodo, motivo, origem: origemAproximada() });
-            s.leituras.push({ alvo: alvo ?? raw, destino: 'BLOCK', filtro_aplicado: motivo });
+          addition = marker + """
             if (alvo === 'agente_noturno_estado' || alvo === 'joao_slots_observacao') {
               let corpo: any = null;
               try {
@@ -88,9 +76,8 @@ jobs:
               } catch { corpo = null; }
               (s.capturas_escrita ??= []).push({ alvo, metodo, corpo });
             }
-          }
           """
-          h = h.replace(marker, capture, 1)
+          h = h.replace(marker, addition, 1)
           hp.write_text(h, encoding='utf-8')
 
           (d / 'META.txt').write_text(
