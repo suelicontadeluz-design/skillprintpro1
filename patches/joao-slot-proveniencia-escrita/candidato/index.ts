@@ -1140,7 +1140,7 @@ function extrairJson(raw: string): any {
   try { return JSON.parse(limpo.slice(ini, fim + 1)); }
   catch (e) { const r = recuperar(); if (r) return r; throw e; }
 }
-function mensagemValida(m: string): boolean { const t = String(m || '').trim(); return t.length >= 2 || /^\d$/.test(t); }
+function mensagemValida(m: string): boolean { const t = String(m || '').trim(); return t.length > 0; }
 async function logErro(msg: string, payload: any) { try { await sb.from('error_log').insert({ function_name: 'agente-noturno', error_message: msg, payload }); } catch {} }
 
 async function agentePausado(phone: string): Promise<boolean> {
@@ -4502,14 +4502,37 @@ async function atenderClienteInterno(phone: string, chatName: string, mensagem: 
   // Produto canonico: resolver deterministico ja existente -> slot persistido.
 // Precedencia: mensagem explicita do cliente > anuncio de origem (somente sem produto anterior)
 // > slot do modelo submetido ao filtro de proveniencia ja existente.
+const produtoAnteriorBruto = String(slotsAnteriores.produto || '').trim();
 const produtoMacroAnteriorResolvido = normalizarProdutoMacro(slotsAnteriores.produto);
 const produtoMacroMensagemResolvido = normalizarProdutoMacro(prodMsg);
 const produtoMacroOrigemResolvido = normalizarProdutoMacro(prodOrigem);
+let produtoMacroAquisicaoResolvido: string | null = null;
+let produtoAquisicaoDetalhe: string | null = null;
+if (!produtoAnteriorBruto && leadId) {
+  try {
+    const { data: lmMeta } = await sb.from('leads_marketing').select('product_type,utm_campaign_name,utm_content,utm_ad_name').eq('lead_id', leadId).limit(1).maybeSingle();
+    const fontesAquisicao = [
+      ['product_type', String(lmMeta?.product_type || '')],
+      ['utm_campaign_name', String(lmMeta?.utm_campaign_name || '')],
+      ['utm_content', String(lmMeta?.utm_content || '')],
+      ['utm_ad_name', String(lmMeta?.utm_ad_name || '')],
+    ] as Array<[string,string]>;
+    for (const [detalhe, valor] of fontesAquisicao) {
+      const p = normalizarProdutoMacro(categoriaParaProduto(valor));
+      if (p) { produtoMacroAquisicaoResolvido = p; produtoAquisicaoDetalhe = detalhe; break; }
+    }
+  } catch {}
+}
 const produtoDeterministico = produtoMacroMensagemResolvido
-  || (!produtoMacroAnteriorResolvido ? produtoMacroOrigemResolvido : null);
+  || (!produtoAnteriorBruto ? (produtoMacroAquisicaoResolvido || produtoMacroOrigemResolvido) : null);
 const produtoDeterministicoFonte = produtoMacroMensagemResolvido
   ? 'mensagem_cliente'
-  : (!produtoMacroAnteriorResolvido && produtoMacroOrigemResolvido ? 'anuncio' : null);
+  : (!produtoAnteriorBruto && produtoDeterministico ? 'anuncio' : null);
+const produtoDeterministicoFonteDetalhe = produtoMacroMensagemResolvido
+  ? 'mensagem_cliente'
+  : (produtoMacroAquisicaoResolvido && produtoDeterministico === produtoMacroAquisicaoResolvido
+      ? produtoAquisicaoDetalhe
+      : (produtoDeterministicoFonte === 'anuncio' ? 'origem_anuncio' : null));
 const slotsParaProveniencia = {
   ...(decisao.slots || {}),
   ...(produtoDeterministico ? { produto: produtoDeterministico } : {}),
@@ -4519,7 +4542,7 @@ const slotsParaProveniencia = {
     anteriores: slotsAnteriores,
     recebidos: slotsParaProveniencia,
     textosCliente,
-    macroCanonico: normalizarProdutoMacro(prodOrigem),
+    macroCanonico: produtoMacroAquisicaoResolvido || normalizarProdutoMacro(prodOrigem),
     toolsUsadas,
     midiaNoTurno: (imagens || []).length > 0 || (transcricoes || []).length > 0,
     numerosDeFerramenta: numerosFerramenta,
@@ -4546,6 +4569,20 @@ const slotsParaProveniencia = {
   // v4.34.0 P0: a modalidade resolvida por fonte EXPLICITA (niveis 1 e 2) vira estado do
   // pedido, para o proximo turno nao precisar redescobrir nem reperguntar. Historico
   // (nivel 3) e pista regional (nivel 4) NAO sao persistidos: nao sao declaracao do cliente.
+  const produtoMacroNovoPersistido = normalizarProdutoMacro(slotsNovos.produto ?? slotsAnteriores.produto);
+  const produtoFontePersistida = produtoMacroNovoPersistido && produtoMacroNovoPersistido !== produtoMacroAnteriorResolvido && slotsRecebidos.produto !== undefined
+    ? (produtoDeterministico && produtoMacroNovoPersistido === produtoDeterministico ? produtoDeterministicoFonte : 'modelo')
+    : null;
+  const produtoFonteDetalhePersistida = produtoFontePersistida
+    ? (produtoFontePersistida === produtoDeterministicoFonte ? produtoDeterministicoFonteDetalhe : 'modelo_slot')
+    : null;
+  if (produtoFontePersistida) {
+    slotsNovos._produto_fonte = produtoFontePersistida;
+    slotsNovos._produto_fonte_detalhe = produtoFonteDetalhePersistida;
+  } else if (produtoMacroNovoPersistido !== produtoMacroAnteriorResolvido) {
+    delete slotsNovos._produto_fonte;
+    delete slotsNovos._produto_fonte_detalhe;
+  }
   if (estadoLog.fonte_nivel <= 2 && estadoLog.modalidade !== 'desconhecida') {
     slotsNovos.modalidade_logistica = estadoLog.modalidade;
     slotsNovos.envio_retirada = estadoLog.modalidade === 'envio' ? 'envio'
@@ -4565,16 +4602,8 @@ const slotsParaProveniencia = {
   // Sem isso a regressao R8 e improvavel de provar, porque agente_noturno_estado e
   // upsert sem historico e agente_decisoes_log grava slots nulo.
   if (!dryRun) {
-  const prodMacroObs = normalizarProdutoMacro(slotsNovos.produto ?? slotsAnteriores.produto);
-  // Proveniencia observavel sem schema novo: grava somente quando um produto
-  // canonico novo/mudado foi efetivamente aceito e persistido.
-  const produtoFontePersistida = prodMacroObs
-    && prodMacroObs !== produtoMacroAnteriorResolvido
-    && slotsRecebidos.produto !== undefined
-      ? (produtoDeterministico && prodMacroObs === produtoDeterministico
-          ? produtoDeterministicoFonte
-          : 'modelo_slot')
-      : null;
+  const prodMacroObs = produtoMacroNovoPersistido;
+  // Proveniencia ja foi resolvida deterministicamente acima e persistida no mesmo JSONB.
   if (produtoFontePersistida) {
     await logErro('produto_proveniencia_resolvida', {
       phone: phone.slice(-4),
