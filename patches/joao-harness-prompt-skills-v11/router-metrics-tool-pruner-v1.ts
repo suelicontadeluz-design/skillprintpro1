@@ -1,10 +1,7 @@
 declare const Deno: any;
 
-// Experimento harness-only: mantém a sonda externa do Router e poda SOMENTE tools
-// incompatíveis quando a família do produto já está provada no contexto dinâmico.
-// Produto indeterminado ou mudança explícita de assunto => mantém todas as tools.
-import "https://raw.githubusercontent.com/suelicontadeluz-design/skillprintpro1/2c87962721f53fd919f8b964c4ee5b6ce9296049/patches/joao-harness-prompt-skills-v11/router-metrics-outer.ts";
-
+// Harness-only: sonda externa do Router + poda conservadora de tools por família provada.
+// Produto indeterminado ou mudança explícita de assunto => mantém todas as 12 tools.
 const TP_BASE_FETCH = globalThis.fetch.bind(globalThis);
 
 function tpUrl(input: RequestInfo | URL): string {
@@ -43,17 +40,13 @@ function tpNormProduct(v: any): string | null {
   return null;
 }
 function tpFamily(system: string): string | null {
-  // Mudança explícita de produto: deixa o modelo com catálogo completo nesta v1.
   if (system.includes('[O CLIENTE MUDOU DE ASSUNTO:')) return null;
-
   const fichaAt = system.lastIndexOf('[FICHA:');
   if (fichaAt >= 0) {
     const slots = tpJsonAfter(system, 'slots=', fichaAt);
     const p = tpNormProduct(slots?.produto);
     if (p) return p;
   }
-
-  // Só lê o bloco DINÂMICO de origem; não varre o SYSTEM estático.
   const origemAt = system.lastIndexOf('[ORIGEM: anúncio "');
   if (origemAt >= 0) {
     const fim = system.indexOf('"', origemAt + '[ORIGEM: anúncio "'.length);
@@ -64,14 +57,10 @@ function tpFamily(system: string): string | null {
   return null;
 }
 function tpChars(v: any): number { try { return JSON.stringify(v ?? null).length; } catch { return 0; } }
-async function tpEmit(family: string | null, before: any[], after: any[]) {
+async function tpEmit(path: string, fields: Record<string,string>) {
   try {
-    const q = new URLSearchParams({
-      family: family ?? 'unknown',
-      before_count: String(before.length), after_count: String(after.length),
-      before_chars: String(tpChars(before)), after_chars: String(tpChars(after)),
-    });
-    await TP_BASE_FETCH(`https://harness-metrics.invalid/tool-prune?${q.toString()}`, { method: 'GET' });
+    const q = new URLSearchParams(fields);
+    await TP_BASE_FETCH(`https://harness-metrics.invalid/${path}?${q.toString()}`, { method: 'GET' });
   } catch {}
 }
 
@@ -94,10 +83,15 @@ globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit): Promise
   const before = body.tools;
   const remove = family ? REMOVE[family] : null;
   const after = remove ? before.filter((t: any) => !remove.has(String(t?.name ?? ''))) : before;
-  await tpEmit(family, before, after);
-  if (after.length === before.length) return TP_BASE_FETCH(input, init);
+  await tpEmit('tool-prune', {
+    family: family ?? 'unknown', before_count: String(before.length), after_count: String(after.length),
+    before_chars: String(tpChars(before)), after_chars: String(tpChars(after)),
+  });
 
-  body.tools = after;
-  const rebuilt = tpRebuild(input, init, JSON.stringify(body));
-  return TP_BASE_FETCH(rebuilt[0], rebuilt[1]);
+  const outboundBody = after.length === before.length ? raw : JSON.stringify({ ...body, tools: after });
+  const rebuilt = after.length === before.length ? [input, init] as [RequestInfo | URL, RequestInit | undefined] : tpRebuild(input, init, outboundBody);
+  const res = await TP_BASE_FETCH(rebuilt[0], rebuilt[1]);
+
+  await tpEmit('router', { routed: res.headers.get('x-cortex-skill-router') ? '1' : '0' });
+  return res;
 };
