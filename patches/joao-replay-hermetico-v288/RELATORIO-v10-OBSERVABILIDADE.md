@@ -295,6 +295,16 @@ correto, que é o que o briefing pediu.
 | `patches/joao-replay-hermetico-v288/testes/observabilidade-v10.test.ts` | 21 testes |
 | `patches/joao-replay-hermetico-v288/testes/provas-v10.sql` | provas SQL reproduzíveis |
 
+**SHA para repinar o bootstrap quando vier o GO** (o blob de `harness.ts` é
+`5155f0a0b4b978283ea13c4f85e81932a7bb9a35`, introduzido no commit abaixo e inalterado desde):
+
+```
+https://raw.githubusercontent.com/suelicontadeluz-design/skillprintpro1/0a16fb0d133d40b6ccdf4e7805052cd55f7fda56/patches/joao-replay-hermetico-v288/harness.ts
+```
+
+O `index.ts` de `agente-noturno-replay-v288` hoje aponta para
+`b0d7bce7f08cda0392ccff9888123ce759b02bb9` (harness v2). **Não foi alterado.**
+
 Ambas as migrations **já foram aplicadas** em `ldrdtaibazplvrbwyrvx` (são schema de replay:
 não são escrita de produção, não são patch de edge, não são execução de replay).
 
