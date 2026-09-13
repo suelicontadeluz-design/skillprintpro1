@@ -2827,7 +2827,7 @@ async function atenderClienteInterno(phone: string, chatName: string, mensagem: 
   } catch {}
   const prodAnuncio = categoriaParaProduto(anuncioTexto);
   const prodCategoria = categoriaParaProduto(categoriaAnuncio);
-  const prodOrigem = (anuncioRecente && prodAnuncio) ? prodAnuncio : (prodCategoria || prodAnuncio);
+  const prodOrigem = prodAnuncio || prodCategoria;
   if (anuncioRecente && prodAnuncio && prodCategoria && prodAnuncio !== prodCategoria) categoriaAnuncio = '';
 
   let conversaAtivaHoje = false; let ultimaMsgJoao = ''; let promessaJaDada = false; let jaDespediuHoje = false;
