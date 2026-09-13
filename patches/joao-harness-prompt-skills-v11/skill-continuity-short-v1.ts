@@ -9,7 +9,7 @@ const CS_BASE_FETCH = globalThis.fetch.bind(globalThis);
 const CS_NATIVE_SERVE = Deno.serve.bind(Deno);
 const CS_URL = (Deno.env.get('SUPABASE_URL') ?? '').replace(/\/$/, '');
 const CS_SERVICE = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
-const CS_VERSION = 'skill_continuity_short/v1.2';
+const CS_VERSION = 'skill_continuity_short/v1.3';
 const CS_PREFIX = 'toolu_skill_continuity_short_';
 type CsStore = { phone: string };
 const csAls = new AsyncLocalStorage<CsStore>();
@@ -31,7 +31,7 @@ function csAnthropicTool(largura:number,altura:number,copias:number,arteAnterior
 async function csMetric(event:string){try{await CS_BASE_FETCH(`https://harness-metrics.invalid/skill-continuity-short?event=${encodeURIComponent(event)}&version=${encodeURIComponent(CS_VERSION)}`,{method:'GET'});}catch{}}
 async function csHistory(phone:string): Promise<{inbounds:any[];question:string}|null> {
   if(!CS_URL||!CS_SERVICE||!/^\d{10,13}$/.test(phone))return null;
-  const headers={apikey:CS_SERVICE,authorization:`Bearer ${CS_SERVICE}`};
+  const headers={apikey:CS_SERVICE};
   try{
     const enc=encodeURIComponent(`eq.${phone}`);
     const [ir,or]=await Promise.all([
