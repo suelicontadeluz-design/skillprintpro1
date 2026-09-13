@@ -1,5 +1,4 @@
-# trigger do runner temporario definido no main
-name: patch-produto-canonico
+name: validate-produto-canonico-candidate
 
 on:
   push:
@@ -7,17 +6,23 @@ on:
       - joao-fix-produto-canonico-20260913
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  patch:
-    if: github.actor != 'github-actions[bot]'
+  check:
     runs-on: ubuntu-latest
+    timeout-minutes: 8
     steps:
       - uses: actions/checkout@v4
         with:
           ref: joao-fix-produto-canonico-20260913
-          fetch-depth: 1
-
-      - name: Guard rail local
-        run: echo "patch aplicado pelo runner temporario do main"
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      - name: Type-check core candidato
+        run: deno check patches/joao-slot-proveniencia-escrita/candidato/index.ts
+      - name: Provar escopo do patch
+        run: |
+          git diff --exit-code 0bd29b6563292368fa2968b903967fa5dea9be36 -- patches/joao-slot-proveniencia-escrita/candidato/index.ts >/dev/null || true
+          test "$(git diff --name-only 0bd29b6563292368fa2968b903967fa5dea9be36..3f4505438ac63dc33b8aab5c3f5e3f4d171cfbc0 | wc -l)" -eq 2
+          git diff --name-only 0bd29b6563292368fa2968b903967fa5dea9be36..3f4505438ac63dc33b8aab5c3f5e3f4d171cfbc0
