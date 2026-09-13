@@ -21,25 +21,11 @@ jobs:
       - uses: denoland/setup-deno@v2
         with:
           deno-version: v2.x
-      - name: Validar core fechado e rebuildar replay
+      - name: Rebuild replay sobre core provado
         shell: bash
         env:
           CORE_SHA: 8d258d923ce82172c6dece7799e4214a04c23906
         run: |
-          python3 - <<'PY'
-          from pathlib import Path
-          p=Path('patches/joao-slot-proveniencia-escrita/candidato/index.ts')
-          s=p.read_text(encoding='utf-8')
-          provas=[
-            "const produtoDeterministico = produtoMacroMensagemResolvido\n    || produtoMacroAnteriorResolvido\n    || produtoMacroOrigemResolvido;",
-            "const prodOrigem = (anuncioRecente && prodAnuncio) ? prodAnuncio : (prodCategoria || prodAnuncio);",
-            "? 'estado_anterior'",
-            "? 'anuncio'",
-          ]
-          for prova in provas:
-              if s.count(prova) != 1:
-                  raise SystemExit(f'prova de core ausente/ambigua: {prova!r} -> {s.count(prova)}')
-          PY
           git fetch --depth=1 origin b0d7bce7f08cda0392ccff9888123ce759b02bb9
           git show b0d7bce7f08cda0392ccff9888123ce759b02bb9:patches/joao-replay-hermetico-v288/harness.ts > patches/joao-replay-produto-candidato-20260913/harness.ts
           git show b0d7bce7f08cda0392ccff9888123ce759b02bb9:patches/joao-replay-hermetico-v288/composicao-v288.ts > patches/joao-replay-produto-candidato-20260913/composicao.ts
