@@ -4499,9 +4499,25 @@ async function atenderClienteInterno(phone: string, chatName: string, mensagem: 
   for (const it of (Array.isArray(calcmeVigente?.itens) ? calcmeVigente.itens : [])) {
     const q = Number(it?.qtd); if (Number.isFinite(q) && q > 0) numerosFerramenta.push(q);
   }
+  // Produto canonico: resolver deterministico ja existente -> slot persistido.
+// Precedencia: mensagem explicita do cliente > anuncio de origem (somente sem produto anterior)
+// > slot do modelo submetido ao filtro de proveniencia ja existente.
+const produtoMacroAnteriorResolvido = normalizarProdutoMacro(slotsAnteriores.produto);
+const produtoMacroMensagemResolvido = normalizarProdutoMacro(prodMsg);
+const produtoMacroOrigemResolvido = normalizarProdutoMacro(prodOrigem);
+const produtoDeterministico = produtoMacroMensagemResolvido
+  || (!produtoMacroAnteriorResolvido ? produtoMacroOrigemResolvido : null);
+const produtoDeterministicoFonte = produtoMacroMensagemResolvido
+  ? 'mensagem_cliente'
+  : (!produtoMacroAnteriorResolvido && produtoMacroOrigemResolvido ? 'anuncio' : null);
+const slotsParaProveniencia = {
+  ...(decisao.slots || {}),
+  ...(produtoDeterministico ? { produto: produtoDeterministico } : {}),
+};
+
   const provSlots = filtrarSlotsPorProveniencia({
     anteriores: slotsAnteriores,
-    recebidos: decisao.slots || {},
+    recebidos: slotsParaProveniencia,
     textosCliente,
     macroCanonico: normalizarProdutoMacro(prodOrigem),
     toolsUsadas,
@@ -4549,7 +4565,25 @@ async function atenderClienteInterno(phone: string, chatName: string, mensagem: 
   // Sem isso a regressao R8 e improvavel de provar, porque agente_noturno_estado e
   // upsert sem historico e agente_decisoes_log grava slots nulo.
   if (!dryRun) {
-    const prodMacroObs = normalizarProdutoMacro(slotsNovos.produto ?? slotsAnteriores.produto);
+  const prodMacroObs = normalizarProdutoMacro(slotsNovos.produto ?? slotsAnteriores.produto);
+  // Proveniencia observavel sem schema novo: grava somente quando um produto
+  // canonico novo/mudado foi efetivamente aceito e persistido.
+  const produtoFontePersistida = prodMacroObs
+    && prodMacroObs !== produtoMacroAnteriorResolvido
+    && slotsRecebidos.produto !== undefined
+      ? (produtoDeterministico && prodMacroObs === produtoDeterministico
+          ? produtoDeterministicoFonte
+          : 'modelo_slot')
+      : null;
+  if (produtoFontePersistida) {
+    await logErro('produto_proveniencia_resolvida', {
+      phone: phone.slice(-4),
+      turn_id: obsTurnId,
+      produto_macro: prodMacroObs,
+      fonte: produtoFontePersistida,
+    });
+  }
+
     // v4.37.0: produto preenchido que o vocabulario canonico nao reconhece deixa de
     // ser silencio. Foi assim que "adesivo_uv" atravessou com produto_macro=null.
     if ((slotsNovos.produto ?? null) !== null && prodMacroObs === null) {
