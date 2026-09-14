@@ -20,7 +20,6 @@ declare
   v_gap numeric;
   v_seguranca numeric;
   v_arredondamento numeric;
-
   v_cap_a integer := 0;
   v_cap_b integer := 0;
   v_rows_a integer;
@@ -29,12 +28,10 @@ declare
   v_remaining integer;
   v_total_rows integer;
   v_length_cm numeric;
-
   v_best_length_cm numeric := null;
   v_best_rows_a integer := 0;
   v_best_rows_b integer := 0;
   v_best_capacity integer := 0;
-
   v_metros_layout numeric;
   v_metros_seguranca numeric;
   v_metros_lancar numeric;
@@ -42,11 +39,9 @@ begin
   if p_produto is null or p_produto not in ('dtf_textil', 'dtf_uv') then
     return jsonb_build_object('ok', false, 'erro', 'produto_invalido', 'produto', p_produto);
   end if;
-
   if p_largura_cm is null or p_altura_cm is null or p_largura_cm <= 0 or p_altura_cm <= 0 then
     return jsonb_build_object('ok', false, 'erro', 'dimensoes_invalidas');
   end if;
-
   if p_quantidade is null or p_quantidade <= 0 then
     return jsonb_build_object('ok', false, 'erro', 'quantidade_invalida');
   end if;
@@ -85,8 +80,8 @@ begin
     );
   end if;
 
-  -- Para cada quantidade possivel de fileiras A, completa o restante com o minimo de fileiras B.
-  -- Isso permite misturar orientacoes entre fileiras e escolhe o menor avanco total.
+  -- Enumera fileiras A e completa o restante com o minimo de fileiras B.
+  -- Assim pode misturar orientacoes entre fileiras e escolher o menor avanco total.
   v_max_rows_a := case when v_cap_a > 0 then ceil(p_quantidade::numeric / v_cap_a)::integer else 0 end;
 
   for v_rows_a in 0..v_max_rows_a loop
@@ -105,7 +100,7 @@ begin
       continue;
     end if;
 
-    -- Gap apenas ENTRE fileiras. O gap lateral ja esta embutido no calculo da capacidade por fileira.
+    -- Gap apenas ENTRE fileiras. O gap lateral entra no calculo da capacidade por fileira.
     v_length_cm :=
       (v_rows_a * p_altura_cm)
       + (v_rows_b * p_largura_cm)
@@ -164,3 +159,9 @@ $function$;
 
 comment on function public.fn_dtf_rendimento_por_arte_v1(text,numeric,numeric,integer,boolean)
 is 'Calcula somente rendimento fisico DTF por dimensoes e copias; nao precifica. Saida canonica para handoff ao ERP.';
+
+-- RPC interna: o runtime autorizado usa service_role. Nao expor diretamente a anon/authenticated.
+revoke all on function public.fn_dtf_rendimento_por_arte_v1(text,numeric,numeric,integer,boolean) from public;
+revoke all on function public.fn_dtf_rendimento_por_arte_v1(text,numeric,numeric,integer,boolean) from anon;
+revoke all on function public.fn_dtf_rendimento_por_arte_v1(text,numeric,numeric,integer,boolean) from authenticated;
+grant execute on function public.fn_dtf_rendimento_por_arte_v1(text,numeric,numeric,integer,boolean) to service_role;
