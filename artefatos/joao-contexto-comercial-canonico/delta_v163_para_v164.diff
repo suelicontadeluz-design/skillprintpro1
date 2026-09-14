@@ -1,0 +1,16 @@
+--- verif_v163.ts	2026-08-16 15:40:16.314799140 +0000
++++ candidato_v164.ts	2026-08-16 15:50:30.840016623 +0000
+@@ -2566,6 +2566,13 @@
+   const promessaCalculoPendente = RX_PROMETE.test(resposta) && !/R\$\s?\d/.test(resposta);
+   const promessaPixPendente = prometeuPix && !pixConfirmado && !temCodigoPix && !execucoes.cobrancaPendente?.qr_code;
+   const promessaCartaoPendente = prometeuCartao && !checkoutOficial;
++  // CORRECAO DE ESCOPO (frente joao-silencio-vazamento-quente, 16/08/2026).
++  // produtoSlot era usado no bloco de PROMESSA SEM CONCLUSAO logo abaixo, mas so era declarado
++  // ~93 linhas adiante, em bloco IRMAO. Nao e TDZ: o nome nao existia neste escopo, entao a
++  // avaliacao lancava ReferenceError e o fallback que existe para IMPEDIR silencio PRODUZIA silencio.
++  // Provado em producao: 2 ReferenceError em 24h (15/08 23:29, 16/08 00:36) e TS2304 x3 no deno check.
++  // Mesma expressao da declaracao original; a de baixo passa a apenas sombrear esta, sem mudar valor.
++  const produtoSlot = String((({ ...(estado?.slots || {}), ...(decisao.slots || {}) }) as any).produto || '').replace(/^null$/i, '').trim();
+   if (decisao.responde === true && (promessaCalculoPendente || promessaPixPendente || promessaCartaoPendente)) {
+     const consultaOperacional = /\b(status|andamento|ficou pronto|est[a\u00e1] pronto|produ[c\u00e7][a\u00e3]o|meu pedido|cad[e\u00ea] meu pedido)\b/i.test(mensagem);
+     if (consultaOperacional) {
