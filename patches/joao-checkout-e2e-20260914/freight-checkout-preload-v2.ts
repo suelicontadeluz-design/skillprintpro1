@@ -1,12 +1,13 @@
 declare const Deno: any;
 
-// João freight checkout v2.1 — 14/09/2026
+// João freight checkout v2.2 — 14/09/2026
 // Does not depend on the model receiving the old freight message in its prompt.
 // Named service is resolved from CEP + canonical persisted freight snapshot.
 // Subsequent "Pix/sim" resumes from the recent canonical total for that CEP.
+// v2.2: only executes on the final decision call identified by the trailing [SISTEMA:] user marker.
 const FC2_URL=(Deno.env.get('SUPABASE_URL')??'').replace(/\/$/,'');
 const FC2_SERVICE=Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')??'';
-const FC2_VERSION='joao-freight-checkout/v2.1';
+const FC2_VERSION='joao-freight-checkout/v2.2';
 const fc2BaseFetch=globalThis.fetch.bind(globalThis);
 let fc2CfgAt=0,fc2Cfg=false;
 type Ctx={inbound:string;cep:string;service:string|null;wantsPayment:boolean};
@@ -18,6 +19,7 @@ function norm(s:any){return String(s??'').normalize('NFD').replace(/[\u0300-\u03
 function explicitService(s:string):string|null{const hits=new Set<string>(),t=String(s||'');if(/(^|\W)pac(\W|$)/i.test(t))hits.add('PAC');if(/(^|\W)sedex(\W|$)/i.test(t))hits.add('Sedex');if(/j\s*&\s*t|j\s+e\s+t|(^|\W)jt(\W|$)/i.test(t))hits.add('J&T Standard');return hits.size===1?[...hits][0]:null}
 function paymentSignal(s:string){return /\b(pix|copia\s*e\s*cola|c[oó]digo\s+pix|gera(?:r|)?|gere|manda(?:r|)?|mande|pagar|pagamento)\b/i.test(s)||/^\s*(sim|pode|fechado|correto|confirmo|confirmado)\s*[!.]?\s*$/i.test(s)}
 function money(n:any){return Number(n).toFixed(2).replace('.',',')}
+function finalDecisionCall(messages:any[]):boolean{if(!Array.isArray(messages)||!messages.length)return false;const last=messages[messages.length-1];return last?.role==='user'&&/^\s*\[SISTEMA:/i.test(txt(last?.content))}
 function dialogue(messages:any[]){const d:{role:string;text:string}[]=[];for(const m of messages||[]){if(!m||!['user','assistant'].includes(m.role)||hasTool(m.content))continue;const t=txt(m.content);if(!t||/^\s*\[SISTEMA:/i.test(t))continue;d.push({role:m.role,text:t})}return d}
 function cepFrom(body:any,d:{role:string;text:string}[]):string{
   for(let i=d.length-1;i>=0;i--){const m=d[i].text.match(/\b(\d{5})-?(\d{3})\b/);if(m)return m[1]+m[2]}
@@ -44,6 +46,7 @@ function pixDecision(ctx:Ctx,res:any,projection:any,pix:any){const qr=String(pix
 globalThis.fetch=async(input:RequestInfo|URL,init?:RequestInit):Promise<Response>=>{
   const url=urlOf(input);if(!/^https:\/\/api\.anthropic\.com\/v1\/messages(?:\?|$)/i.test(url)||!(await enabled()))return fc2BaseFetch(input,init);
   const raw=await rawBody(input,init);let body:any;try{body=JSON.parse(raw)}catch{return fc2BaseFetch(input,init)};if(!Array.isArray(body?.messages))return fc2BaseFetch(input,init);
+  if(!finalDecisionCall(body.messages))return fc2BaseFetch(input,init);
   const ctx=context(body);if(!ctx)return fc2BaseFetch(input,init);
 
   let resolved:any=null;
