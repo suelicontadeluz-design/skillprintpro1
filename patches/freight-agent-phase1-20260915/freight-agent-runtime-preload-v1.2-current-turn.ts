@@ -1,17 +1,18 @@
 declare const Deno: any;
 
 // FreightAgent Phase 1 runtime v1.2 — current-turn safe integration — 15/09/2026
-// This patch is intentionally narrow:
+// Narrow integration policy:
 // - shipping transitions use the active request context, never DB "latest inbound";
-// - canonical state remains authoritative for ZIP/quote/selection/expiry;
-// - mixed checkout/payment turns are observed but not rewritten yet;
+// - canonical state is authoritative for ZIP/quote/selection/expiry;
+// - price-only short continuations can resolve an existing quote;
+// - product/pricing/checkout mixed turns are observed but not rewritten in this canary;
 // - pure shipping turns may be rendered canonically at the final outbound boundary;
-// - missing/ambiguous request context fails closed (no state mutation, no rewrite).
+// - missing/ambiguous request context fails closed.
 
 const FA12_URL = (Deno.env.get('SUPABASE_URL') ?? '').replace(/\/$/, '');
 const FA12_SERVICE = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
 const fa12BaseFetch = globalThis.fetch.bind(globalThis);
-const FA12_VERSION = 'freight-agent-phase1-runtime/v1.2-current-turn';
+const FA12_VERSION = 'freight-agent-phase1-runtime/v1.2-current-turn-r2';
 const FA12_QUOTE_TTL_MS = 2 * 60 * 60 * 1000;
 const FA12_TRANSIENT_ZAPI = new Set([408, 409, 425, 429, 500, 502, 503, 504]);
 const fa12SubscriberPhone = new Map<string, { phone: string; at: number }>();
@@ -46,7 +47,8 @@ function fa12ShippingIntent(text: string): boolean {
 }
 function fa12MixedSensitiveIntent(text: string): boolean {
   const t = fa12Norm(text);
-  return /\b(pix|pagamento|pagar|cobranca|cobrar|link de pagamento|fechar|fechado|total|proposta|orcamento|pedido)\b/.test(t);
+  return /\b(pix|pagamento|pagar|cobranca|cobrar|link de pagamento|fechar|fechado|total|proposta|orcamento|pedido|preco|valor|quantidade|peca|pecas|unidade|unidades|a3|a4|folha|folhas|adesivo|adesivos|camiseta|camisetas|polo|dtf|silk|serigrafia|estampa|estampas|arte|artes)\b/.test(t)
+    || /\d+(?:[,.]\d+)?\s*[x×]\s*\d+(?:[,.]\d+)?/.test(t);
 }
 function fa12Service(text: string): string | null {
   const t = fa12Norm(text);
@@ -150,10 +152,6 @@ async function fa12Advance(phoneLike: unknown): Promise<any> {
   }
 
   const incoming = String(turn.incoming ?? '');
-  if (!fa12ShippingIntent(incoming) && !turn.shipping_session_id) {
-    return { ok: false, code: 'CURRENT_TURN_NOT_SHIPPING', turn };
-  }
-
   const quote = await fa12LatestQuote(phone);
   const leadId = quote?.lead_id ?? await fa12LeadForPhone(phone);
   const sessionId = fa12Session(turn.shipping_session_id, leadId, phone);
@@ -163,6 +161,15 @@ async function fa12Advance(phoneLike: unknown): Promise<any> {
   let version = Number(current?.state_version ?? 0);
   let state = current?.shipping_state ?? {};
   let changed = false;
+
+  const serviceIntent = fa12Service(incoming);
+  const amountsIntent = fa12Amounts(incoming);
+  const priceMatches = state?.status === 'VALID_QUOTE' && Array.isArray(state?.quotes)
+    ? (state.quotes as any[]).filter((o: any) => amountsIntent.some(n => Math.abs(Number(o?.preco) - n) <= 0.005))
+    : [];
+  const shortPriceContinuation = incoming.trim().length <= 120 && !fa12MixedSensitiveIntent(incoming) && priceMatches.length === 1;
+  const shippingRelevant = Boolean(turn.shipping_session_id) || fa12ShippingIntent(incoming) || Boolean(serviceIntent) || shortPriceContinuation;
+  if (!shippingRelevant) return { ok: false, code: 'CURRENT_TURN_NOT_SHIPPING', sessionId, turn, current };
 
   const expiryMs = Date.parse(String(state?.quote_expires_at ?? ''));
   if ((state?.status === 'VALID_QUOTE' || state?.status === 'QUOTE_SELECTED') && Number.isFinite(expiryMs) && Date.now() >= expiryMs) {
@@ -199,13 +206,13 @@ async function fa12Advance(phoneLike: unknown): Promise<any> {
   if (state?.status === 'VALID_QUOTE' && Array.isArray(state?.quotes) && incoming) {
     const quotedAt = quote?.quoted_at ? Date.parse(String(quote.quoted_at)) : 0;
     const turnAt = Date.parse(String(turn.started_at ?? ''));
-    // Selection is allowed only against a quote that already existed when this customer turn started.
+    // A selection may only resolve against a quote that already existed when this customer turn began.
     if (!quotedAt || !turnAt || quotedAt <= turnAt + 1000) {
       const service = fa12Service(incoming);
       const amounts = fa12Amounts(incoming);
       let proposal: any = null;
       if (service) proposal = { schema_version: 'freight-state-proposal/v1', action: 'QUOTE_SELECTED', service };
-      else {
+      else if (incoming.trim().length <= 120 && !fa12MixedSensitiveIntent(incoming)) {
         const matches = (state.quotes as any[]).filter((o: any) => amounts.some(n => Math.abs(Number(o?.preco) - n) <= 0.005));
         if (matches.length === 1) proposal = { schema_version: 'freight-state-proposal/v1', action: 'QUOTE_SELECTED', price: Number(matches[0].preco) };
       }
@@ -219,7 +226,13 @@ async function fa12Advance(phoneLike: unknown): Promise<any> {
   current = await fa12Current(sessionId);
   const render = await fa12Rpc('fn_joao_shipping_render_v1', { p_session_id: sessionId });
   return {
-    ok: true, sessionId, current, render, quote, turn, changed,
+    ok: true,
+    sessionId,
+    current,
+    render,
+    quote,
+    turn,
+    changed,
     mixed_sensitive: fa12MixedSensitiveIntent(incoming),
   };
 }
@@ -272,33 +285,26 @@ globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit): Promise
   let callInit = init;
 
   if (outbound?.phone) {
-    const turn = fa12CurrentTurn(outbound.phone);
-    const incoming = turn?.ok ? String(turn.incoming ?? '') : '';
-    const shippingTurn = turn?.ok && (fa12ShippingIntent(incoming) || fa12ShippingIntent(outbound.text) || Boolean(turn.shipping_session_id));
-
-    if (shippingTurn) {
-      const advanced = await fa12Advance(outbound.phone);
-      const canonicalText = String(advanced?.render?.text ?? '').trim();
-      if (advanced?.ok && canonicalText) {
-        if (advanced.mixed_sensitive) {
-          // During the first integration canary, mixed checkout/payment turns stay on v294 LKG.
-          // We persist/compare canonical shipping, but do not rewrite the customer message yet.
-          void fa12Audit('mixed_turn_observed_not_rewritten', {
-            phone_suffix: outbound.phone.slice(-4), session_id: advanced.sessionId,
-            state_version: advanced?.current?.state_version, status: advanced?.current?.shipping_state?.status,
-            expected_rendered_price: advanced?.render?.expected_rendered_price ?? null,
-          });
-        } else {
-          body[outbound.field] = outbound.text.trim().startsWith('*João Barros:*') ? `*João Barros:*\n${canonicalText}` : canonicalText;
-          const rebuilt = fa12Rebuild(input, init, JSON.stringify(body));
-          callInput = rebuilt[0]; callInit = rebuilt[1];
-          void fa12Audit('canonical_shipping_render_enforced', {
-            phone_suffix: outbound.phone.slice(-4), session_id: advanced.sessionId,
-            state_version: advanced?.current?.state_version, status: advanced?.current?.shipping_state?.status,
-            quote_snapshot_id: advanced?.current?.shipping_state?.quote_snapshot_id ?? null,
-            rendered_price: advanced?.render?.expected_rendered_price ?? null,
-          });
-        }
+    const advanced = await fa12Advance(outbound.phone);
+    const canonicalText = String(advanced?.render?.text ?? '').trim();
+    if (advanced?.ok && canonicalText) {
+      if (advanced.mixed_sensitive) {
+        // First integration canary: mixed commercial/checkout turns stay on exact v294 LKG.
+        void fa12Audit('mixed_turn_observed_not_rewritten', {
+          phone_suffix: outbound.phone.slice(-4), session_id: advanced.sessionId,
+          state_version: advanced?.current?.state_version, status: advanced?.current?.shipping_state?.status,
+          expected_rendered_price: advanced?.render?.expected_rendered_price ?? null,
+        });
+      } else {
+        body[outbound.field] = outbound.text.trim().startsWith('*João Barros:*') ? `*João Barros:*\n${canonicalText}` : canonicalText;
+        const rebuilt = fa12Rebuild(input, init, JSON.stringify(body));
+        callInput = rebuilt[0]; callInit = rebuilt[1];
+        void fa12Audit('canonical_shipping_render_enforced', {
+          phone_suffix: outbound.phone.slice(-4), session_id: advanced.sessionId,
+          state_version: advanced?.current?.state_version, status: advanced?.current?.shipping_state?.status,
+          quote_snapshot_id: advanced?.current?.shipping_state?.quote_snapshot_id ?? null,
+          rendered_price: advanced?.render?.expected_rendered_price ?? null,
+        });
       }
     }
   }
