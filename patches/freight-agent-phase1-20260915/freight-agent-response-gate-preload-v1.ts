@@ -1,15 +1,14 @@
 declare const Deno: any;
 
 // FreightAgent Phase 1 final-response gate — 15/09/2026
-// Deve ser importado DEPOIS do dry-run preload e ANTES do core que chama Deno.serve.
-// Garante que o JSON devolvido pelo pipeline/replay usa o mesmo shipping_state canônico
-// usado no boundary externo. Não escreve estado; somente lê a versão persistida.
+// v1.3: replay/internal session explícita é state-driven; não depende de keyword "frete".
+// Produção sem _shipping_session_id continua estreita por intenção logística.
 
 const FRG_URL = (Deno.env.get('SUPABASE_URL') ?? '').replace(/\/$/, '');
 const FRG_SERVICE = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
 const frgBaseFetch = globalThis.fetch.bind(globalThis);
 const frgBaseServe = Deno.serve.bind(Deno);
-const FRG_VERSION = 'freight-agent-phase1-response-gate/v1.2';
+const FRG_VERSION = 'freight-agent-phase1-response-gate/v1.3';
 
 function frgDigits(v:unknown):string { return String(v ?? '').replace(/\D/g,''); }
 function frgNorm(v:unknown):string { return String(v ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/\s+/g,' ').trim(); }
@@ -68,28 +67,30 @@ async function frgAudit(event:string,detail:any){
     const res=await handler(req,info);
     if(!reqBody||!res.ok)return res;
 
-    // O core legado devolve JSON com content-type text/plain em alguns dry-runs.
-    // O gate valida o corpo, não confia no header legado.
     let raw='';
     try{raw=await res.clone().text();}catch{return res;}
     const trimmed=raw.trim();
     if(!trimmed.startsWith('{'))return res;
     let payload:any; try{payload=JSON.parse(trimmed);}catch{return res;}
     if(!payload||typeof payload!=='object'||typeof payload.resposta!=='string')return res;
-    const incoming=String(reqBody?.mensagem??reqBody?.message??'');
-    if(!frgShippingIntent(incoming)&&!frgShippingIntent(payload.resposta))return res;
 
+    const incoming=String(reqBody?.mensagem??reqBody?.message??'');
     const explicitSession=String(reqBody?._shipping_session_id??'').trim();
     const phone=frgDigits(reqBody?.phone);
     const leadId=explicitSession?'':await frgLeadForPhone(phone);
     const sessionId=explicitSession || (leadId?`lead:${leadId}`:(phone?`phone:${phone}`:''));
     if(!sessionId)return res;
-    const current=await frgCurrent(sessionId); if(!current?.shipping_state)return res;
-    const rendered=frgRender(current.shipping_state); if(!rendered.text)return res;
 
-    const next={...payload,resposta:rendered.text,freight_phase1:{gate:'CANONICAL_SESSION_STATE',session_id:sessionId,state_version:current.state_version,shipping_state_hash:current.shipping_state_hash,status:current.shipping_state?.status,expected_rendered_price:rendered.price,must_not_ask_zip:rendered.must_not_ask_zip}};
+    const current=await frgCurrent(sessionId);
+    if(!current?.shipping_state)return res;
+    const status=String(current.shipping_state?.status??'EMPTY');
+    const stateDriven=Boolean(explicitSession) && ['ZIP_PROVIDED','VALID_QUOTE','QUOTE_SELECTED','EXPIRED_QUOTE'].includes(status);
+    if(!stateDriven && !frgShippingIntent(incoming) && !frgShippingIntent(payload.resposta))return res;
+
+    const rendered=frgRender(current.shipping_state); if(!rendered.text)return res;
+    const next={...payload,resposta:rendered.text,freight_phase1:{gate:'CANONICAL_SESSION_STATE',session_id:sessionId,state_version:current.state_version,shipping_state_hash:current.shipping_state_hash,status,expected_rendered_price:rendered.price,must_not_ask_zip:rendered.must_not_ask_zip}};
     const text=JSON.stringify(next); const headers=new Headers(res.headers); headers.delete('content-length'); headers.set('content-type','application/json; charset=utf-8'); headers.set('x-cortex-freight-phase1-response-gate',FRG_VERSION);
-    void frgAudit('canonical_handler_response_enforced',{session_id:sessionId,state_version:current.state_version,status:current.shipping_state?.status,expected_rendered_price:rendered.price,dry_run:reqBody?._dry_run===true});
+    void frgAudit('canonical_handler_response_enforced',{session_id:sessionId,state_version:current.state_version,status,expected_rendered_price:rendered.price,dry_run:reqBody?._dry_run===true,state_driven:stateDriven});
     return new Response(text,{status:res.status,statusText:res.statusText,headers});
   };
   return frgBaseServe(...args as any);
