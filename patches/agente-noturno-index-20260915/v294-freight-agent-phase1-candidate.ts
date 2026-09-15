@@ -3,9 +3,11 @@
 // - remove joao-freight-comparison do runtime do João;
 // - remove joao-freight-choice-context do runtime do João;
 // - substitui orchestrator v1.5 pelo v1.6 sem shipping no prompt;
-// - adiciona FreightAgent Phase 1 canonical state/output adapter.
+// - adiciona FreightAgent Phase 1 canonical state/response/output gates.
 
 import "https://raw.githubusercontent.com/suelicontadeluz-design/skillprintpro1/0f9db02623b29d5ec3f9644986ce30876c1d947e/patches/joao-dry-run-effect-zero-20260912/dry-run-effect-zero-preload-v1.ts";
+// Deve envolver Deno.serve antes de o core registrar o handler.
+import "https://raw.githubusercontent.com/suelicontadeluz-design/skillprintpro1/909c04b711fdbfb0a8265df012613ef20cd13ce0/patches/freight-agent-phase1-20260915/freight-agent-response-gate-preload-v1.ts";
 import "https://raw.githubusercontent.com/suelicontadeluz-design/skillprintpro1/732306cd9d1aaea2f95feab5fb0f01a7cee46002/patches/joao-quantity-ambiguity-20260912/color-split-request-controller-v1.ts";
 import "https://raw.githubusercontent.com/suelicontadeluz-design/skillprintpro1/64f3e8be95a0801c51f20ceedb666ddc5688df83/patches/joao-erp-orcamentos-20260908/erp-orcamento-preload.ts";
 import "https://raw.githubusercontent.com/suelicontadeluz-design/skillprintpro1/8ae11b8eb7e96d1cde3b42c9bec0945432b8ca05/patches/joao-erp-propostas-20260908/proposal-receipt-preload.ts";
@@ -42,5 +44,5 @@ import "https://raw.githubusercontent.com/suelicontadeluz-design/skillprintpro1/
 import "https://raw.githubusercontent.com/suelicontadeluz-design/skillprintpro1/c0e9e9c8e5ec8479cced726d9c9762df19bffd7a/patches/joao-quantity-ambiguity-20260912/color-split-ambiguity-preload-v1.ts";
 import "https://raw.githubusercontent.com/suelicontadeluz-design/skillprintpro1/d00d2fdf1dec889311655eaec6a9a007bb62f55f/patches/joao-quantity-ambiguity-20260912/color-split-resolution-fallback-preload-v1.ts";
 
-// Fase 1: shipping passa a ser responsabilidade do FreteAgent/state gate.
+// Fase 1: shipping passa a ser responsabilidade do FreteAgent/state gate no outbound.
 import "https://raw.githubusercontent.com/suelicontadeluz-design/skillprintpro1/90106a2e626ea02eac99b01e897d0bbf76e71f99/patches/freight-agent-phase1-20260915/freight-agent-runtime-preload-v1.ts";
