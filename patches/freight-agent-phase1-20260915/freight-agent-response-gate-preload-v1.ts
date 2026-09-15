@@ -9,7 +9,7 @@ const FRG_URL = (Deno.env.get('SUPABASE_URL') ?? '').replace(/\/$/, '');
 const FRG_SERVICE = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
 const frgBaseFetch = globalThis.fetch.bind(globalThis);
 const frgBaseServe = Deno.serve.bind(Deno);
-const FRG_VERSION = 'freight-agent-phase1-response-gate/v1.1';
+const FRG_VERSION = 'freight-agent-phase1-response-gate/v1.2';
 
 function frgDigits(v:unknown):string { return String(v ?? '').replace(/\D/g,''); }
 function frgNorm(v:unknown):string { return String(v ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/\s+/g,' ').trim(); }
@@ -30,6 +30,9 @@ function frgRender(state:any):{text:string;price:number|null;must_not_ask_zip:bo
     const lines=state.quotes.map((o:any)=>{const d=Number(o?.prazo_dias);return `• ${String(o?.servico||o?.transportadora||'Frete').trim()}: ${frgMoney(o?.preco)}${Number.isFinite(d)?` — ${d} ${d===1?'dia útil':'dias úteis'}`:''}`;});
     const first=Number(state.quotes[0]?.preco);
     return {text:`Para o CEP ${zip.slice(0,5)}-${zip.slice(5)}, tenho estas opções de frete:\n${lines.join('\n')}\nQual você prefere?`,price:Number.isFinite(first)?first:null,must_not_ask_zip:true};
+  }
+  if(status==='EXPIRED_QUOTE' && zip.length===8){
+    return {text:`A cotação anterior expirou, mas seu CEP ${zip.slice(0,5)}-${zip.slice(5)} continua salvo. Preciso atualizar os valores antes de te passar o frete.`,price:null,must_not_ask_zip:true};
   }
   if(status==='ZIP_PROVIDED' && zip.length===8){
     return {text:`Já tenho seu CEP ${zip.slice(0,5)}-${zip.slice(5)}.`,price:null,must_not_ask_zip:true};
