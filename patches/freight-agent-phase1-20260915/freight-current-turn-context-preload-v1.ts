@@ -1,9 +1,11 @@
 declare const Deno: any;
 
 // FreightAgent Phase 1 — current-turn request context v1 — 15/09/2026
-// Safety goal: shipping transitions must use the request being processed, never
-// reconstruct intent from "latest inbound" in the database.
-// If two requests for the same phone overlap, the lookup fails closed.
+// Safety goals:
+// - shipping transitions use the request being processed, never DB "latest inbound";
+// - overlapping requests for the same phone fail closed;
+// - dry-run without an explicit replay session is automatically namespaced under replay:,
+//   so test state can never become the current state of a future live lead:/phone: session.
 
 const FCT_BASE_SERVE = Deno.serve.bind(Deno);
 const FCT_STORE = new Map<string, Map<string, any>>();
@@ -62,13 +64,17 @@ function fctDelete(phone: string, token: string) {
 
     const phone = fctDigits(body?.phone);
     const token = crypto.randomUUID();
+    const dryRun = body?._dry_run === true;
+    const requestedSession = String(body?._shipping_session_id ?? '').trim() || null;
+    const safeSession = requestedSession || (dryRun ? `replay:dryrun:${token}` : null);
+
     const ctx = {
       token,
       phone,
       incoming: fctIncoming(body),
       inbound_id: String(body?.inbound_id ?? '').trim() || null,
-      shipping_session_id: String(body?._shipping_session_id ?? '').trim() || null,
-      dry_run: body?._dry_run === true,
+      shipping_session_id: safeSession,
+      dry_run: dryRun,
       started_at: new Date().toISOString(),
     };
 
