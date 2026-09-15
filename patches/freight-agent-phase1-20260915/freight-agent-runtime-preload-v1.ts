@@ -4,13 +4,14 @@ declare const Deno: any;
 // João não é autoridade de CEP/frete. Este adapter opera no boundary de saída:
 // 1) ancora CEP e snapshots reais no canonical_session_state;
 // 2) resolve escolha explícita somente contra quotes persistidos;
-// 3) renderiza shipping exclusivamente do estado canônico;
-// 4) impede que texto livre do modelo contradiga preço/CEP persistidos.
+// 3) expira cotação antiga sem apagar o CEP;
+// 4) renderiza shipping exclusivamente do estado canônico;
+// 5) impede que texto livre do modelo contradiga preço/CEP persistidos.
 
 const FA_URL = (Deno.env.get('SUPABASE_URL') ?? '').replace(/\/$/, '');
 const FA_SERVICE = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
 const faBaseFetch = globalThis.fetch.bind(globalThis);
-const FA_VERSION = 'freight-agent-phase1-runtime/v1';
+const FA_VERSION = 'freight-agent-phase1-runtime/v1.1';
 const FA_QUOTE_AGE_MS = 30 * 60 * 1000;
 const faSubscriberPhone = new Map<string,{phone:string;at:number}>();
 const FA_TRANSIENT_ZAPI = new Set([408,409,425,429,500,502,503,504]);
@@ -72,33 +73,43 @@ async function faApply(sessionId:string,version:number,proposal:any,leadId:any,p
     p_source_turn_id:turnId??null,p_source_replay_case_id:null,p_is_replay:false,p_as_of:new Date().toISOString(),
   });
 }
-async function faAdvance(phone:string):Promise<{sessionId:string;current:any;render:any;inbound:any;quote:any}|null>{
+async function faAdvance(phone:string):Promise<{sessionId:string;current:any;render:any;inbound:any;quote:any;canonicalTurn:boolean}|null>{
   const [inbound,quote]=await Promise.all([faLatestInbound(phone),faLatestQuote(phone)]);
   const leadId=quote?.lead_id ?? inbound?.lead_id ?? null;
   const sessionId=faSession(leadId,phone);
   let current=await faCurrent(sessionId); if(!current?.ok) return null;
   let version=Number(current?.state_version??0);
   let state=current?.shipping_state??{};
+  let canonicalTurn=false;
   const inboundText=String(inbound?.message_text??'');
   const inboundCep=faCep(inboundText);
   const quoteCep=faDigits(quote?.cep_destino);
 
-  // Customer turn is direct evidence. A newer explicit ZIP may replace the old one and invalidates its quote.
   if(inboundCep && (state?.zip_code!==inboundCep)){
     const res=await faApply(sessionId,version,{schema_version:'freight-state-proposal/v1',action:'ZIP_PROVIDED',zip_code:inboundCep,explicit_customer_change:version>0,source:'CUSTOMER_TURN'},leadId,phone,inbound?.id??null);
-    if(res?.ok){ version=Number(res.state_version); state=res.shipping_state; }
+    if(res?.ok){ version=Number(res.state_version); state=res.shipping_state; canonicalTurn=true; }
   }
-  // A persisted quote is also proof of the ZIP used by the freight tool. Seed only when no ZIP exists.
   if(!state?.zip_code && quoteCep.length===8){
     const res=await faApply(sessionId,version,{schema_version:'freight-state-proposal/v1',action:'ZIP_PROVIDED',zip_code:quoteCep,source:'QUOTE_SNAPSHOT'},leadId,phone,inbound?.id??null);
-    if(res?.ok){ version=Number(res.state_version); state=res.shipping_state; }
+    if(res?.ok){ version=Number(res.state_version); state=res.shipping_state; canonicalTurn=true; }
   }
   if(quote?.quote_id && quoteCep.length===8 && state?.zip_code===quoteCep && String(state?.quote_snapshot_id??'')!==String(quote.quote_id)){
     const res=await faApply(sessionId,version,{schema_version:'freight-state-proposal/v1',action:'QUOTE_RECORDED',quote_snapshot_id:quote.quote_id},leadId,phone,inbound?.id??null);
-    if(res?.ok){ version=Number(res.state_version); state=res.shipping_state; }
+    if(res?.ok){ version=Number(res.state_version); state=res.shipping_state; canonicalTurn=true; }
   }
 
-  // Resolve only explicit, unique selection against the persisted canonical quote.
+  // Expiração é parte do estado: preserva CEP e impede preço antigo de escapar.
+  if((state?.status==='VALID_QUOTE'||state?.status==='QUOTE_SELECTED') && state?.quote_expires_at){
+    const expiry=Date.parse(String(state.quote_expires_at));
+    if(Number.isFinite(expiry) && Date.now()>=expiry){
+      const res=await faApply(sessionId,version,{schema_version:'freight-state-proposal/v1',action:'QUOTE_EXPIRED'},leadId,phone,inbound?.id??null);
+      if(res?.ok && res?.shipping_state?.status==='EXPIRED_QUOTE'){
+        version=Number(res.state_version); state=res.shipping_state; canonicalTurn=true;
+      }
+    }
+  }
+
+  // Resolve serviço ou preço mencionado no turno somente contra as opções persistidas.
   if(state?.status==='VALID_QUOTE' && Array.isArray(state?.quotes) && inboundText){
     const quotedAt=quote?.quoted_at?Date.parse(quote.quoted_at):0;
     const inboundAt=inbound?.timestamp?Date.parse(inbound.timestamp):0;
@@ -111,12 +122,18 @@ async function faAdvance(phone:string):Promise<{sessionId:string;current:any;ren
         const matches=(state.quotes as any[]).filter((o:any)=>amounts.some(n=>Math.abs(Number(o?.preco)-n)<=0.005));
         if(matches.length===1) proposal={schema_version:'freight-state-proposal/v1',action:'QUOTE_SELECTED',price:Number(matches[0].preco)};
       }
-      if(proposal){ const res=await faApply(sessionId,version,proposal,leadId,phone,inbound?.id??null); if(res?.ok){version=Number(res.state_version);state=res.shipping_state;} }
+      if(proposal){
+        const res=await faApply(sessionId,version,proposal,leadId,phone,inbound?.id??null);
+        if(res?.ok){
+          version=Number(res.state_version); state=res.shipping_state;
+          if(state?.status==='QUOTE_SELECTED'||state?.status==='EXPIRED_QUOTE') canonicalTurn=true;
+        }
+      }
     }
   }
   current=await faCurrent(sessionId);
   const render=await faRpc('fn_joao_shipping_render_v1',{p_session_id:sessionId});
-  return {sessionId,current,render,inbound,quote};
+  return {sessionId,current,render,inbound,quote,canonicalTurn};
 }
 function faOutbound(body:any,url:string):{field:'message'|'value'|'texto';phone:string;text:string;zapi:boolean}|null{
   if(/^https:\/\/api\.z-api\.io\/instances\/[^/]+\/token\/[^/]+\/send-text(?:\?|$)/i.test(url)) return {field:'message',phone:faDigits(body?.phone),text:String(body?.message??''),zapi:true};
@@ -146,14 +163,14 @@ globalThis.fetch=async(input:RequestInfo|URL,init?:RequestInit):Promise<Response
     const advanced=await faAdvance(outbound.phone);
     const canonicalText=String(advanced?.render?.text??'').trim();
     const inboundText=String(advanced?.inbound?.message_text??'');
-    const shippingTurn=faShippingIntent(inboundText)||faShippingIntent(outbound.text);
+    const shippingTurn=Boolean(advanced?.canonicalTurn)||faShippingIntent(inboundText)||faShippingIntent(outbound.text);
     if(shippingTurn && canonicalText){
       body[outbound.field]=outbound.text.trim().startsWith('*João Barros:*')?`*João Barros:*\n${canonicalText}`:canonicalText;
       const rebuilt=faRebuild(input,init,JSON.stringify(body)); callInput=rebuilt[0]; callInit=rebuilt[1];
       void faAudit('canonical_shipping_render_enforced',{
         phone_suffix:outbound.phone.slice(-4),session_id:advanced?.sessionId,state_version:advanced?.current?.state_version,
         status:advanced?.current?.shipping_state?.status,quote_snapshot_id:advanced?.current?.shipping_state?.quote_snapshot_id??null,
-        rendered_price:advanced?.render?.expected_rendered_price??null,
+        rendered_price:advanced?.render?.expected_rendered_price??null,canonical_turn:Boolean(advanced?.canonicalTurn),
       });
     }
   }
