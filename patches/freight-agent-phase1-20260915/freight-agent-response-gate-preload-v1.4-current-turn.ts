@@ -1,17 +1,17 @@
 declare const Deno: any;
 
 // FreightAgent Phase 1 response gate v1.4 — current-turn safe integration — 15/09/2026
-// - advances shipping from the active request before rendering;
+// - asks the runtime to classify/advance from the active request first;
+// - supports short state-aware continuations such as "Poderia ser 20,76";
 // - uses the canonical DB renderer instead of duplicating render rules;
 // - explicit replay/session requests remain state-driven;
-// - production pure-shipping turns may be enforced;
-// - mixed checkout/payment turns are observed only during first integration canary.
+// - production mixed product/pricing/checkout turns are observed only in this canary.
 
 const FRG14_URL = (Deno.env.get('SUPABASE_URL') ?? '').replace(/\/$/, '');
 const FRG14_SERVICE = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
 const frg14BaseFetch = globalThis.fetch.bind(globalThis);
 const frg14BaseServe = Deno.serve.bind(Deno);
-const FRG14_VERSION = 'freight-agent-phase1-response-gate/v1.4-current-turn';
+const FRG14_VERSION = 'freight-agent-phase1-response-gate/v1.4-current-turn-r2';
 
 function frg14Digits(v: unknown): string { return String(v ?? '').replace(/\D/g, ''); }
 function frg14Norm(v: unknown): string {
@@ -32,7 +32,8 @@ function frg14MixedSensitive(text: string): boolean {
     try { return fn(text) === true; } catch {}
   }
   const t = frg14Norm(text);
-  return /\b(pix|pagamento|pagar|cobranca|cobrar|link de pagamento|fechar|fechado|total|proposta|orcamento|pedido)\b/.test(t);
+  return /\b(pix|pagamento|pagar|cobranca|cobrar|link de pagamento|fechar|fechado|total|proposta|orcamento|pedido|preco|valor|quantidade|peca|pecas|unidade|unidades|a3|a4|folha|folhas|adesivo|adesivos|camiseta|camisetas|polo|dtf|silk|serigrafia|estampa|estampas|arte|artes)\b/.test(t)
+    || /\d+(?:[,.]\d+)?\s*[x×]\s*\d+(?:[,.]\d+)?/.test(t);
 }
 async function frg14LeadForPhone(phone: string): Promise<string | null> {
   const p = frg14Digits(phone);
@@ -105,14 +106,17 @@ async function frg14Audit(event: string, detail: any) {
     const incoming = String(reqBody?.mensagem ?? reqBody?.message ?? '');
     const explicitSession = String(reqBody?._shipping_session_id ?? '').trim();
     const phone = frg14Digits(reqBody?.phone);
-    const shippingIntent = Boolean(explicitSession) || frg14ShippingIntent(incoming) || frg14ShippingIntent(payload.resposta);
-    if (!shippingIntent) return res;
 
+    // Ask the request-scoped runtime first. It can identify a short quote continuation
+    // even when the text contains no literal shipping keyword.
     let advanced: any = null;
     const advanceFn = (globalThis as any).__joaoFreightAdvanceCurrentTurnV1;
     if (phone && typeof advanceFn === 'function') {
       try { advanced = await advanceFn(phone); } catch {}
     }
+
+    const shippingRelevant = Boolean(explicitSession) || advanced?.ok === true || frg14ShippingIntent(incoming) || frg14ShippingIntent(payload.resposta);
+    if (!shippingRelevant) return res;
 
     const leadId = explicitSession ? '' : await frg14LeadForPhone(phone);
     const sessionId = String(advanced?.sessionId ?? explicitSession ?? (leadId ? `lead:${leadId}` : (phone ? `phone:${phone}` : ''))).trim();
