@@ -8,6 +8,8 @@ const KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
 const SHADOW_URL = process.env.FREIGHT_PHASE1_SHADOW_URL || '';
 const CRON_SECRET = process.env.INTERNAL_EDGE_CRON_SECRET || '';
 
+const REPLAY_PRICE_20_76 = 'e700b963-5cad-4cff-8f23-1bff6e529f64';
+
 function requireDb() {
   assert.ok(URL, 'SUPABASE_URL is required');
   assert.ok(KEY, 'SUPABASE_SERVICE_ROLE_KEY is required');
@@ -45,7 +47,7 @@ async function apply(sessionId, expectedVersion, p, extra = {}) {
     p_source_turn_id: null,
     p_source_replay_case_id: extra.replayCaseId ?? null,
     p_is_replay: true,
-    p_as_of: new Date().toISOString(),
+    p_as_of: extra.asOf ?? new Date().toISOString(),
   });
 }
 async function current(sessionId) {
@@ -62,7 +64,6 @@ function asksZip(text) {
   return /(qual|me passa|informe|manda|passe|passa)[^.!?\n]{0,70}cep/i.test(String(text));
 }
 
-// Prompt-pruning gate: shipping may exist in comments/adapter files, but never in João's injected system blocks.
 test('Prompt gate: João orchestrator injects no shipping authority', async () => {
   const source = await readFile(new URL('../patches/joao-skill-orchestrator-20260915/orchestrator-preload-v1.6-no-shipping.ts', import.meta.url), 'utf8');
   const injected = [...source.matchAll(/body\.system\s*\+=\s*`([\s\S]*?)`;/g)].map((m) => m[1]).join('\n');
@@ -80,7 +81,6 @@ test('Metric 1: canonical ZIP survives process/model context loss', async () => 
   const first = await apply(sessionId, 0, proposal('ZIP_PROVIDED', { zip_code: '06800000', source: 'REPLAY' }));
   assert.equal(first.code, 'STATE_COMMITTED');
 
-  // A fresh HTTP/RPC read has no worker-memory dependency.
   const afterRestartEquivalent = await current(sessionId);
   assert.equal(afterRestartEquivalent.shipping_state.zip_code, '06800000');
   assert.equal(afterRestartEquivalent.state_version, 1);
@@ -107,17 +107,19 @@ test('Metric 4 + Metric 3: historical quote renders exactly DB price and never r
   assert.equal(rendered.must_not_ask_zip, true);
 });
 
-test('Historical selection by price resolves exactly one canonical quote', async () => {
+test('Historical selection by price uses replay as_of, not wall clock', async () => {
   const quoteRows = await rows('joao_freight_quote_snapshots?select=quote_id,lead_id,phone,cep_destino,opcoes&cep_destino=eq.35430225&order=quoted_at.desc&limit=1');
   assert.equal(quoteRows.length, 1);
   const q = quoteRows[0];
   assert.ok(q.opcoes.some((o) => Number(o.preco) === 20.76));
   const sessionId = `replay:${randomUUID()}:selection-20-76`;
+  const replay = { leadId: q.lead_id, phone: q.phone, replayCaseId: REPLAY_PRICE_20_76 };
 
-  await apply(sessionId, 0, proposal('ZIP_PROVIDED', { zip_code: '35430225' }), { leadId: q.lead_id, phone: q.phone });
-  await apply(sessionId, 1, proposal('QUOTE_RECORDED', { quote_snapshot_id: q.quote_id }), { leadId: q.lead_id, phone: q.phone });
-  const selected = await apply(sessionId, 2, proposal('QUOTE_SELECTED', { price: 20.76 }), { leadId: q.lead_id, phone: q.phone });
+  await apply(sessionId, 0, proposal('ZIP_PROVIDED', { zip_code: '35430225' }), replay);
+  await apply(sessionId, 1, proposal('QUOTE_RECORDED', { quote_snapshot_id: q.quote_id }), replay);
+  const selected = await apply(sessionId, 2, proposal('QUOTE_SELECTED', { price: 20.76 }), replay);
   assert.equal(selected.code, 'STATE_COMMITTED');
+  assert.equal(selected.shipping_state.status, 'QUOTE_SELECTED');
   assert.equal(Number(selected.shipping_state.selected_quote.preco), 20.76);
   const rendered = await render(sessionId);
   assert.equal(extractPrice(rendered.text), 20.76);
@@ -141,6 +143,22 @@ test('State machine: selection without VALID_QUOTE is blocked', async () => {
   await apply(sessionId, 0, proposal('ZIP_PROVIDED', { zip_code: '06800000' }));
   const result = await apply(sessionId, 1, proposal('QUOTE_SELECTED', { service: 'Sedex' }));
   assert.equal(result.code, 'VALID_QUOTE_REQUIRED');
+});
+
+test('Expired quote keeps ZIP but cannot render a stale price', async () => {
+  const quoteRows = await rows('joao_freight_quote_snapshots?select=quote_id,lead_id,phone,cep_destino,opcoes&phone=eq.5511979979637&cep_destino=eq.04328055&order=quoted_at.desc&limit=1');
+  const q = quoteRows[0];
+  const sessionId = `replay:${randomUUID()}:quote-expiry`;
+  await apply(sessionId, 0, proposal('ZIP_PROVIDED', { zip_code: q.cep_destino }), { leadId: q.lead_id, phone: q.phone });
+  await apply(sessionId, 1, proposal('QUOTE_RECORDED', { quote_snapshot_id: q.quote_id }), { leadId: q.lead_id, phone: q.phone });
+  const expired = await apply(sessionId, 2, proposal('QUOTE_EXPIRED'), { leadId: q.lead_id, phone: q.phone });
+  assert.equal(expired.code, 'STATE_COMMITTED');
+  assert.equal(expired.shipping_state.status, 'EXPIRED_QUOTE');
+  assert.equal(expired.shipping_state.zip_code, q.cep_destino);
+  const rendered = await render(sessionId);
+  assert.equal(extractPrice(rendered.text), null);
+  assert.equal(asksZip(rendered.text), false);
+  assert.equal(rendered.must_not_ask_zip, true);
 });
 
 test('Full shadow pipeline: canonical state wins over model text', { skip: !(SHADOW_URL && CRON_SECRET) }, async () => {
