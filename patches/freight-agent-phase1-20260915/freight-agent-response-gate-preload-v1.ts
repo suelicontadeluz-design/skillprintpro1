@@ -9,7 +9,7 @@ const FRG_URL = (Deno.env.get('SUPABASE_URL') ?? '').replace(/\/$/, '');
 const FRG_SERVICE = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
 const frgBaseFetch = globalThis.fetch.bind(globalThis);
 const frgBaseServe = Deno.serve.bind(Deno);
-const FRG_VERSION = 'freight-agent-phase1-response-gate/v1';
+const FRG_VERSION = 'freight-agent-phase1-response-gate/v1.1';
 
 function frgDigits(v:unknown):string { return String(v ?? '').replace(/\D/g,''); }
 function frgNorm(v:unknown):string { return String(v ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/\s+/g,' ').trim(); }
@@ -64,8 +64,14 @@ async function frgAudit(event:string,detail:any){
     try{if(req.method==='POST'&&(req.headers.get('content-type')||'').toLowerCase().includes('application/json'))reqBody=await req.clone().json().catch(()=>null);}catch{}
     const res=await handler(req,info);
     if(!reqBody||!res.ok)return res;
-    const ct=res.headers.get('content-type')||''; if(!ct.toLowerCase().includes('application/json'))return res;
-    let payload:any; try{payload=await res.clone().json();}catch{return res;}
+
+    // O core legado devolve JSON com content-type text/plain em alguns dry-runs.
+    // O gate valida o corpo, não confia no header legado.
+    let raw='';
+    try{raw=await res.clone().text();}catch{return res;}
+    const trimmed=raw.trim();
+    if(!trimmed.startsWith('{'))return res;
+    let payload:any; try{payload=JSON.parse(trimmed);}catch{return res;}
     if(!payload||typeof payload!=='object'||typeof payload.resposta!=='string')return res;
     const incoming=String(reqBody?.mensagem??reqBody?.message??'');
     if(!frgShippingIntent(incoming)&&!frgShippingIntent(payload.resposta))return res;
@@ -79,7 +85,7 @@ async function frgAudit(event:string,detail:any){
     const rendered=frgRender(current.shipping_state); if(!rendered.text)return res;
 
     const next={...payload,resposta:rendered.text,freight_phase1:{gate:'CANONICAL_SESSION_STATE',session_id:sessionId,state_version:current.state_version,shipping_state_hash:current.shipping_state_hash,status:current.shipping_state?.status,expected_rendered_price:rendered.price,must_not_ask_zip:rendered.must_not_ask_zip}};
-    const text=JSON.stringify(next); const headers=new Headers(res.headers); headers.delete('content-length'); headers.set('x-cortex-freight-phase1-response-gate',FRG_VERSION);
+    const text=JSON.stringify(next); const headers=new Headers(res.headers); headers.delete('content-length'); headers.set('content-type','application/json; charset=utf-8'); headers.set('x-cortex-freight-phase1-response-gate',FRG_VERSION);
     void frgAudit('canonical_handler_response_enforced',{session_id:sessionId,state_version:current.state_version,status:current.shipping_state?.status,expected_rendered_price:rendered.price,dry_run:reqBody?._dry_run===true});
     return new Response(text,{status:res.status,statusText:res.statusText,headers});
   };
