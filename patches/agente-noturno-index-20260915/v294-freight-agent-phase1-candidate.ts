@@ -7,7 +7,7 @@
 
 import "https://raw.githubusercontent.com/suelicontadeluz-design/skillprintpro1/0f9db02623b29d5ec3f9644986ce30876c1d947e/patches/joao-dry-run-effect-zero-20260912/dry-run-effect-zero-preload-v1.ts";
 // Deve envolver Deno.serve antes de o core registrar o handler.
-import "https://raw.githubusercontent.com/suelicontadeluz-design/skillprintpro1/e2f79e702ac1d526f9685c16ecda52ea00763010/patches/freight-agent-phase1-20260915/freight-agent-response-gate-preload-v1.ts";
+import "https://raw.githubusercontent.com/suelicontadeluz-design/skillprintpro1/0cf6eebdaca6d762de12250c063d7ae39affc194/patches/freight-agent-phase1-20260915/freight-agent-response-gate-preload-v1.ts";
 import "https://raw.githubusercontent.com/suelicontadeluz-design/skillprintpro1/732306cd9d1aaea2f95feab5fb0f01a7cee46002/patches/joao-quantity-ambiguity-20260912/color-split-request-controller-v1.ts";
 import "https://raw.githubusercontent.com/suelicontadeluz-design/skillprintpro1/64f3e8be95a0801c51f20ceedb666ddc5688df83/patches/joao-erp-orcamentos-20260908/erp-orcamento-preload.ts";
 import "https://raw.githubusercontent.com/suelicontadeluz-design/skillprintpro1/8ae11b8eb7e96d1cde3b42c9bec0945432b8ca05/patches/joao-erp-propostas-20260908/proposal-receipt-preload.ts";
