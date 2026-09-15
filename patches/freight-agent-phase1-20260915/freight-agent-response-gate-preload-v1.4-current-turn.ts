@@ -1,17 +1,17 @@
 declare const Deno: any;
 
 // FreightAgent Phase 1 response gate v1.4 — current-turn safe integration — 15/09/2026
-// - asks the runtime to classify/advance from the active request first;
+// - advances/classifies from the active request before trusting the base response;
 // - supports short state-aware continuations such as "Poderia ser 20,76";
+// - can recover a silent João base response when shipping state is unambiguous;
 // - uses the canonical DB renderer instead of duplicating render rules;
-// - explicit replay/session requests remain state-driven;
 // - production mixed product/pricing/checkout turns are observed only in this canary.
 
 const FRG14_URL = (Deno.env.get('SUPABASE_URL') ?? '').replace(/\/$/, '');
 const FRG14_SERVICE = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
 const frg14BaseFetch = globalThis.fetch.bind(globalThis);
 const frg14BaseServe = Deno.serve.bind(Deno);
-const FRG14_VERSION = 'freight-agent-phase1-response-gate/v1.4-current-turn-r2';
+const FRG14_VERSION = 'freight-agent-phase1-response-gate/v1.4-current-turn-r3';
 
 function frg14Digits(v: unknown): string { return String(v ?? '').replace(/\D/g, ''); }
 function frg14Norm(v: unknown): string {
@@ -101,21 +101,23 @@ async function frg14Audit(event: string, detail: any) {
 
     let payload: any;
     try { payload = JSON.parse(raw.trim()); } catch { return res; }
-    if (!payload || typeof payload !== 'object' || typeof payload.resposta !== 'string') return res;
+    if (!payload || typeof payload !== 'object') return res;
 
+    const baseResponse = typeof payload.resposta === 'string' ? payload.resposta : '';
     const incoming = String(reqBody?.mensagem ?? reqBody?.message ?? '');
     const explicitSession = String(reqBody?._shipping_session_id ?? '').trim();
     const phone = frg14Digits(reqBody?.phone);
 
-    // Ask the request-scoped runtime first. It can identify a short quote continuation
-    // even when the text contains no literal shipping keyword.
+    // The request-scoped runtime is the primary classifier. This is intentionally
+    // called even when the base João returned silence, so canonical state can recover
+    // an unambiguous shipping continuation.
     let advanced: any = null;
     const advanceFn = (globalThis as any).__joaoFreightAdvanceCurrentTurnV1;
     if (phone && typeof advanceFn === 'function') {
       try { advanced = await advanceFn(phone); } catch {}
     }
 
-    const shippingRelevant = Boolean(explicitSession) || advanced?.ok === true || frg14ShippingIntent(incoming) || frg14ShippingIntent(payload.resposta);
+    const shippingRelevant = Boolean(explicitSession) || advanced?.ok === true || frg14ShippingIntent(incoming) || frg14ShippingIntent(baseResponse);
     if (!shippingRelevant) return res;
 
     const leadId = explicitSession ? '' : await frg14LeadForPhone(phone);
@@ -143,10 +145,14 @@ async function frg14Audit(event: string, detail: any) {
       expected_rendered_price: render?.expected_rendered_price ?? null,
       must_not_ask_zip: render?.must_not_ask_zip === true,
       current_turn: true,
+      base_was_silent: !baseResponse,
     };
 
     const next = { ...payload, freight_phase1: freightMeta };
-    if (enforce) next.resposta = canonicalText;
+    if (enforce) {
+      next.respondeu = true;
+      next.resposta = canonicalText;
+    }
 
     const text = JSON.stringify(next);
     const headers = new Headers(res.headers);
@@ -163,6 +169,7 @@ async function frg14Audit(event: string, detail: any) {
       dry_run: reqBody?._dry_run === true,
       mixed_sensitive: mixedSensitive,
       current_turn: true,
+      base_was_silent: !baseResponse,
     });
 
     return new Response(text, { status: res.status, statusText: res.statusText, headers });
