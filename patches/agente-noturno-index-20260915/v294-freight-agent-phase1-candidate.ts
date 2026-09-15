@@ -45,4 +45,4 @@ import "https://raw.githubusercontent.com/suelicontadeluz-design/skillprintpro1/
 import "https://raw.githubusercontent.com/suelicontadeluz-design/skillprintpro1/d00d2fdf1dec889311655eaec6a9a007bb62f55f/patches/joao-quantity-ambiguity-20260912/color-split-resolution-fallback-preload-v1.ts";
 
 // Fase 1: shipping passa a ser responsabilidade do FreteAgent/state gate no outbound.
-import "https://raw.githubusercontent.com/suelicontadeluz-design/skillprintpro1/90106a2e626ea02eac99b01e897d0bbf76e71f99/patches/freight-agent-phase1-20260915/freight-agent-runtime-preload-v1.ts";
+import "https://raw.githubusercontent.com/suelicontadeluz-design/skillprintpro1/c31666f9ba0e3a211c0c68538c4471fe07655bc7/patches/freight-agent-phase1-20260915/freight-agent-runtime-preload-v1.ts";
