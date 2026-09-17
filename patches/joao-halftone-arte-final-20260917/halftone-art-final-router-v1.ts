@@ -14,7 +14,7 @@ declare const Deno: any;
 const HAF_URL = (Deno.env.get('SUPABASE_URL') ?? '').replace(/\/$/, '');
 const HAF_SERVICE = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
 const hafBaseFetch = globalThis.fetch.bind(globalThis);
-const HAF_VERSION = 'joao-halftone-art-final-router/v1';
+const HAF_VERSION = 'joao-halftone-art-final-router/v1.1';
 const HAF_CONFIG_KEY = 'joao_halftone_art_final_router_ativo';
 const HAF_STAGE = 'arte_final_halftone';
 let hafCfgAt = 0;
@@ -97,6 +97,11 @@ function hafPriceInquiryAnyDtf(text: string): boolean {
   const t = hafNorm(text);
   if (/\bdtf\s*uv\b/.test(t)) return false;
   return /\bdtf\b/.test(t) && /\bquanto\b|\bpreco\b|\bvalor\b|\bcusta\b|\bsai\b/.test(t);
+}
+function hafOuterRequestContext(): { phone?: string | null; chatName?: string | null; dryRun?: boolean } {
+  try {
+    return (globalThis as any).__HAF_REQUEST_CONTEXT_V1__?.getStore?.() ?? {};
+  } catch { return {}; }
 }
 function hafPhone(system: string, messages: any[]): string | null {
   const userTexts: string[] = [];
@@ -194,7 +199,7 @@ function hafRenderPriceTable(rows: HafPriceRow[]): string | null {
   const parts = rows.map((r) => {
     const min = Number.isInteger(r.metros_min) ? String(r.metros_min) : String(r.metros_min).replace('.', ',');
     const max = r.metros_max == null ? null : (Number.isInteger(r.metros_max) ? String(r.metros_max) : String(r.metros_max).replace('.', ','));
-    const faixa = max == null ? `${min}+ m` : `${min}–${max} m`;
+    const faixa = max == null ? `${min}+ m` : `${min} a ${max} m`;
     return `${faixa}: ${hafBRL(r.preco_por_metro)}/m`;
   });
   return parts.join(' | ');
@@ -246,7 +251,8 @@ globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit): Promise
   const inbound = hafLatestInbound(body.messages);
   if (!inbound) return hafBaseFetch(input, init);
   const previous = hafPreviousAssistant(body.messages);
-  const phone = hafPhone(body.system, body.messages);
+  const outer = hafOuterRequestContext();
+  const phone = hafPhone(body.system, body.messages) ?? (outer.phone ? String(outer.phone).replace(/\D/g, '') : null);
   const taskOpen = await hafOpenTask(phone);
   const classification = hafClassify(inbound, previous, taskOpen);
   if (classification === 'NONE') return hafBaseFetch(input, init);
@@ -294,4 +300,4 @@ globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit): Promise
   return hafDecision(`${taskText}${priceText}`);
 };
 
-export const __test = { hafNorm, hafMentionsHalftone, hafMentionsArtService, hafRequesterExplicit, hafOfferishOrDirectionAmbiguous, hafPreviousAskedConfirmation, hafAffirmative, hafDtfMeterPriceInquiry, hafPriceInquiryAnyDtf, hafClassify, hafRenderPriceTable };
+export const __test = { hafNorm, hafMentionsHalftone, hafMentionsArtService, hafRequesterExplicit, hafOfferishOrDirectionAmbiguous, hafPreviousAskedConfirmation, hafAffirmative, hafDtfMeterPriceInquiry, hafPriceInquiryAnyDtf, hafClassify, hafRenderPriceTable, hafOuterRequestContext };
