@@ -14,13 +14,13 @@ declare const Deno: any;
 const HAF_URL = (Deno.env.get('SUPABASE_URL') ?? '').replace(/\/$/, '');
 const HAF_SERVICE = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
 const hafBaseFetch = globalThis.fetch.bind(globalThis);
-const HAF_VERSION = 'joao-halftone-art-final-router/v1.1';
+const HAF_VERSION = 'joao-halftone-art-final-router/v1.2';
 const HAF_CONFIG_KEY = 'joao_halftone_art_final_router_ativo';
 const HAF_STAGE = 'arte_final_halftone';
 let hafCfgAt = 0;
 let hafCfg = false;
 
-type HafClassification = 'NONE' | 'CLARIFY' | 'CONFIRMED' | 'OPEN_TASK_PRICE_ONLY';
+type HafClassification = 'NONE' | 'CLARIFY' | 'CONFIRMED' | 'PROVIDER' | 'OPEN_TASK_PRICE_ONLY';
 type HafLead = { lead_id: string | null; nome: string | null; phone: string | null };
 type HafTaskResult = { ok: boolean; action: string | null; task_id: string | null; blockedDryRun: boolean };
 
@@ -79,6 +79,20 @@ function hafOfferishOrDirectionAmbiguous(text: string): boolean {
 function hafPreviousAskedConfirmation(previous: string): boolean {
   const t = hafNorm(previous);
   return /arte-finalista|arte final/.test(t) && hafMentionsHalftone(t) && /correto|certo|confirma|quer que/.test(t);
+}
+function hafPreviousAskedDirection(previous: string): boolean {
+  const t = hafNorm(previous);
+  return hafMentionsHalftone(t) && /contratar\s+a\s+skillprint/.test(t) && /oferecendo\s+(?:esse|o)\s+servico/.test(t);
+}
+function hafHiringReply(text: string): boolean {
+  const t = hafNorm(text);
+  return /\b(?:quero|vou|gostaria|preciso)\s+(?:contratar|que\s+voc[eê]s\s+(?:facam|façam|tratem|ajustem))\b/.test(t)
+    || /\b(?:e|é)\s+(?:pra|para)\s+voc[eê]s\s+(?:fazer|tratar|ajustar)\b/.test(t)
+    || /\bskillprint\b.{0,40}\b(?:fazer|tratar|ajustar)\b/.test(t);
+}
+function hafProviderReply(text: string): boolean {
+  const t = hafNorm(text);
+  return /\b(?:estou|to)\s+oferecendo\b|\bquero\s+oferecer\b|\b(?:eu\s+)?presto\s+(?:esse\s+)?servico\b|\bsou\s+(?:prestador|fornecedor)\b/.test(t);
 }
 function hafAffirmative(text: string): boolean {
   const t = hafNorm(text);
@@ -206,6 +220,10 @@ function hafRenderPriceTable(rows: HafPriceRow[]): string | null {
 }
 function hafClassify(inbound: string, previousAssistant: string, taskOpen: boolean): HafClassification {
   const mentions = hafMentionsArtService(inbound);
+  if (hafPreviousAskedDirection(previousAssistant)) {
+    if (hafHiringReply(inbound)) return 'CONFIRMED';
+    if (hafProviderReply(inbound)) return 'PROVIDER';
+  }
   const affirmativeContext = hafPreviousAskedConfirmation(previousAssistant) && hafAffirmative(inbound);
   if (affirmativeContext) return 'CONFIRMED';
   if (taskOpen && hafPriceInquiryAnyDtf(inbound)) return 'OPEN_TASK_PRICE_ONLY';
@@ -261,13 +279,21 @@ globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit): Promise
   const rows = priceInquiry ? await hafDtfTextilePrices() : [];
   const table = hafRenderPriceTable(rows);
 
+  if (classification === 'PROVIDER') {
+    void hafAudit('halftone_provider_direction_confirmed', {
+      phone_suffix: phone?.slice(-4) ?? null, inbound: inbound.slice(0, 240),
+      task_open: taskOpen, effect_class: 'NONE',
+    });
+    return hafDecision('Entendi — você está oferecendo o serviço de halftone para a Skillprint, não pedindo tratamento de Arte Final. Vou manter isso separado de um pedido de DTF.');
+  }
+
   if (classification === 'CLARIFY') {
     const suffix = priceInquiry && table ? ` E sobre o DTF têxtil por metro, a tabela atual é: ${table}.` : '';
     void hafAudit('halftone_intent_direction_clarification', {
       phone_suffix: phone?.slice(-4) ?? null, inbound: inbound.slice(0, 240),
       price_inquiry: priceInquiry, task_open: taskOpen, effect_class: 'NONE',
     });
-    return hafDecision(`Só pra confirmar: você quer que a Skillprint trate essas imagens em halftone com o nosso arte-finalista, correto?${suffix}`);
+    return hafDecision(`Só pra eu não inverter: você quer contratar a Skillprint para tratar suas imagens em halftone, ou está oferecendo esse serviço para a Skillprint?${suffix}`);
   }
 
   if (classification === 'OPEN_TASK_PRICE_ONLY') {
@@ -300,4 +326,4 @@ globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit): Promise
   return hafDecision(`${taskText}${priceText}`);
 };
 
-export const __test = { hafNorm, hafMentionsHalftone, hafMentionsArtService, hafRequesterExplicit, hafOfferishOrDirectionAmbiguous, hafPreviousAskedConfirmation, hafAffirmative, hafDtfMeterPriceInquiry, hafPriceInquiryAnyDtf, hafClassify, hafRenderPriceTable, hafOuterRequestContext };
+export const __test = { hafNorm, hafMentionsHalftone, hafMentionsArtService, hafRequesterExplicit, hafOfferishOrDirectionAmbiguous, hafPreviousAskedConfirmation, hafPreviousAskedDirection, hafHiringReply, hafProviderReply, hafAffirmative, hafDtfMeterPriceInquiry, hafPriceInquiryAnyDtf, hafClassify, hafRenderPriceTable, hafOuterRequestContext };
