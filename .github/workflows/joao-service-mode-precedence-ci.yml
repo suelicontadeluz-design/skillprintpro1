@@ -1,0 +1,24 @@
+name: João Service Mode P0 CI
+
+on:
+  pull_request:
+    paths:
+      - "patches/joao-service-mode-precedence-20260922/**"
+      - "tests/joao-service-mode-precedence.replay.test.mjs"
+      - ".github/workflows/joao-service-mode-precedence-ci.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  replay:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Replay organic P0 and regressions
+        run: node tests/joao-service-mode-precedence.replay.test.mjs
