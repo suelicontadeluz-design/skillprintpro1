@@ -26,7 +26,7 @@ const QP_RX_EXPLICIT_UNIT = new RegExp(
 // Closed vocabulary. Generic words such as "sabe" or "fechar" are insufficient.
 const QP_RX_QUESTION = /(?:\bquant(?:o|os|a|as)\b[^?]{0,160}|\bqual\s+(?:e\s+)?a\s+quantidade\b[^?]{0,120}|\b(?:me\s+)?confirm(?:a|ar|ou|ado|ada)\s+(?:a\s+)?quantidade\b[^?]{0,120}|\bconseguiu\s+(?:definir|confirmar)\s+(?:a\s+)?quantidade\b[^?]{0,120}|\b(?:ja\s+)?definiu\s+(?:a\s+)?quantidade\b[^?]{0,120})\?/i;
 
-const QP_RX_FINANCIAL = /(?:r\$|reais?|conto|entrada|sinal|adiantamento|deposito|pagar|paguei|pago|pagamento|transfer\w*|\bpix\b|restante|resto|parcel\w*|metade|desconto|troco|,\s*00\b)/i;
+const QP_RX_FINANCIAL = /(?:r\$|\bbrl\b|\busd\b|\beur\b|reais?|dolares?|euros?|conto|entrada|sinal|adiantamento|deposito|pagar|paguei|pago|pagamento|transfer\w*|\bpix\b|restante|resto|parcel\w*|metade|desconto|troco|,\s*00\b)/i;
 const QP_RX_CUSTOMER_SENDING = /\b(?:posso|poderia|vou|irei|consigo|acabei\s+de|estou|to|ja|eu)\s+(?:te\s+|lhe\s+|ja\s+)?(?:envi\w*|mand\w*)/i;
 const QP_RX_DIMENSION = /\b\d+(?:[.,]\d+)?\s*[x×]\s*\d+(?:[.,]\d+)?\b/i;
 const QP_RX_MEASURE = /\b(?:m|metro|metros|cm|centimetro|centimetros|mm|milimetro|milimetros)\b/i;
