@@ -4,6 +4,8 @@ import {
   qpAsksQuantity,
   qpContextualQuantityAnswer,
   qpHasExplicitQuantityUnit,
+  qpQuantityCandidate,
+  qpRemoveQuantityQuestion,
 } from '../patches/joao-p0-496-multiart-20260923/quantity-provenance-core-v1.mjs';
 
 // P0 #1177 — contextual Q&A must survive natural wording.
@@ -38,6 +40,21 @@ assert.equal(qpHasExplicitQuantityUnit('20 camisetas'), true);
 assert.equal(qpHasExplicitQuantityUnit('5 peças'), true);
 assert.equal(qpHasExplicitQuantityUnit('R$ 300'), false);
 assert.equal(qpHasExplicitQuantityUnit('Acredito que 10'), false);
+assert.equal(qpHasExplicitQuantityUnit('10 metros'), false);
+
+assert.equal(qpQuantityCandidate('Acredito que 10'), 10);
+assert.equal(qpQuantityCandidate('30 camisetas'), 30);
+assert.equal(qpQuantityCandidate('30 camisetas, pago no Pix'), 30);
+assert.equal(qpQuantityCandidate('10 metros'), null);
+assert.equal(qpQuantityCandidate('R$ 300'), null);
+assert.equal(qpQuantityCandidate('posso enviar 300 agora e o restante depois'), null);
+assert.equal(qpQuantityCandidate('99999 camisetas'), 99999);
+assert.equal(qpQuantityCandidate('100000 camisetas'), null);
+
+assert.equal(
+  qpRemoveQuantityQuestion('Perfeito. E aí, confirmou a quantidade de camisetas?'),
+  'Perfeito.',
+);
 
 // Integration guard: source must use the pure core and a quantity-only extended history.
 const sourcePath = new URL('../patches/joao-p0-496-multiart-20260923/candidate-index.ts', import.meta.url);
