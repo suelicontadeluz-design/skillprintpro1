@@ -4551,6 +4551,18 @@ const produtoDeterministicoFonteDetalhe = produtoMacroMensagemResolvido
   : (produtoMacroAquisicaoResolvido && produtoDeterministico === produtoMacroAquisicaoResolvido
       ? produtoAquisicaoDetalhe
       : (produtoDeterministicoFonte === 'anuncio' ? 'origem_anuncio' : null));
+const quantidadeProdutoMacro = normalizarProdutoMacro(
+  (decisao.slots || {}).produto ?? produtoDeterministico ?? slotsAnteriores.produto ?? prodMsg ?? prodOrigem
+);
+const quantidadeApparelScope = quantidadeProdutoMacro === 'camiseta';
+const perguntaQuantidadePendente = qpAsksQuantity(String(ultimaMsgJoao || ''));
+const quantidadeAtualCandidata = qpCurrentApparelQuantity(
+  quantidadeProdutoMacro,
+  String(ultimaMsgJoao || ''),
+  String(mensagem || ''),
+);
+// P0 #1177: only the current customer turn with apparel quantity context
+// can promote quantity deterministically; financial and remittance guards stay in the core.
 const slotsParaProveniencia = {
   ...(decisao.slots || {}),
   ...(produtoDeterministico ? { produto: produtoDeterministico } : {}),
