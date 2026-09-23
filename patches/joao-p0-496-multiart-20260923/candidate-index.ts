@@ -1,6 +1,6 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { validateMultiArtEvidence, aggregateMultiArtPhysicalMeters } from './multiart-core.mjs';
-import { qpAsksQuantity, qpContextualQuantityAnswer, qpHasExplicitQuantityUnit } from './quantity-provenance-core-v1.mjs';
+import { qpAsksQuantity, qpContextualQuantityAnswer, qpHasExplicitQuantityUnit, qpQuantityCandidate } from './quantity-provenance-core-v1.mjs';
 // v4.26.6 (16/08/2026) — detector de resposta alinhado ao LOST canonico.
 // v4.26.5 (16/08/2026) — LOST canonico idempotente e fail-closed.
 // Desistencia inequivoca + um unico deal ongoing gera LOST via ledger proprio.
@@ -4751,12 +4751,26 @@ const produtoDeterministicoFonteDetalhe = produtoMacroMensagemResolvido
   : (produtoMacroAquisicaoResolvido && produtoDeterministico === produtoMacroAquisicaoResolvido
       ? produtoAquisicaoDetalhe
       : (produtoDeterministicoFonte === 'anuncio' ? 'origem_anuncio' : null));
+const quantidadeApparelScope =
+  normalizarProdutoMacro(
+    (decisao.slots || {}).produto ?? produtoDeterministico ?? slotsAnteriores.produto ?? prodMsg ?? prodOrigem
+  ) === 'camiseta';
+const perguntaQuantidadePendente = qpAsksQuantity(String(ultimaMsgJoao || ''));
+const quantidadeAtualCandidata = quantidadeApparelScope
+  && (perguntaQuantidadePendente || qpHasExplicitQuantityUnit(String(mensagem || '')))
+  ? qpQuantityCandidate(String(mensagem || ''))
+  : null;
+
+// P0 #1177: a quantidade do inbound atual e evidência determinística quando:
+// (a) o próprio João acabou de perguntar quantidade; ou
+// (b) o cliente escreveu unidade explícita de peça.
+// Isso elimina a dependência de o LLM repetir o slot no JSON. O core puro continua
+// rejeitando dinheiro, remessa, dimensão, CEP, data, hora e tamanho.
 const slotsParaProveniencia = {
   ...(decisao.slots || {}),
   ...(produtoDeterministico ? { produto: produtoDeterministico } : {}),
+  ...(quantidadeAtualCandidata !== null ? { quantidade: quantidadeAtualCandidata } : {}),
 };
-const quantidadeApparelScope =
-  normalizarProdutoMacro(slotsParaProveniencia.produto ?? slotsAnteriores.produto ?? prodMsg ?? prodOrigem) === 'camiseta';
 
   const provSlots = filtrarSlotsPorProveniencia({
     anteriores: slotsAnteriores,
@@ -4766,7 +4780,7 @@ const quantidadeApparelScope =
     toolsUsadas,
     midiaNoTurno: (imagens || []).length > 0 || (transcricoes || []).length > 0,
     numerosDeFerramenta: numerosFerramenta,
-    perguntaQuantidadePendente: qpAsksQuantity(String(ultimaMsgJoao || '')),
+    perguntaQuantidadePendente,
     evidenciasQuantidadeExplicitas,
     allowContextualQuantity: quantidadeApparelScope,
   });
