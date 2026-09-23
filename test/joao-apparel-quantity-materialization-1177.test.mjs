@@ -69,6 +69,10 @@ assert.match(source, /inbounds\s*=\s*inboundsTodos\.slice\(0,\s*8\)/);
 assert.match(source, /\.filter\(\(t:\s*string\)\s*=>\s*qpHasExplicitQuantityUnit\(t\)\)[\s\S]*?\.slice\(0,\s*1\)/);
 assert.match(source, /perguntaQuantidadePendente:\s*qpAsksQuantity/);
 assert.match(source, /allowContextualQuantity:\s*quantidadeApparelScope/);
+assert.match(source, /const\s+perguntaQuantidadePendente\s*=\s*qpAsksQuantity/);
+assert.match(source, /const\s+quantidadeAtualCandidata\s*=\s*quantidadeApparelScope/);
+assert.match(source, /qpQuantityCandidate\(String\(mensagem/);
+assert.match(source, /quantidadeAtualCandidata\s*!==\s*null\s*\?\s*\{\s*quantidade:\s*quantidadeAtualCandidata\s*\}/);
 assert.match(source, /normalizarProdutoMacro\(slotsParaProveniencia\.produto[\s\S]*?===\s*'camiseta'/);
 
 // The historical extension is passed only to quantity evidence, not folded into textosCliente.
