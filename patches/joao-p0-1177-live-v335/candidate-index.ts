@@ -1,5 +1,5 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
-import { qpAsksQuantity, qpContextualQuantityAnswer, qpCurrentApparelQuantity, qpSelectHistoricalExplicitQuantityEvidence } from './quantity-provenance-core-v1.mjs';
+import { qpAsksQuantity, qpContextualQuantityAnswer, qpQuantityCandidate, qpCurrentApparelQuantity, qpIsAdjacentQuantityReply, qpSelectHistoricalExplicitQuantityEvidence } from './quantity-provenance-core-v1.mjs';
 // v4.26.6 (16/08/2026) — detector de resposta alinhado ao LOST canonico.
 // v4.26.5 (16/08/2026) — LOST canonico idempotente e fail-closed.
 // Desistencia inequivoca + um unico deal ongoing gera LOST via ledger proprio.
@@ -2843,6 +2843,8 @@ async function atenderClienteInterno(phone: string, chatName: string, mensagem: 
   let jaPediuPrecoAntes = false; let joaoJaDeuPreco = false;
   let inbounds: any[] = [];
   let evidenciasQuantidadeExplicitas: string[] = [];
+  let ultimaPerguntaQuantidadeAt: string | null = null;
+  let ultimaOutboundEhPerguntaUnica = false;
   const valoresCitados: number[] = [...execucoes.valores];
   const RX_HUMANO = /^\*(Tamires|Helen|Alessandro|Gabriel|Daniel|Edson|Kezia|Equipe)/i;
   let blocoAprendizados = '';
@@ -2869,6 +2871,12 @@ async function atenderClienteInterno(phone: string, chatName: string, mensagem: 
     conversaAtivaHoje = !!(outs && outs.length > 0);
     const uj = (outs || []).find((o: any) => o.source === 'joao');
     if (uj && Date.now() - new Date(uj.timestamp).getTime() < 3600000) ultimaMsgJoao = uj.message_text || '';
+    // An outbound from a human or a timestamp tie makes the question's
+    // position in the conversation unknowable: contextual quantities fail closed.
+    ultimaOutboundEhPerguntaUnica = !!uj && (outs || [])[0] === uj
+      && ((outs || []).length === 1 || Date.parse(String(outs[1].timestamp)) < Date.parse(String(uj.timestamp)))
+      && qpAsksQuantity(String(ultimaMsgJoao || ''));
+    if (ultimaOutboundEhPerguntaUnica) ultimaPerguntaQuantidadeAt = String(uj.timestamp);
     promessaJaDada = (outs || []).some((o: any) => /pr\u00f3ximo dia \u00fatil/i.test(o.message_text || ''));
     jaDespediuHoje = (outs || []).some((o: any) => { const t = String(o.message_text || '').trim(); return /bom descanso/i.test(t) || RX_DESPEDIDA_FIM.test(t); });
     ackCortesiaJaEnviado = (outs || []).some((o: any) => RX_ACK_CORTESIA.test(String(o.message_text || '')));
@@ -4555,11 +4563,44 @@ const quantidadeProdutoMacro = normalizarProdutoMacro(
   (decisao.slots || {}).produto ?? produtoDeterministico ?? slotsAnteriores.produto ?? prodMsg ?? prodOrigem
 );
 const quantidadeApparelScope = quantidadeProdutoMacro === 'camiseta';
-const perguntaQuantidadePendente = qpAsksQuantity(String(ultimaMsgJoao || ''));
+// P0 #1177: the raw inbox owns the current event ID. A contextual number is
+// safe only when precisely one inbox event follows the most recent João
+// question, belongs to this single-event turn, and no other fact intervenes.
+// Missing IDs, query errors, batches, ties and other ingress paths fail closed.
+let quantidadeAdjacente = false;
+if (quantidadeApparelScope && ultimaOutboundEhPerguntaUnica && ultimaPerguntaQuantidadeAt
+    && Array.isArray(idsParaCarimbar) && idsParaCarimbar.length === 1
+    && qpQuantityCandidate(String(mensagem || '')) !== null) {
+  try {
+    const { data: eventos, error: erroEventos } = await sb.from('inbound_fora_horario')
+      .select('id, phone, created_at, body').eq('phone', phone)
+      .gte('created_at', ultimaPerguntaQuantidadeAt)
+      .order('created_at', { ascending: true }).limit(2);
+    if (!erroEventos && eventos?.length === 1) {
+      const { data: intermediarios, error: erroFatos } = await sb.from('fact_conversations')
+        .select('id').eq('phone', phoneCorpus).eq('direction', 'inbound')
+        .gt('timestamp', ultimaPerguntaQuantidadeAt)
+        .lt('timestamp', String(eventos[0].created_at)).limit(1);
+      if (!erroFatos) quantidadeAdjacente = qpIsAdjacentQuantityReply({
+        questionAt: ultimaPerguntaQuantidadeAt,
+        currentText: String(mensagem || ''),
+        ownedIds: idsParaCarimbar,
+        inboundRows: eventos,
+        phone,
+        latestOutboundIsQuestion: ultimaOutboundEhPerguntaUnica,
+        interveningFactCount: intermediarios?.length ?? -1,
+      });
+    }
+  } catch (e: any) {
+    L('quantidade_adjacencia_indisponivel', { erro: String(e?.message ?? e).slice(0, 120) });
+  }
+}
+const perguntaQuantidadePendente = quantidadeAdjacente;
 const quantidadeAtualCandidata = qpCurrentApparelQuantity(
   quantidadeProdutoMacro,
   String(ultimaMsgJoao || ''),
   String(mensagem || ''),
+  quantidadeAdjacente,
 );
 // P0 #1177: only the current customer turn with apparel quantity context
 // can promote quantity deterministically; financial and remittance guards stay in the core.
