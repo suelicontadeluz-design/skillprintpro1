@@ -1515,6 +1515,7 @@ function filtrarSlotsPorProveniencia(a: {
   midiaNoTurno?: boolean; numerosDeFerramenta?: number[];
   perguntaQuantidadePendente?: boolean;
   evidenciasQuantidadeExplicitas?: string[];
+  allowContextualQuantity?: boolean;
 }): { slots: any; rejeitados: Array<{ slot: string; valor: any; motivo: string }> } {
   const rejeitados: Array<{ slot: string; valor: any; motivo: string }> = [];
   const out: any = { ...(a.recebidos || {}) };
@@ -1567,14 +1568,15 @@ function filtrarSlotsPorProveniencia(a: {
       // o 300 nasceu dentro de frase de dinheiro, nunca como mensagem isolada.
       // P0 #1177: somente a mensagem ATUAL pode responder contextual e naturalmente
       // ("Acredito que 10", "umas 30"). O core bloqueia dinheiro/remessa/dimensao/CEP/data.
-      const respondeuPerguntaDeQuantidade = a.perguntaQuantidadePendente === true
+      const respondeuPerguntaDeQuantidade = a.allowContextualQuantity === true
+        && a.perguntaQuantidadePendente === true
         && qpContextualQuantityAnswer(v, String((a.textosCliente || [])[0] ?? ''));
-      // Evidencia explicita com unidade ganha uma janela separada e maior. Isso evita que
-      // eventos de imagem/visao expulsem "30 unidades" das ultimas 8 inbounds sem ampliar
-      // a janela de proveniencia de produto, pagamento, CEP ou grade.
+      // P0 #1177 e APPAREL: a extensao historica so participa quando a familia resolvida
+      // e camiseta. Usa apenas a evidencia explicita MAIS RECENTE para que uma quantidade
+      // antiga nao possa ressurgir depois de uma mudanca declarada pelo cliente.
       const evidenciaQuantidade = evidenciaDeQuantidade(v, [
         ...(a.textosCliente || []),
-        ...(a.evidenciasQuantidadeExplicitas || []),
+        ...(a.allowContextualQuantity === true ? (a.evidenciasQuantidadeExplicitas || []) : []),
       ]);
       ok = !ehNumeroPuro
         || evidenciaQuantidade.ok
@@ -2853,19 +2855,19 @@ async function atenderClienteInterno(phone: string, chatName: string, mensagem: 
   // v4.23.4: historico/conversa e aprendizados falham de forma independente.
   // Uma falha na entrega das licoes nao apaga as guardas de humano, preco e continuidade.
   try {
-    const [outsR, inbsR, qtyEvidenceR] = await Promise.all([
+    const [outsR, inbsR] = await Promise.all([
       sb.from('fact_conversations').select('source, message_text, timestamp').eq('phone', phoneCorpus).eq('direction', 'outbound').gte('timestamp', new Date(Date.now() - 14 * 3600000).toISOString()).order('timestamp', { ascending: false }).limit(6),
-      sb.from('fact_conversations').select('message_text, timestamp').eq('phone', phoneCorpus).eq('direction', 'inbound').gte('timestamp', new Date(Date.now() - 14 * 3600000).toISOString()).order('timestamp', { ascending: false }).limit(8),
-      // P0 #1177: janela adicional SOMENTE para evidencia explicita de quantidade.
-      // Mesma sessao ativa (14h), teto 64; nenhuma outra proveniencia consome esta lista.
+      // P0 #1177: carrega ate 64 apenas para localizar a evidencia explicita de quantidade.
+      // A janela generica continua sendo exatamente as 8 primeiras linhas abaixo.
       sb.from('fact_conversations').select('message_text, timestamp').eq('phone', phoneCorpus).eq('direction', 'inbound').gte('timestamp', new Date(Date.now() - 14 * 3600000).toISOString()).order('timestamp', { ascending: false }).limit(64),
     ]);
     const outs = outsR.data;
-    inbounds = inbsR.data || [];
-    evidenciasQuantidadeExplicitas = (qtyEvidenceR.data || [])
+    const inboundsTodos = inbsR.data || [];
+    inbounds = inboundsTodos.slice(0, 8);
+    evidenciasQuantidadeExplicitas = inboundsTodos
       .map((i: any) => String(i?.message_text || ''))
       .filter((t: string) => qpHasExplicitQuantityUnit(t))
-      .slice(0, 16);
+      .slice(0, 1);
     conversaAtivaHoje = !!(outs && outs.length > 0);
     const uj = (outs || []).find((o: any) => o.source === 'joao');
     if (uj && Date.now() - new Date(uj.timestamp).getTime() < 3600000) ultimaMsgJoao = uj.message_text || '';
@@ -4753,6 +4755,8 @@ const slotsParaProveniencia = {
   ...(decisao.slots || {}),
   ...(produtoDeterministico ? { produto: produtoDeterministico } : {}),
 };
+const quantidadeApparelScope =
+  normalizarProdutoMacro(slotsParaProveniencia.produto ?? slotsAnteriores.produto ?? prodMsg ?? prodOrigem) === 'camiseta';
 
   const provSlots = filtrarSlotsPorProveniencia({
     anteriores: slotsAnteriores,
@@ -4764,6 +4768,7 @@ const slotsParaProveniencia = {
     numerosDeFerramenta: numerosFerramenta,
     perguntaQuantidadePendente: qpAsksQuantity(String(ultimaMsgJoao || '')),
     evidenciasQuantidadeExplicitas,
+    allowContextualQuantity: quantidadeApparelScope,
   });
   const slotsRecebidos: any = provSlots.slots;
   if (provSlots.rejeitados.length && !dryRun) {
