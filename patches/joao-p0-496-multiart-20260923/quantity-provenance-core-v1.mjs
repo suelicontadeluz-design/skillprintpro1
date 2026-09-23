@@ -68,6 +68,30 @@ export function qpContextualQuantityAnswer(value, text) {
   return Number.isInteger(n) && qpQuantityCandidate(text) === n;
 }
 
+// Deterministic current-turn promotion. Contextual numbers are only eligible for
+// apparel when the immediately previous João outbound is a proven quantity question.
+// Explicit apparel/piece units remain self-proving in the current inbound.
+export function qpCurrentApparelQuantity(productMacro, previousOutbound, currentInbound) {
+  if (qpNorm(productMacro) !== 'camiseta') return null;
+  const current = String(currentInbound ?? '');
+  if (!qpAsksQuantity(previousOutbound) && !qpHasExplicitQuantityUnit(current)) return null;
+  return qpQuantityCandidate(current);
+}
+
+// History arrives newest-first. The first quantity-like customer message is the
+// authority boundary: if it is explicit, keep it; if it is a newer natural correction
+// ("na verdade 25"), fail closed and DO NOT let an older explicit quantity resurrect.
+export function qpSelectHistoricalExplicitQuantityEvidence(messagesNewestFirst) {
+  for (const raw of Array.isArray(messagesNewestFirst) ? messagesNewestFirst : []) {
+    const text = String(raw ?? '').trim();
+    if (!text) continue;
+    const candidate = qpQuantityCandidate(text);
+    if (candidate === null) continue;
+    return qpHasExplicitQuantityUnit(text) ? [text] : [];
+  }
+  return [];
+}
+
 export function qpRemoveQuantityQuestion(text) {
   let out = String(text ?? '');
   const patterns = [
