@@ -1,0 +1,62 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import {
+  qpAsksQuantity,
+  qpContextualQuantityAnswer,
+  qpHasExplicitQuantityUnit,
+  qpQuantityCandidate,
+  qpCurrentApparelQuantity,
+  qpSelectHistoricalExplicitQuantityEvidence,
+} from '../patches/joao-p0-1177-live-v335/quantity-provenance-core-v1.mjs';
+
+assert.equal(qpAsksQuantity('E aí, confirmou a quantidade de camisetas?'), true);
+assert.equal(qpAsksQuantity('Quantas camisetas você precisa?'), true);
+assert.equal(qpAsksQuantity('Você sabe se vai retirar aqui?'), false);
+
+assert.equal(qpQuantityCandidate('Acredito que 10'), 10);
+assert.equal(qpQuantityCandidate('umas 30'), 30);
+assert.equal(qpQuantityCandidate('30 unidades'), 30);
+assert.equal(qpQuantityCandidate('R$ 300'), null);
+assert.equal(qpQuantityCandidate('300 reais'), null);
+assert.equal(qpQuantityCandidate('posso enviar 300 agora e o restante depois'), null);
+assert.equal(qpQuantityCandidate('arte 30x20'), null);
+assert.equal(qpQuantityCandidate('CEP 05813-000'), null);
+assert.equal(qpQuantityCandidate('23/09'), null);
+assert.equal(qpQuantityCandidate('10 metros'), null);
+
+assert.equal(
+  qpCurrentApparelQuantity('camiseta','*João Barros:*\nQuantas camisetas você precisa?','Acredito que 10'),
+  10,
+);
+assert.equal(qpCurrentApparelQuantity('dtf_textil','Quantas camisetas você precisa?','10'), null);
+assert.equal(qpCurrentApparelQuantity('camiseta','Qual o valor?','R$ 300'), null);
+
+assert.deepEqual(
+  qpSelectHistoricalExplicitQuantityEvidence(['[imagem]','isso','30 unidades']),
+  ['30 unidades'],
+);
+assert.deepEqual(
+  qpSelectHistoricalExplicitQuantityEvidence(['na verdade 25','30 unidades']),
+  [],
+  'newer natural correction must prevent stale explicit quantity resurrection',
+);
+
+const dir=new URL('../patches/joao-p0-1177-live-v335/',import.meta.url);
+const owner=fs.readFileSync(new URL('candidate-index.ts',dir),'utf8');
+const v291=fs.readFileSync(new URL('v291-p0-1177.ts',dir),'utf8');
+const v292=fs.readFileSync(new URL('v292.1-p0-1177.ts',dir),'utf8');
+const v294=fs.readFileSync(new URL('v294-p0-1177.ts',dir),'utf8');
+
+assert.match(owner,/qpCurrentApparelQuantity/);
+assert.match(owner,/qpSelectHistoricalExplicitQuantityEvidence/);
+assert.match(owner,/\.limit\(64\)/);
+assert.match(owner,/inbounds\s*=\s*inboundsTodos\.slice\(0,\s*8\)/);
+assert.match(owner,/allowContextualQuantity:\s*quantidadeApparelScope/);
+assert.doesNotMatch(owner,/validateMultiArtEvidence|aggregateMultiArtPhysicalMeters|JOAO_P0_496_MULTIART/);
+
+assert.match(v291,/import "\.\/candidate-index\.ts";/);
+assert.doesNotMatch(v291,/dab2cd850f940c939d3dc132fe8b442f5be111b4\/patches\/joao-slot-proveniencia-escrita\/candidato\/index\.ts/);
+assert.match(v292,/import "\.\/v291-p0-1177\.ts";/);
+assert.match(v294,/import "\.\/v292\.1-p0-1177\.ts";/);
+
+console.log('PASS joao P0 1177 live-v335 transplant');
