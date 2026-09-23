@@ -1,5 +1,5 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
-import { qpAsksQuantity, qpContextualQuantityAnswer, qpQuantityCandidate, qpCurrentApparelQuantity, qpIsAdjacentQuantityReply, qpSelectHistoricalExplicitQuantityEvidence } from './quantity-provenance-core-v1.mjs';
+import { qpAsksQuantity, qpContextualQuantityAnswer, qpQuantityCandidate, qpCurrentApparelQuantity, qpIsAdjacentQuantityReply, qpCountInterveningFacts, qpSelectHistoricalExplicitQuantityEvidence } from './quantity-provenance-core-v1.mjs';
 // v4.26.6 (16/08/2026) — detector de resposta alinhado ao LOST canonico.
 // v4.26.5 (16/08/2026) — LOST canonico idempotente e fail-closed.
 // Desistencia inequivoca + um unico deal ongoing gera LOST via ledger proprio.
@@ -4577,19 +4577,28 @@ if (quantidadeApparelScope && ultimaOutboundEhPerguntaUnica && ultimaPerguntaQua
       .gte('created_at', ultimaPerguntaQuantidadeAt)
       .order('created_at', { ascending: true }).limit(2);
     if (!erroEventos && eventos?.length === 1) {
-      const { data: intermediarios, error: erroFatos } = await sb.from('fact_conversations')
-        .select('id').eq('phone', phoneCorpus).eq('direction', 'inbound')
+      const { data: fatosEntreTurnos, error: erroFatos } = await sb.from('fact_conversations')
+        .select('id,message_text,timestamp').eq('phone', phoneCorpus).eq('direction', 'inbound')
         .gt('timestamp', ultimaPerguntaQuantidadeAt)
-        .lt('timestamp', String(eventos[0].created_at)).limit(1);
-      if (!erroFatos) quantidadeAdjacente = qpIsAdjacentQuantityReply({
-        questionAt: ultimaPerguntaQuantidadeAt,
-        currentText: String(mensagem || ''),
-        ownedIds: idsParaCarimbar,
-        inboundRows: eventos,
-        phone,
-        latestOutboundIsQuestion: ultimaOutboundEhPerguntaUnica,
-        interveningFactCount: intermediarios?.length ?? -1,
-      });
+        .lt('timestamp', String(eventos[0].created_at))
+        .order('timestamp', { ascending: true }).limit(8);
+      if (!erroFatos) {
+        const fatosIntervenientes = qpCountInterveningFacts({
+          facts: fatosEntreTurnos,
+          questionAt: ultimaPerguntaQuantidadeAt,
+          currentText: String(mensagem || ''),
+          currentInboxAt: String(eventos[0].created_at),
+        });
+        quantidadeAdjacente = qpIsAdjacentQuantityReply({
+          questionAt: ultimaPerguntaQuantidadeAt,
+          currentText: String(mensagem || ''),
+          ownedIds: idsParaCarimbar,
+          inboundRows: eventos,
+          phone,
+          latestOutboundIsQuestion: ultimaOutboundEhPerguntaUnica,
+          interveningFactCount: fatosIntervenientes,
+        });
+      }
     }
   } catch (e: any) {
     L('quantidade_adjacencia_indisponivel', { erro: String(e?.message ?? e).slice(0, 120) });
