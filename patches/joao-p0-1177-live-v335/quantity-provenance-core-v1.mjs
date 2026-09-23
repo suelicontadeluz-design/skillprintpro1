@@ -68,13 +68,33 @@ export function qpContextualQuantityAnswer(value, text) {
   return Number.isInteger(n) && qpQuantityCandidate(text) === n;
 }
 
+// Contextual numbers need a unique, ordered inbox event for this exact turn.
+// Any missing identity, intervening inbound, equal timestamp or failed lineage
+// query is treated as unproven. The fact check catches other ingress paths.
+export function qpIsAdjacentQuantityReply({
+  questionAt, currentText, ownedIds, inboundRows, phone,
+  latestOutboundIsQuestion, interveningFactCount,
+}) {
+  if (latestOutboundIsQuestion !== true || interveningFactCount !== 0) return false;
+  if (!Array.isArray(ownedIds) || ownedIds.length !== 1) return false;
+  if (!Array.isArray(inboundRows) || inboundRows.length !== 1) return false;
+  const row = inboundRows[0];
+  const questionTime = Date.parse(String(questionAt ?? ''));
+  const inboundTime = Date.parse(String(row?.created_at ?? ''));
+  if (!Number.isFinite(questionTime) || !Number.isFinite(inboundTime) || inboundTime <= questionTime) return false;
+  if (!row?.id || String(row.id) !== String(ownedIds[0])) return false;
+  if (String(row.phone ?? '').replace(/\D/g, '') !== String(phone ?? '').replace(/\D/g, '')) return false;
+  if (String(row.body?.text?.message ?? '').trim() !== String(currentText ?? '').trim()) return false;
+  return qpQuantityCandidate(currentText) !== null;
+}
+
 // Deterministic current-turn promotion. Contextual numbers are only eligible for
 // apparel when the immediately previous João outbound is a proven quantity question.
 // Explicit apparel/piece units remain self-proving in the current inbound.
-export function qpCurrentApparelQuantity(productMacro, previousOutbound, currentInbound) {
+export function qpCurrentApparelQuantity(productMacro, previousOutbound, currentInbound, adjacent = false) {
   if (qpNorm(productMacro) !== 'camiseta') return null;
   const current = String(currentInbound ?? '');
-  if (!qpAsksQuantity(previousOutbound) && !qpHasExplicitQuantityUnit(current)) return null;
+  if (!qpHasExplicitQuantityUnit(current) && !(adjacent === true && qpAsksQuantity(previousOutbound))) return null;
   return qpQuantityCandidate(current);
 }
 
