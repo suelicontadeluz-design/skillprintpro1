@@ -33,7 +33,7 @@ function norm(s: string): string {
 }
 function extrairCeps(texto: string): string[] {
   const out = new Set<string>();
-  for (const m of String(texto || '').matchAll(/\b(\d{5})-?(\d{3})\b/g)) out.add(m[1] + m[2]);
+  for (const m of String(texto || '').matchAll(/\b(\d{2})\.?([0-9]{3})-?([0-9]{3})\b/g)) out.add(m[1] + m[2] + m[3]);
   return [...out];
 }
 function parecePlaceholder(cep: string): boolean {
