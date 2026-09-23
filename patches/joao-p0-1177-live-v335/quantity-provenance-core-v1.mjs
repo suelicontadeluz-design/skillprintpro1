@@ -68,6 +68,42 @@ export function qpContextualQuantityAnswer(value, text) {
   return Number.isInteger(n) && qpQuantityCandidate(text) === n;
 }
 
+// The same customer turn can reach fact_conversations before the operational inbox.
+// Exclude at most one fact as the current turn, and only when it is the unique exact-text
+// match, strictly after the quantity question, the newest fact, and close to the inbox event.
+// Any duplicate/tie/other inbound remains intervening and therefore fail-closed.
+export function qpCountInterveningFacts({
+  facts, questionAt, currentText, currentInboxAt, maxSkewMs = 120000,
+}) {
+  if (!Array.isArray(facts)) return -1;
+  if (facts.length === 0) return 0;
+
+  const questionTime = Date.parse(String(questionAt ?? ''));
+  const inboxTime = Date.parse(String(currentInboxAt ?? ''));
+  const current = String(currentText ?? '').trim();
+  if (!Number.isFinite(questionTime) || !Number.isFinite(inboxTime) || !current) return facts.length;
+
+  const candidates = [];
+  for (let i = 0; i < facts.length; i++) {
+    const row = facts[i];
+    const t = Date.parse(String(row?.timestamp ?? ''));
+    if (!Number.isFinite(t)) continue;
+    if (String(row?.message_text ?? '').trim() !== current) continue;
+    if (t <= questionTime || t > inboxTime) continue;
+    if (inboxTime - t > maxSkewMs) continue;
+    candidates.push({ index: i, time: t });
+  }
+
+  if (candidates.length !== 1) return facts.length;
+  const sameTurn = candidates[0];
+  for (let i = 0; i < facts.length; i++) {
+    if (i === sameTurn.index) continue;
+    const t = Date.parse(String(facts[i]?.timestamp ?? ''));
+    if (!Number.isFinite(t) || t >= sameTurn.time) return facts.length;
+  }
+  return facts.length - 1;
+}
+
 // Contextual numbers need a unique, ordered inbox event for this exact turn.
 // Any missing identity, intervening inbound, equal timestamp or failed lineage
 // query is treated as unproven. The fact check catches other ingress paths.
