@@ -6,6 +6,7 @@ import {
   qpHasExplicitQuantityUnit,
   qpQuantityCandidate,
   qpCurrentApparelQuantity,
+  qpIsAdjacentQuantityReply,
   qpSelectHistoricalExplicitQuantityEvidence,
 } from '../patches/joao-p0-1177-live-v335/quantity-provenance-core-v1.mjs';
 
@@ -25,9 +26,36 @@ assert.equal(qpQuantityCandidate('23/09'), null);
 assert.equal(qpQuantityCandidate('10 metros'), null);
 
 assert.equal(
-  qpCurrentApparelQuantity('camiseta','*João Barros:*\nQuantas camisetas você precisa?','Acredito que 10'),
+  qpCurrentApparelQuantity('camiseta','*João Barros:*\nQuantas camisetas você precisa?','Acredito que 10', true),
   10,
 );
+assert.equal(qpCurrentApparelQuantity('camiseta','Quantas camisetas você precisa?','10'), null,
+  'unverified chronology cannot promote a contextual number');
+assert.equal(qpCurrentApparelQuantity('camiseta','Quantas camisetas você precisa?','10', false), null);
+assert.equal(qpCurrentApparelQuantity('camiseta','Quantas camisetas você precisa?','10', true), 10);
+assert.equal(qpCurrentApparelQuantity('camiseta','Quantas camisetas você precisa?','10 e 20', true), null);
+
+const q='2026-09-23T10:00:00.000Z';
+const r='2026-09-23T10:01:00.000Z';
+const owned=[{id:'current',created_at:r,phone:'5511999999999',body:{text:{message:'10'}}}];
+const adjacent={questionAt:q,currentText:'10',ownedIds:['current'],inboundRows:owned,phone:'5511999999999',
+  latestOutboundIsQuestion:true,interveningFactCount:0};
+assert.equal(qpIsAdjacentQuantityReply(adjacent), true);
+assert.equal(qpIsAdjacentQuantityReply({...adjacent,inboundRows:[
+  {id:'other',created_at:'2026-09-23T10:00:30.000Z',phone:'5511999999999',body:{text:{message:'Outra dúvida'}}},...owned]}), false,
+  'intermediate customer reply breaks attribution');
+assert.equal(qpIsAdjacentQuantityReply({...adjacent,inboundRows:[
+  {id:'other',created_at:r,phone:'5511999999999',body:{text:{message:'Oi'}}},...owned]}), false,
+  'timestamp ties must fail closed');
+assert.equal(qpIsAdjacentQuantityReply({...adjacent,ownedIds:['other','current']}), false,
+  'batched replies do not prove adjacency');
+assert.equal(qpIsAdjacentQuantityReply({...adjacent,currentText:'20'}), false,
+  'text mismatch must not match another message');
+assert.equal(qpIsAdjacentQuantityReply({...adjacent,interveningFactCount:1}), false,
+  'facts outside the inbox can break adjacency');
+assert.equal(qpIsAdjacentQuantityReply({...adjacent,latestOutboundIsQuestion:false}), false);
+assert.equal(qpIsAdjacentQuantityReply({...adjacent,inboundRows:[]}), false);
+assert.equal(qpIsAdjacentQuantityReply({...adjacent,inboundRows:[{...owned[0],created_at:q}]}), false);
 assert.equal(qpCurrentApparelQuantity('dtf_textil','Quantas camisetas você precisa?','10'), null);
 assert.equal(qpCurrentApparelQuantity('camiseta','Qual o valor?','R$ 300'), null);
 
