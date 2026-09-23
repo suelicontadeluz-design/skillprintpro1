@@ -7,6 +7,7 @@ import {
   qpQuantityCandidate,
   qpCurrentApparelQuantity,
   qpIsAdjacentQuantityReply,
+  qpCountInterveningFacts,
   qpSelectHistoricalExplicitQuantityEvidence,
 } from '../patches/joao-p0-1177-live-v335/quantity-provenance-core-v1.mjs';
 
@@ -60,6 +61,30 @@ assert.equal(qpIsAdjacentQuantityReply({...adjacent,inboundRows:[{...owned[0],cr
   'out-of-order event before the question must not be attributed');
 assert.equal(qpIsAdjacentQuantityReply({...adjacent,inboundRows:[...owned,
   {id:'newer',created_at:'2026-09-23T10:02:00.000Z',phone:'5511999999999',body:{text:{message:'Outra dúvida'}}}]}), false);
+
+const currentFact={id:'fact-current',timestamp:'2026-09-23T10:00:40.000Z',message_text:'Acredito que 10'};
+assert.equal(qpCountInterveningFacts({
+  facts:[currentFact],questionAt:q,currentText:'Acredito que 10',currentInboxAt:r,
+}),0,'same current turn mirrored in fact_conversations is not intervening');
+assert.equal(qpCountInterveningFacts({
+  facts:[
+    {id:'fact-other',timestamp:'2026-09-23T10:00:20.000Z',message_text:'Outra dúvida'},
+    currentFact,
+  ],questionAt:q,currentText:'Acredito que 10',currentInboxAt:r,
+}),1,'a real earlier customer reply remains intervening');
+assert.equal(qpCountInterveningFacts({
+  facts:[currentFact,{...currentFact,id:'fact-duplicate'}],
+  questionAt:q,currentText:'Acredito que 10',currentInboxAt:r,
+}),2,'duplicate exact facts fail closed');
+assert.equal(qpCountInterveningFacts({
+  facts:[currentFact,{id:'fact-tie',timestamp:currentFact.timestamp,message_text:'Outra dúvida'}],
+  questionAt:q,currentText:'Acredito que 10',currentInboxAt:r,
+}),2,'timestamp ties fail closed');
+assert.equal(qpCountInterveningFacts({
+  facts:[{...currentFact,timestamp:'2026-09-23T09:58:00.000Z'}],
+  questionAt:'2026-09-23T09:57:00.000Z',currentText:'Acredito que 10',currentInboxAt:r,
+}),1,'old exact text outside the correlation window is not treated as current turn');
+
 assert.equal(qpCurrentApparelQuantity('dtf_textil','Quantas camisetas você precisa?','10'), null);
 assert.equal(qpCurrentApparelQuantity('camiseta','Qual o valor?','R$ 300'), null);
 
@@ -87,7 +112,8 @@ for (const name of ['quantidadeProdutoMacro','quantidadeApparelScope','perguntaQ
 assert.match(owner,/qpCurrentApparelQuantity/);
 assert.match(owner,/qpIsAdjacentQuantityReply\s*\(/);
 assert.match(owner,/const perguntaQuantidadePendente = quantidadeAdjacente/);
-assert.match(owner,/interveningFactCount:\s*intermediarios\?\.length/);
+assert.match(owner,/qpCountInterveningFacts\s*\(/);
+assert.match(owner,/interveningFactCount:\s*fatosIntervenientes/);
 assert.match(owner,/qpSelectHistoricalExplicitQuantityEvidence/);
 assert.match(owner,/\.limit\(64\)/);
 assert.match(owner,/inbounds\s*=\s*inboundsTodos\.slice\(0,\s*8\)/);
