@@ -1,5 +1,6 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { validateMultiArtEvidence, aggregateMultiArtPhysicalMeters } from './multiart-core.mjs';
+import { qpAsksQuantity, qpContextualQuantityAnswer, qpCurrentApparelQuantity, qpHasExplicitQuantityUnit, qpSelectHistoricalExplicitQuantityEvidence } from './quantity-provenance-core-v1.mjs';
 // v4.26.6 (16/08/2026) — detector de resposta alinhado ao LOST canonico.
 // v4.26.5 (16/08/2026) — LOST canonico idempotente e fail-closed.
 // Desistencia inequivoca + um unico deal ongoing gera LOST via ledger proprio.
@@ -1426,7 +1427,8 @@ const RX_EVID_DINHEIRO = /(?:r\$|reais|conto|entrada|sinal|adiantamento|dep[o\u0
 // v4.37.1: a pergunta de quantidade que o PROPRIO Joao acabou de fazer carrega a
 // unidade ('Quantos adesivos de 50x75cm voce precisa?'). O numero puro que responde
 // a ela tem proveniencia: unidade na pergunta, valor na resposta do cliente.
-const RX_PERGUNTA_QUANTIDADE = /\bquant[oa]s\b[^?]{0,160}\?/i;
+// P0 #1177: pergunta de quantidade usa vocabulario fechado no core puro.
+ // Nao ampliar com verbos genericos ("sabe", "fechar") para evitar falso positivo financeiro.
 const RX_EVID_GRADE = /\b(?:pp|p|m|g|gg|g1|g2|g3|xg|xgg|infantil|tamanh\w+)\b/i;
 
 // O numero proposto como quantidade tem evidencia de UNIDADE na fala do cliente?
@@ -1512,6 +1514,8 @@ function filtrarSlotsPorProveniencia(a: {
   macroCanonico: string | null; toolsUsadas: string[];
   midiaNoTurno?: boolean; numerosDeFerramenta?: number[];
   perguntaQuantidadePendente?: boolean;
+  evidenciasQuantidadeExplicitas?: string[];
+  allowContextualQuantity?: boolean;
 }): { slots: any; rejeitados: Array<{ slot: string; valor: any; motivo: string }> } {
   const rejeitados: Array<{ slot: string; valor: any; motivo: string }> = [];
   const out: any = { ...(a.recebidos || {}) };
@@ -1562,13 +1566,20 @@ function filtrarSlotsPorProveniencia(a: {
       // Exige as duas pontas: pergunta 'quantos/quantas ...?' no turno anterior do Joao
       // E uma mensagem do cliente que e SO esse numero. Nao reabre o caso Vitor, em que
       // o 300 nasceu dentro de frase de dinheiro, nunca como mensagem isolada.
-      const respondeuPerguntaDeQuantidade = a.perguntaQuantidadePendente === true
-        && (a.textosCliente || []).some((t) => {
-          const so = String(t ?? '').trim();
-          return /^\d{1,6}$/.test(so) && Number(so) === nQ;
-        });
+      // P0 #1177: somente a mensagem ATUAL pode responder contextual e naturalmente
+      // ("Acredito que 10", "umas 30"). O core bloqueia dinheiro/remessa/dimensao/CEP/data.
+      const respondeuPerguntaDeQuantidade = a.allowContextualQuantity === true
+        && a.perguntaQuantidadePendente === true
+        && qpContextualQuantityAnswer(v, String((a.textosCliente || [])[0] ?? ''));
+      // P0 #1177 e APPAREL: a extensao historica so participa quando a familia resolvida
+      // e camiseta. Usa apenas a evidencia explicita MAIS RECENTE para que uma quantidade
+      // antiga nao possa ressurgir depois de uma mudanca declarada pelo cliente.
+      const evidenciaQuantidade = evidenciaDeQuantidade(v, [
+        ...(a.textosCliente || []),
+        ...(a.allowContextualQuantity === true ? (a.evidenciasQuantidadeExplicitas || []) : []),
+      ]);
       ok = !ehNumeroPuro
-        || evidenciaDeQuantidade(v, a.textosCliente).ok
+        || evidenciaQuantidade.ok
         || (sg !== null && nQ === sg)
         || deTool
         || respondeuPerguntaDeQuantidade;
@@ -2836,6 +2847,7 @@ async function atenderClienteInterno(phone: string, chatName: string, mensagem: 
   let humanoAtivoRecente = false; let humanoNegociou = false;
   let jaPediuPrecoAntes = false; let joaoJaDeuPreco = false;
   let inbounds: any[] = [];
+  let evidenciasQuantidadeExplicitas: string[] = [];
   const valoresCitados: number[] = [...execucoes.valores];
   const RX_HUMANO = /^\*(Tamires|Helen|Alessandro|Gabriel|Daniel|Edson|Kezia|Equipe)/i;
   let blocoAprendizados = '';
@@ -2845,10 +2857,20 @@ async function atenderClienteInterno(phone: string, chatName: string, mensagem: 
   try {
     const [outsR, inbsR] = await Promise.all([
       sb.from('fact_conversations').select('source, message_text, timestamp').eq('phone', phoneCorpus).eq('direction', 'outbound').gte('timestamp', new Date(Date.now() - 14 * 3600000).toISOString()).order('timestamp', { ascending: false }).limit(6),
-      sb.from('fact_conversations').select('message_text, timestamp').eq('phone', phoneCorpus).eq('direction', 'inbound').gte('timestamp', new Date(Date.now() - 14 * 3600000).toISOString()).order('timestamp', { ascending: false }).limit(8),
+      // P0 #1177: 64 = 8x o working set original, limitado às mesmas 14h da sessão.
+      // O objetivo é sobreviver a rajadas de imagem/joao_visao sem consulta ilimitada.
+      // Nenhuma linha adicional é persistida e a janela operacional continua em 8.
+      sb.from('fact_conversations').select('message_text, timestamp').eq('phone', phoneCorpus).eq('direction', 'inbound').gte('timestamp', new Date(Date.now() - 14 * 3600000).toISOString()).order('timestamp', { ascending: false }).limit(64),
     ]);
     const outs = outsR.data;
-    inbounds = inbsR.data || [];
+    const inboundsTodos = inbsR.data || [];
+    inbounds = inboundsTodos.slice(0, 8);
+    // inboundsTodos está newest-first por order(timestamp, descending). O helper
+    // para na primeira mensagem quantity-like: uma correção natural mais nova
+    // invalida evidência explícita antiga em vez de ressuscitá-la.
+    evidenciasQuantidadeExplicitas = qpSelectHistoricalExplicitQuantityEvidence(
+      inboundsTodos.map((i: any) => String(i?.message_text || '')),
+    );
     conversaAtivaHoje = !!(outs && outs.length > 0);
     const uj = (outs || []).find((o: any) => o.source === 'joao');
     if (uj && Date.now() - new Date(uj.timestamp).getTime() < 3600000) ultimaMsgJoao = uj.message_text || '';
@@ -4732,9 +4754,26 @@ const produtoDeterministicoFonteDetalhe = produtoMacroMensagemResolvido
   : (produtoMacroAquisicaoResolvido && produtoDeterministico === produtoMacroAquisicaoResolvido
       ? produtoAquisicaoDetalhe
       : (produtoDeterministicoFonte === 'anuncio' ? 'origem_anuncio' : null));
+const quantidadeProdutoMacro = normalizarProdutoMacro(
+  (decisao.slots || {}).produto ?? produtoDeterministico ?? slotsAnteriores.produto ?? prodMsg ?? prodOrigem
+);
+const quantidadeApparelScope = quantidadeProdutoMacro === 'camiseta';
+const perguntaQuantidadePendente = qpAsksQuantity(String(ultimaMsgJoao || ''));
+const quantidadeAtualCandidata = qpCurrentApparelQuantity(
+  quantidadeProdutoMacro,
+  String(ultimaMsgJoao || ''),
+  String(mensagem || ''),
+);
+
+// P0 #1177: a quantidade do inbound atual e evidência determinística quando:
+// (a) o próprio João acabou de perguntar quantidade; ou
+// (b) o cliente escreveu unidade explícita de peça.
+// Isso elimina a dependência de o LLM repetir o slot no JSON. O core puro continua
+// rejeitando dinheiro, remessa, dimensão, CEP, data, hora e tamanho.
 const slotsParaProveniencia = {
   ...(decisao.slots || {}),
   ...(produtoDeterministico ? { produto: produtoDeterministico } : {}),
+  ...(quantidadeAtualCandidata !== null ? { quantidade: quantidadeAtualCandidata } : {}),
 };
 
   const provSlots = filtrarSlotsPorProveniencia({
@@ -4745,7 +4784,9 @@ const slotsParaProveniencia = {
     toolsUsadas,
     midiaNoTurno: (imagens || []).length > 0 || (transcricoes || []).length > 0,
     numerosDeFerramenta: numerosFerramenta,
-    perguntaQuantidadePendente: RX_PERGUNTA_QUANTIDADE.test(String(ultimaMsgJoao || '')),
+    perguntaQuantidadePendente,
+    evidenciasQuantidadeExplicitas,
+    allowContextualQuantity: quantidadeApparelScope,
   });
   const slotsRecebidos: any = provSlots.slots;
   if (provSlots.rejeitados.length && !dryRun) {
