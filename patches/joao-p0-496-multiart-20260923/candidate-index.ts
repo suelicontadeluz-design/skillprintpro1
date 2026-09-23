@@ -1,5 +1,6 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { validateMultiArtEvidence, aggregateMultiArtPhysicalMeters } from './multiart-core.mjs';
+import { qpAsksQuantity, qpContextualQuantityAnswer, qpHasExplicitQuantityUnit } from './quantity-provenance-core-v1.mjs';
 // v4.26.6 (16/08/2026) — detector de resposta alinhado ao LOST canonico.
 // v4.26.5 (16/08/2026) — LOST canonico idempotente e fail-closed.
 // Desistencia inequivoca + um unico deal ongoing gera LOST via ledger proprio.
@@ -1426,7 +1427,8 @@ const RX_EVID_DINHEIRO = /(?:r\$|reais|conto|entrada|sinal|adiantamento|dep[o\u0
 // v4.37.1: a pergunta de quantidade que o PROPRIO Joao acabou de fazer carrega a
 // unidade ('Quantos adesivos de 50x75cm voce precisa?'). O numero puro que responde
 // a ela tem proveniencia: unidade na pergunta, valor na resposta do cliente.
-const RX_PERGUNTA_QUANTIDADE = /\bquant[oa]s\b[^?]{0,160}\?/i;
+// P0 #1177: pergunta de quantidade usa vocabulario fechado no core puro.
+ // Nao ampliar com verbos genericos ("sabe", "fechar") para evitar falso positivo financeiro.
 const RX_EVID_GRADE = /\b(?:pp|p|m|g|gg|g1|g2|g3|xg|xgg|infantil|tamanh\w+)\b/i;
 
 // O numero proposto como quantidade tem evidencia de UNIDADE na fala do cliente?
@@ -1512,6 +1514,7 @@ function filtrarSlotsPorProveniencia(a: {
   macroCanonico: string | null; toolsUsadas: string[];
   midiaNoTurno?: boolean; numerosDeFerramenta?: number[];
   perguntaQuantidadePendente?: boolean;
+  evidenciasQuantidadeExplicitas?: string[];
 }): { slots: any; rejeitados: Array<{ slot: string; valor: any; motivo: string }> } {
   const rejeitados: Array<{ slot: string; valor: any; motivo: string }> = [];
   const out: any = { ...(a.recebidos || {}) };
@@ -1562,13 +1565,19 @@ function filtrarSlotsPorProveniencia(a: {
       // Exige as duas pontas: pergunta 'quantos/quantas ...?' no turno anterior do Joao
       // E uma mensagem do cliente que e SO esse numero. Nao reabre o caso Vitor, em que
       // o 300 nasceu dentro de frase de dinheiro, nunca como mensagem isolada.
+      // P0 #1177: somente a mensagem ATUAL pode responder contextual e naturalmente
+      // ("Acredito que 10", "umas 30"). O core bloqueia dinheiro/remessa/dimensao/CEP/data.
       const respondeuPerguntaDeQuantidade = a.perguntaQuantidadePendente === true
-        && (a.textosCliente || []).some((t) => {
-          const so = String(t ?? '').trim();
-          return /^\d{1,6}$/.test(so) && Number(so) === nQ;
-        });
+        && qpContextualQuantityAnswer(v, String((a.textosCliente || [])[0] ?? ''));
+      // Evidencia explicita com unidade ganha uma janela separada e maior. Isso evita que
+      // eventos de imagem/visao expulsem "30 unidades" das ultimas 8 inbounds sem ampliar
+      // a janela de proveniencia de produto, pagamento, CEP ou grade.
+      const evidenciaQuantidade = evidenciaDeQuantidade(v, [
+        ...(a.textosCliente || []),
+        ...(a.evidenciasQuantidadeExplicitas || []),
+      ]);
       ok = !ehNumeroPuro
-        || evidenciaDeQuantidade(v, a.textosCliente).ok
+        || evidenciaQuantidade.ok
         || (sg !== null && nQ === sg)
         || deTool
         || respondeuPerguntaDeQuantidade;
@@ -2836,6 +2845,7 @@ async function atenderClienteInterno(phone: string, chatName: string, mensagem: 
   let humanoAtivoRecente = false; let humanoNegociou = false;
   let jaPediuPrecoAntes = false; let joaoJaDeuPreco = false;
   let inbounds: any[] = [];
+  let evidenciasQuantidadeExplicitas: string[] = [];
   const valoresCitados: number[] = [...execucoes.valores];
   const RX_HUMANO = /^\*(Tamires|Helen|Alessandro|Gabriel|Daniel|Edson|Kezia|Equipe)/i;
   let blocoAprendizados = '';
@@ -2843,12 +2853,19 @@ async function atenderClienteInterno(phone: string, chatName: string, mensagem: 
   // v4.23.4: historico/conversa e aprendizados falham de forma independente.
   // Uma falha na entrega das licoes nao apaga as guardas de humano, preco e continuidade.
   try {
-    const [outsR, inbsR] = await Promise.all([
+    const [outsR, inbsR, qtyEvidenceR] = await Promise.all([
       sb.from('fact_conversations').select('source, message_text, timestamp').eq('phone', phoneCorpus).eq('direction', 'outbound').gte('timestamp', new Date(Date.now() - 14 * 3600000).toISOString()).order('timestamp', { ascending: false }).limit(6),
       sb.from('fact_conversations').select('message_text, timestamp').eq('phone', phoneCorpus).eq('direction', 'inbound').gte('timestamp', new Date(Date.now() - 14 * 3600000).toISOString()).order('timestamp', { ascending: false }).limit(8),
+      // P0 #1177: janela adicional SOMENTE para evidencia explicita de quantidade.
+      // Mesma sessao ativa (14h), teto 64; nenhuma outra proveniencia consome esta lista.
+      sb.from('fact_conversations').select('message_text, timestamp').eq('phone', phoneCorpus).eq('direction', 'inbound').gte('timestamp', new Date(Date.now() - 14 * 3600000).toISOString()).order('timestamp', { ascending: false }).limit(64),
     ]);
     const outs = outsR.data;
     inbounds = inbsR.data || [];
+    evidenciasQuantidadeExplicitas = (qtyEvidenceR.data || [])
+      .map((i: any) => String(i?.message_text || ''))
+      .filter((t: string) => qpHasExplicitQuantityUnit(t))
+      .slice(0, 16);
     conversaAtivaHoje = !!(outs && outs.length > 0);
     const uj = (outs || []).find((o: any) => o.source === 'joao');
     if (uj && Date.now() - new Date(uj.timestamp).getTime() < 3600000) ultimaMsgJoao = uj.message_text || '';
@@ -4745,7 +4762,8 @@ const slotsParaProveniencia = {
     toolsUsadas,
     midiaNoTurno: (imagens || []).length > 0 || (transcricoes || []).length > 0,
     numerosDeFerramenta: numerosFerramenta,
-    perguntaQuantidadePendente: RX_PERGUNTA_QUANTIDADE.test(String(ultimaMsgJoao || '')),
+    perguntaQuantidadePendente: qpAsksQuantity(String(ultimaMsgJoao || '')),
+    evidenciasQuantidadeExplicitas,
   });
   const slotsRecebidos: any = provSlots.slots;
   if (provSlots.rejeitados.length && !dryRun) {
