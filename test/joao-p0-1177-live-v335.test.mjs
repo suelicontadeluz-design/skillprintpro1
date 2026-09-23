@@ -47,6 +47,11 @@ const v291=fs.readFileSync(new URL('v291-p0-1177.ts',dir),'utf8');
 const v292=fs.readFileSync(new URL('v292.1-p0-1177.ts',dir),'utf8');
 const v294=fs.readFileSync(new URL('v294-p0-1177.ts',dir),'utf8');
 
+for (const name of ['quantidadeProdutoMacro','quantidadeApparelScope','perguntaQuantidadePendente','quantidadeAtualCandidata']) {
+  const declared = owner.indexOf(`const ${name} =`);
+  const consumed = owner.indexOf('const slotsParaProveniencia = {');
+  assert.ok(declared >= 0 && declared < consumed, `${name} must be declared before the provenance filter`);
+}
 assert.match(owner,/qpCurrentApparelQuantity/);
 assert.match(owner,/qpSelectHistoricalExplicitQuantityEvidence/);
 assert.match(owner,/\.limit\(64\)/);
