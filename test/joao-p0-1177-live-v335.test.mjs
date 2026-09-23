@@ -56,6 +56,10 @@ assert.equal(qpIsAdjacentQuantityReply({...adjacent,interveningFactCount:1}), fa
 assert.equal(qpIsAdjacentQuantityReply({...adjacent,latestOutboundIsQuestion:false}), false);
 assert.equal(qpIsAdjacentQuantityReply({...adjacent,inboundRows:[]}), false);
 assert.equal(qpIsAdjacentQuantityReply({...adjacent,inboundRows:[{...owned[0],created_at:q}]}), false);
+assert.equal(qpIsAdjacentQuantityReply({...adjacent,inboundRows:[{...owned[0],created_at:'2026-09-23T09:59:59.000Z'}]}), false,
+  'out-of-order event before the question must not be attributed');
+assert.equal(qpIsAdjacentQuantityReply({...adjacent,inboundRows:[...owned,
+  {id:'newer',created_at:'2026-09-23T10:02:00.000Z',phone:'5511999999999',body:{text:{message:'Outra dúvida'}}}]}), false);
 assert.equal(qpCurrentApparelQuantity('dtf_textil','Quantas camisetas você precisa?','10'), null);
 assert.equal(qpCurrentApparelQuantity('camiseta','Qual o valor?','R$ 300'), null);
 
@@ -81,6 +85,9 @@ for (const name of ['quantidadeProdutoMacro','quantidadeApparelScope','perguntaQ
   assert.ok(declared >= 0 && declared < consumed, `${name} must be declared before the provenance filter`);
 }
 assert.match(owner,/qpCurrentApparelQuantity/);
+assert.match(owner,/qpIsAdjacentQuantityReply\s*\(/);
+assert.match(owner,/const perguntaQuantidadePendente = quantidadeAdjacente/);
+assert.match(owner,/interveningFactCount:\s*intermediarios\?\.length/);
 assert.match(owner,/qpSelectHistoricalExplicitQuantityEvidence/);
 assert.match(owner,/\.limit\(64\)/);
 assert.match(owner,/inbounds\s*=\s*inboundsTodos\.slice\(0,\s*8\)/);
