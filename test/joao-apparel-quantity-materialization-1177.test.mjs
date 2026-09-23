@@ -3,9 +3,11 @@ import fs from 'node:fs';
 import {
   qpAsksQuantity,
   qpContextualQuantityAnswer,
+  qpCurrentApparelQuantity,
   qpHasExplicitQuantityUnit,
   qpQuantityCandidate,
   qpRemoveQuantityQuestion,
+  qpSelectHistoricalExplicitQuantityEvidence,
 } from '../patches/joao-p0-496-multiart-20260923/quantity-provenance-core-v1.mjs';
 
 // P0 #1177 — contextual Q&A must survive natural wording.
@@ -51,6 +53,37 @@ assert.equal(qpQuantityCandidate('posso enviar 300 agora e o restante depois'), 
 assert.equal(qpQuantityCandidate('99999 camisetas'), 99999);
 assert.equal(qpQuantityCandidate('100000 camisetas'), null);
 
+// Runtime gating is executable, not only source-presence checked.
+assert.equal(
+  qpCurrentApparelQuantity('camiseta', 'Quantas camisetas você precisa?', 'Acredito que 10'),
+  10,
+);
+assert.equal(
+  qpCurrentApparelQuantity('dtf_textil', 'Quantas unidades você precisa?', 'Acredito que 10'),
+  null,
+);
+assert.equal(qpCurrentApparelQuantity('camiseta', 'Perfeito.', '30 camisetas'), 30);
+assert.equal(qpCurrentApparelQuantity('camiseta', 'Quantas camisetas?', 'R$ 300'), null);
+
+// History is newest-first: explicit newest wins; natural correction invalidates older
+// explicit evidence so "30 unidades" cannot resurrect after "na verdade 25".
+assert.deepEqual(
+  qpSelectHistoricalExplicitQuantityEvidence(['20 camisetas', '30 unidades']),
+  ['20 camisetas'],
+);
+assert.deepEqual(
+  qpSelectHistoricalExplicitQuantityEvidence(['na verdade 25', '30 unidades']),
+  [],
+);
+assert.deepEqual(
+  qpSelectHistoricalExplicitQuantityEvidence(['ok', '30 unidades', '20 unidades']),
+  ['30 unidades'],
+);
+assert.deepEqual(
+  qpSelectHistoricalExplicitQuantityEvidence(['R$ 300', '30 unidades']),
+  ['30 unidades'],
+);
+
 assert.equal(
   qpRemoveQuantityQuestion('Perfeito. E aí, confirmou a quantidade de camisetas?'),
   'Perfeito.',
@@ -66,12 +99,12 @@ assert.match(source, /qpHasExplicitQuantityUnit/);
 assert.match(source, /evidenciasQuantidadeExplicitas/);
 assert.match(source, /\.limit\(64\)/);
 assert.match(source, /inbounds\s*=\s*inboundsTodos\.slice\(0,\s*8\)/);
-assert.match(source, /\.filter\(\(t:\s*string\)\s*=>\s*qpHasExplicitQuantityUnit\(t\)\)[\s\S]*?\.slice\(0,\s*1\)/);
+assert.match(source, /qpSelectHistoricalExplicitQuantityEvidence/);
+assert.match(source, /order\('timestamp',\s*\{\s*ascending:\s*false\s*\}\)\.limit\(64\)/);
 assert.match(source, /perguntaQuantidadePendente:\s*qpAsksQuantity/);
 assert.match(source, /allowContextualQuantity:\s*quantidadeApparelScope/);
 assert.match(source, /const\s+perguntaQuantidadePendente\s*=\s*qpAsksQuantity/);
-assert.match(source, /const\s+quantidadeAtualCandidata\s*=\s*quantidadeApparelScope/);
-assert.match(source, /qpQuantityCandidate\(String\(mensagem/);
+assert.match(source, /const\s+quantidadeAtualCandidata\s*=\s*qpCurrentApparelQuantity/);
 assert.match(source, /quantidadeAtualCandidata\s*!==\s*null\s*\?\s*\{\s*quantidade:\s*quantidadeAtualCandidata\s*\}/);
 assert.match(source, /normalizarProdutoMacro\(slotsParaProveniencia\.produto[\s\S]*?===\s*'camiseta'/);
 
