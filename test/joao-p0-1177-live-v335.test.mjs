@@ -19,7 +19,13 @@ assert.equal(qpQuantityCandidate('Acredito que 10'), 10);
 assert.equal(qpQuantityCandidate('umas 30'), 30);
 assert.equal(qpQuantityCandidate('30 unidades'), 30);
 assert.equal(qpQuantityCandidate('R$ 300'), null);
+assert.equal(qpQuantityCandidate('R$300,00'), null);
 assert.equal(qpQuantityCandidate('300 reais'), null);
+assert.equal(qpQuantityCandidate('300,00'), null);
+assert.equal(qpQuantityCandidate('300 BRL'), null);
+assert.equal(qpQuantityCandidate('BRL 300'), null);
+assert.equal(qpQuantityCandidate('USD 300'), null);
+assert.equal(qpQuantityCandidate('300 euros'), null);
 assert.equal(qpQuantityCandidate('posso enviar 300 agora e o restante depois'), null);
 assert.equal(qpQuantityCandidate('arte 30x20'), null);
 assert.equal(qpQuantityCandidate('CEP 05813-000'), null);
@@ -48,6 +54,10 @@ assert.equal(qpIsAdjacentQuantityReply({...adjacent,inboundRows:[
 assert.equal(qpIsAdjacentQuantityReply({...adjacent,inboundRows:[
   {id:'other',created_at:r,phone:'5511999999999',body:{text:{message:'Oi'}}},...owned]}), false,
   'timestamp ties must fail closed');
+assert.equal(qpIsAdjacentQuantityReply({...adjacent,inboundRows:[
+  {id:'other-same-text',created_at:'2026-09-23T10:00:45.000Z',phone:'5511999999999',body:{text:{message:'10'}}},
+  ...owned,
+]}), false, 'distinct inbox events with identical text still break adjacency');
 assert.equal(qpIsAdjacentQuantityReply({...adjacent,ownedIds:['other','current']}), false,
   'batched replies do not prove adjacency');
 assert.equal(qpIsAdjacentQuantityReply({...adjacent,currentText:'20'}), false,
@@ -81,9 +91,33 @@ assert.equal(qpCountInterveningFacts({
   questionAt:q,currentText:'Acredito que 10',currentInboxAt:r,
 }),2,'timestamp ties fail closed');
 assert.equal(qpCountInterveningFacts({
+  facts:[{...currentFact,timestamp:'2026-09-23T09:59:00.000Z'}],
+  questionAt:'2026-09-23T09:58:00.000Z',currentText:'Acredito que 10',currentInboxAt:'2026-09-23T10:01:00.000Z',
+}),0,'exactly 120 seconds is inside the measured correlation bound');
+assert.equal(qpCountInterveningFacts({
+  facts:[{...currentFact,timestamp:'2026-09-23T09:58:59.999Z'}],
+  questionAt:'2026-09-23T09:58:00.000Z',currentText:'Acredito que 10',currentInboxAt:'2026-09-23T10:01:00.000Z',
+}),1,'more than 120 seconds fails closed');
+assert.equal(qpCountInterveningFacts({
+  facts:[{...currentFact,timestamp:'2026-09-23T10:01:00.001Z'}],
+  questionAt:q,currentText:'Acredito que 10',currentInboxAt:r,
+}),1,'fact after the operational inbox event is never discounted');
+assert.equal(qpCountInterveningFacts({
   facts:[{...currentFact,timestamp:'2026-09-23T09:58:00.000Z'}],
   questionAt:'2026-09-23T09:57:00.000Z',currentText:'Acredito que 10',currentInboxAt:r,
 }),1,'old exact text outside the correlation window is not treated as current turn');
+
+for (const rows of [
+  [currentFact],
+  [currentFact,{...currentFact,id:'dup-2'}],
+  [{id:'other',timestamp:'2026-09-23T10:00:20.000Z',message_text:'Outra'},currentFact],
+  [{...currentFact,timestamp:'2026-09-23T10:01:00.001Z'}],
+]) {
+  const discounted = rows.length - qpCountInterveningFacts({
+    facts: rows, questionAt:q, currentText:'Acredito que 10', currentInboxAt:r,
+  });
+  assert.ok(discounted === 0 || discounted === 1, 'correlator can discount at most one fact');
+}
 
 assert.equal(qpCurrentApparelQuantity('dtf_textil','Quantas camisetas você precisa?','10'), null);
 assert.equal(qpCurrentApparelQuantity('camiseta','Qual o valor?','R$ 300'), null);
