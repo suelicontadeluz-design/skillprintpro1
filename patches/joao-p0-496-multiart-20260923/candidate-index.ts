@@ -1,6 +1,6 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { validateMultiArtEvidence, aggregateMultiArtPhysicalMeters } from './multiart-core.mjs';
-import { qpAsksQuantity, qpContextualQuantityAnswer, qpHasExplicitQuantityUnit, qpQuantityCandidate } from './quantity-provenance-core-v1.mjs';
+import { qpAsksQuantity, qpContextualQuantityAnswer, qpCurrentApparelQuantity, qpHasExplicitQuantityUnit, qpSelectHistoricalExplicitQuantityEvidence } from './quantity-provenance-core-v1.mjs';
 // v4.26.6 (16/08/2026) — detector de resposta alinhado ao LOST canonico.
 // v4.26.5 (16/08/2026) — LOST canonico idempotente e fail-closed.
 // Desistencia inequivoca + um unico deal ongoing gera LOST via ledger proprio.
@@ -2857,17 +2857,20 @@ async function atenderClienteInterno(phone: string, chatName: string, mensagem: 
   try {
     const [outsR, inbsR] = await Promise.all([
       sb.from('fact_conversations').select('source, message_text, timestamp').eq('phone', phoneCorpus).eq('direction', 'outbound').gte('timestamp', new Date(Date.now() - 14 * 3600000).toISOString()).order('timestamp', { ascending: false }).limit(6),
-      // P0 #1177: carrega ate 64 apenas para localizar a evidencia explicita de quantidade.
-      // A janela generica continua sendo exatamente as 8 primeiras linhas abaixo.
+      // P0 #1177: 64 = 8x o working set original, limitado às mesmas 14h da sessão.
+      // O objetivo é sobreviver a rajadas de imagem/joao_visao sem consulta ilimitada.
+      // Nenhuma linha adicional é persistida e a janela operacional continua em 8.
       sb.from('fact_conversations').select('message_text, timestamp').eq('phone', phoneCorpus).eq('direction', 'inbound').gte('timestamp', new Date(Date.now() - 14 * 3600000).toISOString()).order('timestamp', { ascending: false }).limit(64),
     ]);
     const outs = outsR.data;
     const inboundsTodos = inbsR.data || [];
     inbounds = inboundsTodos.slice(0, 8);
-    evidenciasQuantidadeExplicitas = inboundsTodos
-      .map((i: any) => String(i?.message_text || ''))
-      .filter((t: string) => qpHasExplicitQuantityUnit(t))
-      .slice(0, 1);
+    // inboundsTodos está newest-first por order(timestamp, descending). O helper
+    // para na primeira mensagem quantity-like: uma correção natural mais nova
+    // invalida evidência explícita antiga em vez de ressuscitá-la.
+    evidenciasQuantidadeExplicitas = qpSelectHistoricalExplicitQuantityEvidence(
+      inboundsTodos.map((i: any) => String(i?.message_text || '')),
+    );
     conversaAtivaHoje = !!(outs && outs.length > 0);
     const uj = (outs || []).find((o: any) => o.source === 'joao');
     if (uj && Date.now() - new Date(uj.timestamp).getTime() < 3600000) ultimaMsgJoao = uj.message_text || '';
@@ -4751,15 +4754,16 @@ const produtoDeterministicoFonteDetalhe = produtoMacroMensagemResolvido
   : (produtoMacroAquisicaoResolvido && produtoDeterministico === produtoMacroAquisicaoResolvido
       ? produtoAquisicaoDetalhe
       : (produtoDeterministicoFonte === 'anuncio' ? 'origem_anuncio' : null));
-const quantidadeApparelScope =
-  normalizarProdutoMacro(
-    (decisao.slots || {}).produto ?? produtoDeterministico ?? slotsAnteriores.produto ?? prodMsg ?? prodOrigem
-  ) === 'camiseta';
+const quantidadeProdutoMacro = normalizarProdutoMacro(
+  (decisao.slots || {}).produto ?? produtoDeterministico ?? slotsAnteriores.produto ?? prodMsg ?? prodOrigem
+);
+const quantidadeApparelScope = quantidadeProdutoMacro === 'camiseta';
 const perguntaQuantidadePendente = qpAsksQuantity(String(ultimaMsgJoao || ''));
-const quantidadeAtualCandidata = quantidadeApparelScope
-  && (perguntaQuantidadePendente || qpHasExplicitQuantityUnit(String(mensagem || '')))
-  ? qpQuantityCandidate(String(mensagem || ''))
-  : null;
+const quantidadeAtualCandidata = qpCurrentApparelQuantity(
+  quantidadeProdutoMacro,
+  String(ultimaMsgJoao || ''),
+  String(mensagem || ''),
+);
 
 // P0 #1177: a quantidade do inbound atual e evidência determinística quando:
 // (a) o próprio João acabou de perguntar quantidade; ou
