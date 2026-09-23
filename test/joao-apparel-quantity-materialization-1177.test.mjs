@@ -48,13 +48,22 @@ assert.match(source, /qpContextualQuantityAnswer/);
 assert.match(source, /qpHasExplicitQuantityUnit/);
 assert.match(source, /evidenciasQuantidadeExplicitas/);
 assert.match(source, /\.limit\(64\)/);
+assert.match(source, /inbounds\s*=\s*inboundsTodos\.slice\(0,\s*8\)/);
+assert.match(source, /\.filter\(\(t:\s*string\)\s*=>\s*qpHasExplicitQuantityUnit\(t\)\)[\s\S]*?\.slice\(0,\s*1\)/);
 assert.match(source, /perguntaQuantidadePendente:\s*qpAsksQuantity/);
+assert.match(source, /allowContextualQuantity:\s*quantidadeApparelScope/);
+assert.match(source, /normalizarProdutoMacro\(slotsParaProveniencia\.produto[\s\S]*?===\s*'camiseta'/);
 
 // The historical extension is passed only to quantity evidence, not folded into textosCliente.
 assert.doesNotMatch(
   source,
   /const\s+textosCliente[^;]*evidenciasQuantidadeExplicitas/,
   'extended quantity evidence must not widen provenance for other critical slots',
+);
+assert.match(
+  source,
+  /a\.allowContextualQuantity\s*===\s*true[\s\S]*?a\.evidenciasQuantidadeExplicitas/,
+  'durable evidence must be gated to apparel scope',
 );
 
 console.log('PASS P0 #1177 apparel quantity provenance', {
