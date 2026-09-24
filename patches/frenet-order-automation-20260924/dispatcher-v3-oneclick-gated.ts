@@ -21,7 +21,7 @@ const WEBHOOK_URL = FRENET_WEBHOOK_TOKEN_VALUE
   : "https://ldrdtaibazplvrbwyrvx.supabase.co/functions/v1/frenet-tracking-webhook";
 const ONECLICK_ENABLED = String(Deno.env.get("FRENET_ONECLICK_ENABLED") ?? "").toLowerCase() === "true";
 const ONECLICK_MAX_BRL = Math.max(1, Number(Deno.env.get("FRENET_ONECLICK_MAX_BRL") ?? 100));
-const VERSION = "erp-frenet-orders-dispatcher/v4";
+const VERSION = "erp-frenet-orders-dispatcher/v5";
 const db = createClient(SUPABASE_URL, SERVICE, { auth: { persistSession: false, autoRefreshToken: false } });
 
 async function oneclickConfig() {
@@ -135,7 +135,19 @@ function buildOrders(envio: any, service: any) {
         Value: packageValue,
         Created: new Date().toISOString().replace(/\.\d+Z$/, "Z"),
         UseFrenetRegistration: true,
-        Items: [{ ProductName: String(pkg?.productName ?? "Pedido Skillprint").slice(0, 160) }],
+        Items: [{
+          OrderId: orderId,
+          ItemId: `${orderId}_ITEM1`,
+          ProductId: String(matching?.produto_id ?? pkg?.sku ?? `PROD-${index + 1}`).slice(0, 80),
+          Weight: Math.max(0.05, num(pkg?.weightKg, 0.05)),
+          Length: Math.max(1, num(pkg?.lengthCm, 1)),
+          Height: Math.max(1, num(pkg?.heightCm, 1)),
+          Width: Math.max(1, num(pkg?.widthCm, 1)),
+          Quantity: 1,
+          Price: packageValue,
+          ProductName: `${String(pkg?.productName ?? "Pedido Skillprint").slice(0, 120)}${qty > 0 ? ` - ${qty} ${String(pkg?.unit ?? "un")}` : ""}`,
+          SKU: String(pkg?.sku ?? matching?.sku ?? `SKILLPRINT-${index + 1}`).slice(0, 80),
+        }],
         To: {
           Name: String(to?.name ?? "").trim(),
           Email: String(to?.email ?? "").trim(),
@@ -154,11 +166,14 @@ function buildOrders(envio: any, service: any) {
         },
       },
       Volumes: {
+        VolumeId: index + 1,
         Weight: Math.max(0.05, num(pkg?.weightKg, 0.05)),
         Width: Math.max(1, num(pkg?.widthCm, 1)),
         Height: Math.max(1, num(pkg?.heightCm, 1)),
         Length: Math.max(1, num(pkg?.lengthCm, 1)),
         Price: packageValue,
+        DeclaredValue: packageValue,
+        OrderItemsId: [`${orderId}_ITEM1`],
       },
       Quotation: {
         ShippingServiceCode: String(service?.service_code ?? ""),
@@ -169,6 +184,68 @@ function buildOrders(envio: any, service: any) {
     };
     return pedido;
   });
+}
+
+async function hydrateOneclickQuotation(order: any, envio: any, service: any) {
+  const senderZip = digits(envio?.remetente_snapshot?.address?.zipCode);
+  const recipientZip = digits(envio?.destinatario_snapshot?.address?.zipCode);
+  if (senderZip.length !== 8 || recipientZip.length !== 8) throw new Error("POSTQUOTE_ZIP_INVALID");
+
+  const r = await fetch(`${FRENET_BASE}/v1/quotes`, {
+    method: "POST",
+    headers: {
+      Accept: "application/json",
+      "Content-Type": "application/json",
+      token: FRENET_TOKEN_ENVIO,
+      "x-partner-token": FRENET_PARTNER_TOKEN,
+    },
+    body: JSON.stringify({
+      SenderZipCode: senderZip,
+      RecipientZipCode: recipientZip,
+      RecipientCountry: "BR",
+      ShipmentItemValue: Number(order?.Order?.Value ?? 0),
+      Services: {
+        DeclaredValue: false,
+        ReceiptNotification: false,
+        OwnHand: false,
+      },
+      Volumes: [{
+        Weight: Number(order?.Volumes?.Weight ?? 0),
+        Length: Number(order?.Volumes?.Length ?? 0),
+        Height: Number(order?.Volumes?.Height ?? 0),
+        Width: Number(order?.Volumes?.Width ?? 0),
+        IsFragile: false,
+      }],
+    }),
+    signal: AbortSignal.timeout(15000),
+  });
+
+  const raw = await r.text();
+  let data: any = null;
+  try { data = raw ? JSON.parse(raw) : null; } catch { data = { raw: raw.slice(0, 1500) }; }
+  if (!r.ok || !data) throw new Error(`POSTQUOTE_HTTP_${r.status}`);
+
+  const quotations = Array.isArray(data?.quotations) ? data.quotations : [];
+  const wanted = String(service?.service_code ?? order?.Quotation?.ShippingServiceCode ?? "").trim();
+  const quote = quotations.find((q: any) => String(q?.shippingServiceCode ?? "") === wanted && q?.error !== true);
+  if (!quote) throw Object.assign(new Error("POSTQUOTE_SERVICE_NOT_FOUND"), { detail: data });
+
+  return {
+    ShippingServiceCode: String(quote.shippingServiceCode ?? wanted),
+    ShippingServiceName: String(quote.shippingServiceName ?? service?.service_description ?? ""),
+    PlatformShippingPrice: Number(quote.platformShippingPrice ?? quote.shippingPrice ?? 0),
+    DeliveryTime: Number(quote.deliveryTime ?? 0),
+    Carrier: String(quote.carrier ?? service?.carrier ?? ""),
+    CarrierCode: String(quote.carrierCode ?? ""),
+    ShippingPrice: Number(quote.shippingPrice ?? quote.platformShippingPrice ?? 0),
+    ShippingCompetitorPrice: quote.shippingCompetitorPrice ?? null,
+    Services: {
+      DeclaredValue: quote?.services?.declaredValue ?? false,
+      ReceiptNotification: quote?.services?.receiptNotification ?? false,
+      OwnHand: quote?.services?.ownHand ?? false,
+      DangerousGoods: quote?.services?.dangerousGoods ?? false,
+    },
+  };
 }
 
 function parseProviderItems(raw: any) {
@@ -435,8 +512,34 @@ Deno.serve(async (req: Request) => {
       continue;
     }
 
-    const freightPrice = Number(service?.price ?? envio?.servico_snapshot?.quotedPrice ?? 0);
+    let freightPrice = Number(service?.price ?? envio?.servico_snapshot?.quotedPrice ?? 0);
     const useOneclick = clickCfg.enabled && freightPrice > 0 && freightPrice <= clickCfg.max_brl;
+
+    if (useOneclick) {
+      try {
+        for (const order of orders) {
+          const q = await hydrateOneclickQuotation(order, envio, service);
+          order.Quotation = q;
+        }
+        freightPrice = orders.reduce((sum: number, order: any) => sum + Number(order?.Quotation?.PlatformShippingPrice ?? 0), 0);
+        if (!(freightPrice > 0) || freightPrice > clickCfg.max_brl) {
+          throw new Error(`ONECLICK_POSTQUOTE_PRICE_OUT_OF_RANGE:${freightPrice}`);
+        }
+      } catch (e) {
+        const fail = await erpBridge("fail", {
+          p_envio_id: envio.envio_id,
+          p_worker: worker,
+          p_error: `FRENET_POSTQUOTE_FAILED:${e instanceof Error ? e.message : String(e)}`,
+          p_provider_response: { version: VERSION, service },
+          p_retryable: false,
+          p_outcome_unknown: false,
+        }).catch(() => null);
+        summary.failed++;
+        summary.items.push({ envio_id: envio.envio_id, ok: false, code: "FRENET_POSTQUOTE_FAILED", result: fail });
+        continue;
+      }
+    }
+
     let response: Response;
     let provider: any = null;
     try {
