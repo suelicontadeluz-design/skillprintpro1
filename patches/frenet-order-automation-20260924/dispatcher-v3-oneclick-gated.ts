@@ -21,7 +21,7 @@ const WEBHOOK_URL = FRENET_WEBHOOK_TOKEN_VALUE
   : "https://ldrdtaibazplvrbwyrvx.supabase.co/functions/v1/frenet-tracking-webhook";
 const ONECLICK_ENABLED = String(Deno.env.get("FRENET_ONECLICK_ENABLED") ?? "").toLowerCase() === "true";
 const ONECLICK_MAX_BRL = Math.max(1, Number(Deno.env.get("FRENET_ONECLICK_MAX_BRL") ?? 100));
-const VERSION = "erp-frenet-orders-dispatcher/v3";
+const VERSION = "erp-frenet-orders-dispatcher/v4";
 const db = createClient(SUPABASE_URL, SERVICE, { auth: { persistSession: false, autoRefreshToken: false } });
 
 const json = (body: unknown, status = 200) =>
@@ -237,6 +237,138 @@ Deno.serve(async (req: Request) => {
         detail: e instanceof Error ? e.message : String(e),
       }, 502);
     }
+  }
+
+  if (mode === "BUY_EXISTING") {
+    if (!ONECLICK_ENABLED) {
+      return json({ ok: false, code: "ONECLICK_DISABLED", version: VERSION }, 409);
+    }
+
+    const shipmentId = String(body?.shipment_id ?? "").replace(/\D/g, "");
+    if (!shipmentId) return json({ ok: false, code: "SHIPMENT_ID_REQUIRED", version: VERSION }, 400);
+
+    let current: any = null;
+    try {
+      const check = await fetch(`${FRENET_BASE}/v1/orders/${encodeURIComponent(shipmentId)}`, {
+        headers: {
+          Accept: "application/json",
+          token: FRENET_TOKEN_ENVIO,
+          "x-partner-token": FRENET_PARTNER_TOKEN,
+        },
+        signal: AbortSignal.timeout(15000),
+      });
+      current = await check.json().catch(() => null);
+      if (!check.ok || !current) return json({ ok: false, code: "SHIPMENT_LOOKUP_FAILED", http_status: check.status, version: VERSION }, 502);
+    } catch (e) {
+      return json({ ok: false, code: "SHIPMENT_LOOKUP_FAILED", detail: e instanceof Error ? e.message : String(e), version: VERSION }, 502);
+    }
+
+    const expectedPrice = Number(current?.quotation?.platformShippingPrice ?? current?.quotation?.shippingPrice ?? 0);
+    if (!(expectedPrice > 0) || expectedPrice > ONECLICK_MAX_BRL) {
+      return json({
+        ok: false,
+        code: "ONECLICK_PRICE_OUT_OF_RANGE",
+        shipment_id: shipmentId,
+        expected_price: expectedPrice,
+        max_brl: ONECLICK_MAX_BRL,
+        version: VERSION,
+      }, 409);
+    }
+
+    let response: Response;
+    let provider: any = null;
+    try {
+      response = await fetch(`${FRENET_BASE}/v1/shipments/oneclick`, {
+        method: "POST",
+        headers: {
+          Accept: "application/json",
+          "Content-Type": "application/json",
+          "x-printing-format": "A6",
+          token: FRENET_TOKEN_ENVIO,
+          "x-partner-token": FRENET_PARTNER_TOKEN,
+        },
+        body: JSON.stringify([{ shipmentId: Number(shipmentId) }]),
+        signal: AbortSignal.timeout(20000),
+      });
+      const raw = await response.text();
+      try { provider = raw ? JSON.parse(raw) : null; } catch { provider = { raw: raw.slice(0, 1500) }; }
+    } catch (e) {
+      return json({ ok: false, code: "ONECLICK_OUTCOME_UNKNOWN", shipment_id: shipmentId, detail: e instanceof Error ? e.message : String(e), version: VERSION }, 502);
+    }
+
+    const items = parseProviderItems(provider);
+    const item = items[0] ?? null;
+    const providerError = item?.errors?.[0] ?? null;
+    const shipmentStatus = Number(item?.shipment_status ?? NaN);
+    const paid = response.ok && !providerError && [4, 5, 18].includes(shipmentStatus);
+
+    if (item) {
+      await erpBridge("tracking", {
+        p_payload: {
+          OrderId: item.order_id ?? current?.orderId ?? null,
+          ShipmentId: item.shipment_id ?? shipmentId,
+          ShipmentStatus: Number.isFinite(shipmentStatus) ? shipmentStatus : null,
+          TrackingNumber: item.tracking_number,
+          TrackingUrl: item.tracking_url,
+          LabelUrl: item.label_url,
+          EventType: null,
+        },
+      }).catch(() => null);
+    }
+
+    return json({
+      ok: paid,
+      code: paid ? "ONECLICK_PAID" : "ONECLICK_NOT_PAID",
+      shipment_id: item?.shipment_id ?? shipmentId,
+      order_id: item?.order_id ?? current?.orderId ?? null,
+      shipment_status: Number.isFinite(shipmentStatus) ? shipmentStatus : null,
+      expected_price: expectedPrice,
+      label_url: item?.label_url ?? null,
+      tracking_url: item?.tracking_url ?? null,
+      tracking_number: item?.tracking_number ?? null,
+      provider_error: providerError,
+      http_status: response.status,
+      version: VERSION,
+    }, paid ? 200 : 409);
+  }
+
+  if (mode === "CANCEL_SHIPMENT") {
+    const shipmentId = String(body?.shipment_id ?? "").replace(/\D/g, "");
+    if (!shipmentId) return json({ ok: false, code: "SHIPMENT_ID_REQUIRED", version: VERSION }, 400);
+
+    const response = await fetch(`${FRENET_BASE}/v1/shipments/${encodeURIComponent(shipmentId)}/cancel`, {
+      method: "POST",
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/json",
+        token: FRENET_TOKEN_ENVIO,
+        "x-partner-token": FRENET_PARTNER_TOKEN,
+      },
+      signal: AbortSignal.timeout(15000),
+    });
+    const raw = await response.text();
+    let provider: any = null;
+    try { provider = raw ? JSON.parse(raw) : null; } catch { provider = { raw: raw.slice(0, 1000) }; }
+
+    if (response.ok) {
+      await erpBridge("tracking", {
+        p_payload: {
+          ShipmentId: shipmentId,
+          ShipmentStatus: 7,
+          EventType: 7,
+          EventDescription: "Cancelamento solicitado no teste controlado",
+        },
+      }).catch(() => null);
+    }
+
+    return json({
+      ok: response.ok,
+      code: response.ok ? "SHIPMENT_CANCEL_REQUESTED" : "SHIPMENT_CANCEL_FAILED",
+      shipment_id: shipmentId,
+      http_status: response.status,
+      provider,
+      version: VERSION,
+    }, response.ok ? 200 : 409);
   }
 
   if (mode !== "DISPATCH") return json({ ok: false, code: "MODE_NOT_ALLOWED", version: VERSION }, 400);
