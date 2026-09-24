@@ -120,7 +120,9 @@ function buildOrders(envio: any, service: any) {
   const totalValue = Math.max(0.01, num(envio?.valor_declarado, 0.01));
 
   return packages.map((pkg: any, index: number) => {
-    const orderId = `SKILLPRINT-${saleKey}-${String(index + 1).padStart(2, "0")}`;
+    const attempt = Math.max(1, Number(envio?.tentativas ?? 1));
+    const retrySuffix = attempt > 1 ? `-A${attempt}` : "";
+    const orderId = `SKILLPRINT-${saleKey}-${String(index + 1).padStart(2, "0")}${retrySuffix}`;
     const qty = Math.max(0, num(pkg?.contentsQuantity, 0));
     const matching = items.find((i: any) => String(i?.produto_nome ?? "") === String(pkg?.productName ?? ""));
     const packageValue = matching && qty > 0
