@@ -1,0 +1,196 @@
+import "jsr:@supabase/functions-js/edge-runtime.d.ts";
+import { createClient } from "jsr:@supabase/supabase-js@2";
+
+const U=Deno.env.get("SUPABASE_URL")??"";
+const S=Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")??"";
+const BREVO=Deno.env.get("BREVO_API_KEY")??"";
+const ERP="https://ynjsflvdfftcopibzxyo.supabase.co/functions/v1/order-ready-message-bridge-v1";
+const V="order-email-brevo-dispatcher/v1";
+const db=createClient(U,S,{auth:{persistSession:false,autoRefreshToken:false}});
+const out=(x:unknown,s=200)=>new Response(JSON.stringify(x),{status:s,headers:{"content-type":"application/json","cache-control":"no-store"}});
+
+function esc(v:unknown){
+  return String(v??"")
+    .replaceAll("&","&amp;")
+    .replaceAll("<","&lt;")
+    .replaceAll(">","&gt;")
+    .replaceAll('"',"&quot;")
+    .replaceAll("'","&#039;");
+}
+function first(v:unknown){const s=String(v??"").trim();return s?s.split(/\s+/)[0]:"cliente"}
+function money(v:unknown){const n=Number(v??0);return n.toLocaleString("pt-BR",{style:"currency",currency:"BRL"})}
+function safeUrl(v:unknown){const s=String(v??"").trim();return /^https:\/\//i.test(s)?s:""}
+
+async function auth(req:Request){
+  if((req.headers.get("authorization")??"")===`Bearer ${S}`) return true;
+  const t=req.headers.get("x-cron-secret")??req.headers.get("x-cortex-internal-secret")??"";
+  if(!t) return false;
+  const {data,error}=await db.rpc("fn_edge_cron_auth_ok_v1",{p_token:t});
+  return !error&&data===true;
+}
+async function bridgeToken(){
+  const {data,error}=await db.rpc("fn_order_ready_erp_bridge_token_v1");
+  if(error||!data) throw new Error("ERP_BRIDGE_TOKEN_MISSING");
+  return String(data);
+}
+async function bridge(action:string,args:Record<string,unknown>={}){
+  const token=await bridgeToken();
+  const r=await fetch(ERP,{
+    method:"POST",
+    headers:{"content-type":"application/json",authorization:`Bearer ${token}`},
+    body:JSON.stringify({action,args}),
+    signal:AbortSignal.timeout(15000),
+  });
+  const raw=await r.text();
+  let data:any=null; try{data=raw?JSON.parse(raw):null}catch{data={raw:raw.slice(0,800)}}
+  if(!r.ok||data?.ok!==true) throw Object.assign(new Error(`ERP_BRIDGE_${action}_HTTP_${r.status}`),{detail:data});
+  return data?.data??data;
+}
+async function sender(){
+  const {data,error}=await db.from("crm_campaign_autonomy_policy")
+    .select("email_sender_email,email_sender_name,email_reply_to")
+    .eq("agente_slug","agente-campanhas-crm")
+    .single();
+  if(error||!data?.email_sender_email) throw new Error("SENDER_CONFIG_MISSING");
+  return data;
+}
+
+function render(event:any){
+  const p=event?.payload??{};
+  const nome=first(p.customer_name);
+  const numero=String(p.sale_number??"").trim();
+  const eventType=String(event.event_type??"");
+  let subject="";
+  let title="";
+  let body="";
+  let action="";
+
+  if(eventType==="message.order_ready.payment_due"){
+    const saldo=money(p?.financial?.saldo_pendente??0);
+    subject=`Pedido #${numero} pronto — saldo pendente`;
+    title="Seu pedido ficou pronto";
+    body=`Olá, ${esc(nome)}. Seu pedido está pronto, mas ainda identificamos um saldo pendente de <strong>${esc(saldo)}</strong>. Assim que o pagamento for identificado, liberamos ${p.shipping_type==="retirada"?"a retirada":"o envio"}.`;
+  } else if(eventType==="message.order_ready.release"){
+    subject=`Pedido #${numero} pronto`;
+    title="Seu pedido está pronto";
+    body=p.shipping_type==="retirada"
+      ? `Olá, ${esc(nome)}. O pagamento está confirmado e o pedido <strong>#${esc(numero)}</strong> está disponível para retirada.`
+      : `Olá, ${esc(nome)}. O pagamento está confirmado e o pedido <strong>#${esc(numero)}</strong> foi liberado para seguir para envio.`;
+  } else if(eventType==="message.order_partial.release"){
+    const lines=Array.isArray(p.lines)?p.lines:[];
+    const list=lines.map((x:any)=>{
+      const qty=Number(x?.quantidade??0).toLocaleString("pt-BR",{maximumFractionDigits:3});
+      return `<li style="margin:6px 0">${esc(qty)} ${esc(String(x?.unidade??"unidade").replaceAll("_"," "))} — ${esc(x?.produto_nome??"Item")}</li>`;
+    }).join("");
+    subject=`Parte do pedido #${numero} está pronta`;
+    title="Parte do seu pedido ficou pronta";
+    body=`Olá, ${esc(nome)}. Liberamos uma parte do pedido <strong>#${esc(numero)}</strong>.<ul>${list}</ul>O restante continua em produção.`;
+  } else if(eventType==="message.shipping_label.created"){
+    const tracking=String(p.tracking_code??"").trim();
+    const carrier=String(p.carrier_name??"").trim();
+    const trackingUrl=safeUrl(p.tracking_url);
+    subject=`Etiqueta gerada — Pedido #${numero}`;
+    title="Etiqueta de envio gerada";
+    body=`Olá, ${esc(nome)}. A etiqueta do pedido <strong>#${esc(numero)}</strong> foi gerada.`
+      +(carrier?`<br><br>Transportadora: <strong>${esc(carrier)}</strong>`:"")
+      +(tracking?`<br>Código de rastreio: <strong>${esc(tracking)}</strong>`:"")
+      +`<br><br>O pedido ainda aguarda postagem. Assim que a transportadora confirmar a postagem, avisaremos novamente.`;
+    if(trackingUrl) action=`<p style="margin:24px 0"><a href="${esc(trackingUrl)}" style="background:#111827;color:white;text-decoration:none;padding:12px 18px;border-radius:8px;display:inline-block">Acompanhar rastreio</a></p>`;
+  } else if(eventType==="message.order_shipped.tracking"){
+    const tracking=String(p.tracking_code??"").trim();
+    const carrier=String(p.carrier_name??"").trim();
+    const trackingUrl=safeUrl(p.tracking_url);
+    subject=`Pedido #${numero} enviado`;
+    title="Seu pedido foi enviado";
+    body=`Olá, ${esc(nome)}. O pedido <strong>#${esc(numero)}</strong> foi postado e já está a caminho.`
+      +(carrier?`<br><br>Transportadora: <strong>${esc(carrier)}</strong>`:"")
+      +(tracking?`<br>Código de rastreio: <strong>${esc(tracking)}</strong>`:"");
+    if(trackingUrl) action=`<p style="margin:24px 0"><a href="${esc(trackingUrl)}" style="background:#111827;color:white;text-decoration:none;padding:12px 18px;border-radius:8px;display:inline-block">Acompanhar entrega</a></p>`;
+  } else {
+    return null;
+  }
+
+  const html=`<!doctype html><html><body style="margin:0;background:#f4f4f5;font-family:Arial,sans-serif;color:#18181b"><div style="max-width:620px;margin:0 auto;padding:28px 16px"><div style="background:white;border-radius:12px;padding:28px"><div style="font-size:20px;font-weight:700;margin-bottom:24px">Skillprint Estamparia</div><h1 style="font-size:24px;margin:0 0 16px">${title}</h1><div style="font-size:16px;line-height:1.6">${body}</div>${action}<div style="border-top:1px solid #e4e4e7;margin-top:28px;padding-top:18px;font-size:13px;color:#71717a">Mensagem transacional referente ao seu pedido na Skillprint Estamparia.</div></div></div></body></html>`;
+
+  const text=html
+    .replace(/<br\s*\/?>/gi,"\n")
+    .replace(/<li[^>]*>/gi,"• ")
+    .replace(/<\/li>/gi,"\n")
+    .replace(/<[^>]+>/g,"")
+    .replace(/&amp;/g,"&").replace(/&lt;/g,"<").replace(/&gt;/g,">").replace(/&quot;/g,'"').replace(/&#039;/g,"'");
+  return {subject,html,text};
+}
+
+Deno.serve(async(req)=>{
+  if(req.method!=="POST") return out({ok:false,code:"METHOD_NOT_ALLOWED",version:V},405);
+  if(!(await auth(req))) return out({ok:false,code:"UNAUTHORIZED",version:V},401);
+  if(!BREVO) return out({ok:false,code:"BREVO_KEY_MISSING",version:V},503);
+
+  const body=await req.json().catch(()=>({}));
+  const mode=String(body?.mode??"DISPATCH").toUpperCase();
+
+  let cfg:any;
+  try{cfg=await sender()}catch(e){return out({ok:false,code:"SENDER_CONFIG_MISSING",detail:String(e),version:V},503)}
+
+  if(mode==="PROBE"){
+    const r=await fetch("https://api.brevo.com/v3/account",{headers:{"api-key":BREVO,accept:"application/json"},signal:AbortSignal.timeout(12000)});
+    return out({ok:r.ok,version:V,brevo_status:r.status,sender:cfg.email_sender_email},r.ok?200:409);
+  }
+  if(mode!=="DISPATCH") return out({ok:false,code:"MODE_NOT_ALLOWED",version:V},400);
+
+  const worker=`${V}:${crypto.randomUUID()}`;
+  let events:any[]=[];
+  try{
+    const claimed=await bridge("email_claim",{p_worker:worker,p_limit:Math.max(1,Math.min(Number(body?.limit??10),20))});
+    events=Array.isArray(claimed)?claimed:[];
+  }catch(e){
+    return out({ok:false,code:"CLAIM_FAILED",detail:String(e).slice(0,200),version:V},502);
+  }
+
+  const summary:any={claimed:events.length,sent:0,failed:0,dead:0,items:[]};
+
+  for(const event of events){
+    const to=String(event?.to_email??"").trim().toLowerCase();
+    const rendered=render(event);
+    if(!rendered||!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(to)){
+      await bridge("email_fail",{p_event_id:event.id,p_worker:worker,p_error:"INVALID_TRANSACTIONAL_EMAIL_PAYLOAD",p_provider_response:{version:V},p_outcome_unknown:true}).catch(()=>null);
+      summary.dead++; summary.items.push({id:event.id,ok:false,code:"INVALID_PAYLOAD"}); continue;
+    }
+
+    let r:Response;
+    let provider:any={};
+    try{
+      r=await fetch("https://api.brevo.com/v3/smtp/email",{
+        method:"POST",
+        headers:{"api-key":BREVO,accept:"application/json","content-type":"application/json"},
+        body:JSON.stringify({
+          sender:{name:cfg.email_sender_name||"Skillprint Estamparia",email:cfg.email_sender_email},
+          replyTo:{name:cfg.email_sender_name||"Skillprint Estamparia",email:cfg.email_reply_to||cfg.email_sender_email},
+          to:[{email:to,name:String(event?.payload?.customer_name??"")}],
+          subject:rendered.subject,
+          htmlContent:rendered.html,
+          textContent:rendered.text,
+          headers:{"X-Skillprint-Event-Id":String(event.id),"X-Skillprint-Event-Type":String(event.event_type)}
+        }),
+        signal:AbortSignal.timeout(15000),
+      });
+      const raw=await r.text();
+      try{provider=raw?JSON.parse(raw):{}}catch{provider={raw:raw.slice(0,800)}}
+    }catch(e){
+      await bridge("email_fail",{p_event_id:event.id,p_worker:worker,p_error:`BREVO_OUTCOME_UNKNOWN:${e instanceof Error?e.message:String(e)}`,p_provider_response:{version:V},p_outcome_unknown:true}).catch(()=>null);
+      summary.dead++; summary.items.push({id:event.id,ok:false,code:"OUTCOME_UNKNOWN"}); continue;
+    }
+
+    if(!r.ok){
+      const unknown=r.status===429||r.status>=500;
+      await bridge("email_fail",{p_event_id:event.id,p_worker:worker,p_error:`BREVO_HTTP_${r.status}`,p_provider_response:{version:V,http_status:r.status,provider},p_outcome_unknown:false}).catch(()=>null);
+      summary.failed++; summary.items.push({id:event.id,ok:false,code:`BREVO_HTTP_${r.status}`}); continue;
+    }
+
+    const messageId=String(provider?.messageId??"").trim();
+    await bridge("email_complete",{p_event_id:event.id,p_worker:worker,p_provider_message_id:messageId,p_provider_response:{version:V,http_status:r.status,provider:"brevo"}}).catch(()=>null);
+    summary.sent++; summary.items.push({id:event.id,ok:true,message_id_present:!!messageId});
+  }
+
+  return out({ok:true,version:V,summary});
+});
