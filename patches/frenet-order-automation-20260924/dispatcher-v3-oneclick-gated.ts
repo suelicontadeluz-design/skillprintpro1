@@ -261,8 +261,14 @@ function parseProviderItems(raw: any) {
     order_id: String(item?.orderId ?? item?.OrderId ?? item?.order?.id ?? "").trim() || null,
     shipment_id: String(item?.shipmentId ?? item?.ShipmentId ?? item?.id ?? "").trim() || null,
     shipment_status: item?.shipmentStatus ?? item?.ShipmentStatus ?? null,
-    tracking_number: String(item?.trackingNumber ?? item?.TrackingNumber ?? "").trim() || null,
     tracking_url: String(item?.trackingUrl ?? item?.TrackingUrl ?? "").trim() || null,
+    tracking_number: (() => {
+      const explicit = String(item?.trackingNumber ?? item?.TrackingNumber ?? "").trim();
+      if (explicit) return explicit;
+      const url = String(item?.trackingUrl ?? item?.TrackingUrl ?? "").trim();
+      const m = url.match(/\/([^/?#]+)(?:[?#].*)?$/);
+      return m?.[1] ?? null;
+    })(),
     label_url: String(item?.labelUrl ?? item?.LabelUrl ?? "").trim() || null,
     errors: Array.isArray(item?.errors) ? item.errors : Array.isArray(item?.Errors) ? item.Errors : [],
   }));
