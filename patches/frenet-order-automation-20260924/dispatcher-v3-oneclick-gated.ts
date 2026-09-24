@@ -339,6 +339,7 @@ Deno.serve(async (req: Request) => {
       tracking_url: item?.tracking_url ?? null,
       tracking_number: item?.tracking_number ?? null,
       provider_error: providerError,
+      provider_detail: paid ? null : provider,
       http_status: response.status,
       version: VERSION,
     }, paid ? 200 : 409);
