@@ -1,5 +1,6 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { validateMultiArtEvidence, aggregateMultiArtPhysicalMeters } from './multiart-core.mjs';
+import { findMaxCopiesWithinMeters } from './dtf-textile-yield-authority-core-v1.mjs';
 // v4.26.6 (16/08/2026) — detector de resposta alinhado ao LOST canonico.
 // v4.26.5 (16/08/2026) — LOST canonico idempotente e fail-closed.
 // Desistencia inequivoca + um unico deal ongoing gera LOST via ledger proprio.
@@ -1783,34 +1784,108 @@ async function executarTool(name: string, input: any, ctx: { leadId: string | nu
     if (name === 'calcular_dtf_por_arte') {
       const larg = Number(input?.largura_cm) || 0, alt = Number(input?.altura_cm) || 0, cop = Math.max(1, parseInt(String(input?.copias)) || 1);
       if (larg <= 0 || alt <= 0 || larg > 100 || alt > 200) return JSON.stringify({ ok: false, erro: 'medidas_invalidas' });
-      const { data: cfgs } = await sb.from('dtf_produto_config').select('*').eq('produto', 'dtf_textil');
+
+      const { data: cfgs } = await sb.from('dtf_produto_config').select('minimo_metros').eq('produto', 'dtf_textil');
       const cfg = cfgs?.[0];
       if (!cfg) return JSON.stringify({ ok: false, erro: 'config_ausente' });
-      const util = Number(cfg.largura_max_cm) || 57; const mg = Number(cfg.margem_seguranca) || 0.05;
-      if (larg > util) return JSON.stringify({ ok: false, erro: 'arte_mais_larga_que_o_filme', display_data: { largura_maxima_cm: util } });
-      const porLinha = Math.max(1, Math.floor((util + mg) / (larg + mg)));
-      const linhas = Math.ceil(cop / porLinha);
-      const arred = Number(cfg.arredondamento_m) || 0.1; const minM = Number(cfg.minimo_metros) || 1;
-      const metrosNecessarios = (linhas * (alt + mg)) / 100;
-      let metros = Math.max(minM, Math.ceil(metrosNecessarios / arred) * arred);
-      metros = Math.round(metros * 100) / 100;
+      const minM = Number(cfg.minimo_metros) || 1;
+
+      const rendimentoCache = new Map<number, any>();
+      const rendimentoCanonico = async (quantidade: number): Promise<any> => {
+        if (rendimentoCache.has(quantidade)) return rendimentoCache.get(quantidade);
+        const { data: d, error: e } = await sb.rpc('fn_dtf_rendimento_por_arte_v1', {
+          p_produto: 'dtf_textil',
+          p_largura_cm: larg,
+          p_altura_cm: alt,
+          p_quantidade: quantidade,
+          p_permitir_rotacao: true,
+        });
+        if (e || !d || d.ok !== true) {
+          const fail = { ok: false, erro: String(e?.message || d?.erro || 'rendimento_indisponivel') };
+          rendimentoCache.set(quantidade, fail);
+          return fail;
+        }
+        rendimentoCache.set(quantidade, d);
+        return d;
+      };
+
+      const rendimento = await rendimentoCanonico(cop);
+      if (!rendimento || rendimento.ok !== true) {
+        await logErro('rpc_rendimento_textil_falhou', { tool: name, largura_cm: larg, altura_cm: alt, copias: cop, erro: String(rendimento?.erro || 'sem retorno').slice(0, 150) });
+        return JSON.stringify({ ok: false, erro: 'rendimento_indisponivel', acao: 'Nao consegui confirmar o rendimento fisico. Nao invente metragem nem quantidade.' });
+      }
+
+      const metrosFisicos = Number(rendimento.metros_para_lancar_erp);
+      if (!Number.isFinite(metrosFisicos) || metrosFisicos <= 0) {
+        return JSON.stringify({ ok: false, erro: 'rendimento_invalido', acao: 'Nao informe metragem nem capacidade.' });
+      }
+      const metros = Math.round(Math.max(minM, metrosFisicos) * 1000) / 1000;
+
       const { data: fx } = await sb.from('dtf_precos_faixa').select('*').eq('produto', 'dtf_textil').order('metros_min');
       let f = (fx || []).find((x: any) => metros >= Number(x.metros_min) && (x.metros_max === null || metros <= Number(x.metros_max)));
       if (!f) f = (fx || []).find((x: any) => Number(x.metros_min) > metros) || (fx || [])[(fx || []).length - 1];
       if (!f) return JSON.stringify({ ok: false, erro: 'faixa_nao_encontrada' });
-      const pm = Number(f.preco_por_metro); const total = Math.round(metros * pm * 100) / 100;
-      const cobradoMinimo = metrosNecessarios < minM;
-      const copiasSemAumentar = porLinha * Math.max(1, Math.floor(((metros * 100) + mg) / (alt + mg)));
+
+      const pm = Number(f.preco_por_metro);
+      const total = Math.round(metros * pm * 100) / 100;
+      const cobradoMinimo = metrosFisicos < minM;
+      let copiasSemAumentar: number | null = null;
+      let capacidadeProbes: number | null = null;
+
+      if (cobradoMinimo) {
+        try {
+          const capacidade = await findMaxCopiesWithinMeters({
+            targetMeters: minM,
+            maxQuantity: 20000,
+            metersForQuantity: async (quantidade: number) => {
+              const r = await rendimentoCanonico(quantidade);
+              if (!r || r.ok !== true) throw new Error('CANONICAL_YIELD_UNAVAILABLE');
+              return Number(r.metros_para_lancar_erp);
+            },
+          });
+          if (capacidade?.ok === true && Number.isInteger(capacidade.maxCopies) && capacidade.maxCopies >= cop) {
+            copiasSemAumentar = capacidade.maxCopies;
+            capacidadeProbes = Number(capacidade.probes) || null;
+          } else {
+            await logErro('capacidade_textil_canonica_indisponivel', { tool: name, largura_cm: larg, altura_cm: alt, copias: cop, reason: capacidade?.reason || 'sem_limite' });
+          }
+        } catch (e: any) {
+          await logErro('capacidade_textil_canonica_falhou', { tool: name, largura_cm: larg, altura_cm: alt, copias: cop, erro: String(e?.message || e).slice(0, 150) });
+        }
+      }
+
+      const metrosLayout = Number(rendimento.metros_layout);
       const dsp = {
-        produto: 'dtf_textil', arte: `${larg}x${alt}cm`, copias: cop, cabem_por_linha: porLinha,
-        metros_necessarios: Math.round(metrosNecessarios * 100) / 100, metros, minimo_metros: minM,
-        cobrado_minimo: cobradoMinimo, copias_sem_aumentar_valor: copiasSemAumentar,
-        preco_por_metro: pm, valor_total: total, valor_por_copia: Math.round((total / cop) * 100) / 100,
+        produto: 'dtf_textil',
+        arte: `${larg}x${alt}cm`,
+        copias: cop,
+        metros_necessarios: Number.isFinite(metrosLayout) ? metrosLayout : null,
+        metros_fisicos_erp: metrosFisicos,
+        metros,
+        minimo_metros: minM,
+        cobrado_minimo: cobradoMinimo,
+        copias_sem_aumentar_valor: copiasSemAumentar,
+        preco_por_metro: pm,
+        valor_total: total,
+        valor_por_copia: Math.round((total / cop) * 100) / 100,
+        fonte_fisica: 'fn_dtf_rendimento_por_arte_v1',
+        layout_canonico: rendimento.layout || null,
+        capacidade_probes: capacidadeProbes,
         instrucao: cobradoMinimo
-          ? `A quantidade ocupa menos de ${minM} metro, mas o pedido minimo e ${minM} metro. Explique isso claramente. Incentive o cliente a manter ou levar ate ${copiasSemAumentar} copias, porque o valor do DTF nao aumenta. NAO cobre fracao abaixo do minimo.`
-          : 'Apresente a metragem e o valor calculados.'
+          ? (copiasSemAumentar
+              ? `A quantidade ocupa menos de ${minM} metro, mas o pedido minimo e ${minM} metro. Explique isso claramente. Se for util ao cliente, informe que pode levar ate ${copiasSemAumentar} copias sem aumentar a metragem cobrada. Use somente este numero canonico.`
+              : `A quantidade ocupa menos de ${minM} metro, mas o pedido minimo e ${minM} metro. Explique isso claramente. A capacidade maxima nao foi provada agora: NAO invente quantidade.`)
+          : 'Apresente a metragem e o valor calculados. Nao invente capacidade adicional.'
       };
-      const op = await emitirAutorizacao(ctx.leadId, 'produto', total, 'calcular_dtf_por_arte', { metros, preco_por_metro: pm, copias: cop, arte_cm: `${larg}x${alt}` });
+
+      const op = await emitirAutorizacao(ctx.leadId, 'produto', total, 'calcular_dtf_por_arte', {
+        metros,
+        metros_fisicos_erp: metrosFisicos,
+        preco_por_metro: pm,
+        copias: cop,
+        arte_cm: `${larg}x${alt}`,
+        fonte_fisica: 'fn_dtf_rendimento_por_arte_v1',
+      });
       if (!op) return falhaAutorizacao(dsp);
       return envelope([op], dsp);
     }
