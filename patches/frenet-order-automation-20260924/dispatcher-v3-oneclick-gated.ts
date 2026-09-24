@@ -21,7 +21,7 @@ const WEBHOOK_URL = FRENET_WEBHOOK_TOKEN_VALUE
   : "https://ldrdtaibazplvrbwyrvx.supabase.co/functions/v1/frenet-tracking-webhook";
 const ONECLICK_ENABLED = String(Deno.env.get("FRENET_ONECLICK_ENABLED") ?? "").toLowerCase() === "true";
 const ONECLICK_MAX_BRL = Math.max(1, Number(Deno.env.get("FRENET_ONECLICK_MAX_BRL") ?? 100));
-const VERSION = "erp-frenet-orders-dispatcher/v5";
+const VERSION = "erp-frenet-orders-dispatcher/v6";
 const db = createClient(SUPABASE_URL, SERVICE, { auth: { persistSession: false, autoRefreshToken: false } });
 
 async function oneclickConfig() {
@@ -448,21 +448,51 @@ Deno.serve(async (req: Request) => {
     let provider: any = null;
     try { provider = raw ? JSON.parse(raw) : null; } catch { provider = { raw: raw.slice(0, 1000) }; }
 
+    let currentStatus: number | null = null;
+    let currentOrderId: string | null = null;
     if (response.ok) {
-      await erpBridge("tracking", {
-        p_payload: {
-          ShipmentId: shipmentId,
-          ShipmentStatus: 7,
-          EventType: 7,
-          EventDescription: "Cancelamento solicitado no teste controlado",
-        },
-      }).catch(() => null);
+      try {
+        const check = await fetch(`${FRENET_BASE}/v1/orders/${encodeURIComponent(shipmentId)}`, {
+          headers: {
+            Accept: "application/json",
+            token: FRENET_TOKEN_ENVIO,
+            "x-partner-token": FRENET_PARTNER_TOKEN,
+          },
+          signal: AbortSignal.timeout(15000),
+        });
+        const current = await check.json().catch(() => null);
+        if (check.ok && current) {
+          currentStatus = Number(current?.shipmentStatus ?? current?.ShipmentStatus ?? NaN);
+          if (!Number.isFinite(currentStatus)) currentStatus = null;
+          currentOrderId = String(current?.orderId ?? current?.OrderId ?? "").trim() || null;
+          await erpBridge("tracking", {
+            p_payload: {
+              OrderId: currentOrderId,
+              ShipmentId: shipmentId,
+              ShipmentStatus: currentStatus,
+              TrackingNumber: current?.trackingNumber ?? current?.TrackingNumber ?? null,
+              TrackingUrl: current?.trackingUrl ?? current?.TrackingUrl ?? null,
+              LabelUrl: current?.labelUrl ?? current?.LabelUrl ?? null,
+              EventType: currentStatus,
+              EventDescription: currentStatus === 6
+                ? "Cancelamento agendado na Frenet"
+                : currentStatus === 7
+                  ? "Etiqueta cancelada na Frenet"
+                  : "Cancelamento solicitado na Frenet",
+            },
+          }).catch(() => null);
+        }
+      } catch {
+        // A confirmação do POST continua válida; reconciliação posterior resolve o estado.
+      }
     }
 
     return json({
       ok: response.ok,
       code: response.ok ? "SHIPMENT_CANCEL_REQUESTED" : "SHIPMENT_CANCEL_FAILED",
       shipment_id: shipmentId,
+      shipment_status: currentStatus,
+      order_id: currentOrderId,
       http_status: response.status,
       provider,
       version: VERSION,
