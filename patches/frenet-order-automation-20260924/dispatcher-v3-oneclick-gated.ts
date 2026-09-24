@@ -24,6 +24,17 @@ const ONECLICK_MAX_BRL = Math.max(1, Number(Deno.env.get("FRENET_ONECLICK_MAX_BR
 const VERSION = "erp-frenet-orders-dispatcher/v4";
 const db = createClient(SUPABASE_URL, SERVICE, { auth: { persistSession: false, autoRefreshToken: false } });
 
+async function oneclickConfig() {
+  const { data, error } = await db.rpc("fn_frenet_dispatch_config_v1");
+  if (!error && data) {
+    return {
+      enabled: data?.oneclick_enabled === true,
+      max_brl: Math.max(1, Number(data?.oneclick_max_brl ?? ONECLICK_MAX_BRL)),
+    };
+  }
+  return { enabled: ONECLICK_ENABLED, max_brl: ONECLICK_MAX_BRL };
+}
+
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), {
     status,
@@ -185,6 +196,7 @@ Deno.serve(async (req: Request) => {
   const body = await req.json().catch(() => ({}));
   const mode = String(body?.mode ?? "DISPATCH").toUpperCase();
   const configured = !!(FRENET_TOKEN_ENVIO && FRENET_PARTNER_TOKEN);
+  const clickCfg = await oneclickConfig();
 
   if (mode === "PROBE") {
     let bridge = false;
@@ -226,8 +238,8 @@ Deno.serve(async (req: Request) => {
         wallet_reachable: r.ok,
         balance_available: data ? Number(data?.balance ?? data?.Balance ?? NaN) : null,
         label_limit: data ? Number(data?.labelLimit ?? data?.LabelLimit ?? NaN) : null,
-        oneclick_enabled: ONECLICK_ENABLED,
-        oneclick_max_brl: ONECLICK_MAX_BRL,
+        oneclick_enabled: clickCfg.enabled,
+        oneclick_max_brl: clickCfg.max_brl,
       }, r.ok ? 200 : 409);
     } catch (e) {
       return json({
@@ -240,7 +252,7 @@ Deno.serve(async (req: Request) => {
   }
 
   if (mode === "BUY_EXISTING") {
-    if (!ONECLICK_ENABLED) {
+    if (!clickCfg.enabled) {
       return json({ ok: false, code: "ONECLICK_DISABLED", version: VERSION }, 409);
     }
 
@@ -264,13 +276,13 @@ Deno.serve(async (req: Request) => {
     }
 
     const expectedPrice = Number(current?.quotation?.platformShippingPrice ?? current?.quotation?.shippingPrice ?? 0);
-    if (!(expectedPrice > 0) || expectedPrice > ONECLICK_MAX_BRL) {
+    if (!(expectedPrice > 0) || expectedPrice > clickCfg.max_brl) {
       return json({
         ok: false,
         code: "ONECLICK_PRICE_OUT_OF_RANGE",
         shipment_id: shipmentId,
         expected_price: expectedPrice,
-        max_brl: ONECLICK_MAX_BRL,
+        max_brl: clickCfg.max_brl,
         version: VERSION,
       }, 409);
     }
@@ -421,7 +433,7 @@ Deno.serve(async (req: Request) => {
     }
 
     const freightPrice = Number(service?.price ?? envio?.servico_snapshot?.quotedPrice ?? 0);
-    const useOneclick = ONECLICK_ENABLED && freightPrice > 0 && freightPrice <= ONECLICK_MAX_BRL;
+    const useOneclick = clickCfg.enabled && freightPrice > 0 && freightPrice <= clickCfg.max_brl;
     let response: Response;
     let provider: any = null;
     try {
