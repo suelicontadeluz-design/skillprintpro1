@@ -420,8 +420,8 @@ Deno.serve(async (req: Request) => {
       continue;
     }
 
-    const orderValue = orders.reduce((sum:any, x:any) => sum + Number(x?.Order?.Value ?? 0), 0);
-    const useOneclick = ONECLICK_ENABLED && orderValue <= ONECLICK_MAX_BRL;
+    const freightPrice = Number(service?.price ?? envio?.servico_snapshot?.quotedPrice ?? 0);
+    const useOneclick = ONECLICK_ENABLED && freightPrice > 0 && freightPrice <= ONECLICK_MAX_BRL;
     let response: Response;
     let provider: any = null;
     try {
