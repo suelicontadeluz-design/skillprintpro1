@@ -1,0 +1,5 @@
+--- zapi-ingest v168
++++ zapi-ingest v169
+@@
+-      body:JSON.stringify({orcamento_id:proposalId,lead_id:leadId,preflight_event_id:preflightEventId}), signal:AbortSignal.timeout(30000),
++      body:JSON.stringify({orcamento_id:proposalId,lead_id:leadId,preflight_event_id:preflightEventId,payment_method:method === "pix" ? "PIX" : "CARD_CHECKOUT"}), signal:AbortSignal.timeout(30000),
