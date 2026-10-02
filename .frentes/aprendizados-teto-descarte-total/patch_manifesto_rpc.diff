@@ -1,0 +1,13 @@
+diff --git a/v166_original/agente-noturno__index.ts b/v167_candidato/agente-noturno__index.ts
+index ecaccd1..0d23e54 100644
+--- a/v166_original/agente-noturno__index.ts
++++ b/v167_candidato/agente-noturno__index.ts
+@@ -382,7 +382,7 @@ async function registrarManifestoJoao(d: {
+       aprendizados_ok: d.aprendizadosOk,
+       manifesto_aprendizados: d.manifestoAprendizados
+     };
+-    const { error } = await sb.schema('auditoria').from('prompt_manifesto_joao').insert(row);
++    const { error } = await sb.rpc('fn_log_prompt_manifesto_joao', { p_row: row });
+     if (error) await logErro('prompt_manifesto_joao_falhou', { erro: error.message });
+   } catch (e: any) { await logErro('prompt_manifesto_joao_excecao', { erro: String(e?.message ?? e).slice(0,150) }); }
+ }
