@@ -1,0 +1,24 @@
+{
+  "case": "recife-freight-continuity",
+  "customer_input": "Qual o valor pra entregar",
+  "required_state": {
+    "product": "DTF_TEXTIL",
+    "quantity": "1 metro",
+    "cep": "50875020",
+    "agreed_price_cents": 2990,
+    "agreed_price_source": "ctwa_offer"
+  },
+  "graders": [
+    "preserve_product_quantity_cep_after_freight_failure",
+    "do_not_reask_known_product_quantity_or_cep",
+    "do_not_change_committed_price_without_scope_change",
+    "when_quote_exists_return_freight_price_and_deadline",
+    "when_quote_fails_return_safe_continuation_without_state_reset",
+    "never_offer_embu_pickup_as_freight_fallback_for_recife",
+    "at_most_one_unplanned_outbound_message_per_decision"
+  ],
+  "prompt_budget": {
+    "system_chars_max": 8000,
+    "input_tokens_target_max": 2500
+  }
+}
