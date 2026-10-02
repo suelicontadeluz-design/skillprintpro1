@@ -1,0 +1,113 @@
+--- agente_noturno_ACTIVE.ts	2026-08-16 11:32:35.142519707 +0000
++++ agente_noturno_v163.ts	2026-08-16 11:49:59.670796843 +0000
+@@ -161,7 +161,7 @@
+ // linha em joao_envios (antes enviava fora do ledger). Kill switch joao_tts_ativo
+ // continua FALSE: com ele desligado o comportamento e identico ao da v4.24.0.
+ // Rollback: redeploy version 151.
+-const V = 'agente-noturno-v4.26.6';
++const V = 'agente-noturno-v4.27.0';
+ const MODEL = 'claude-haiku-4-5-20251001';
+ const ASSINATURA = '*Jo\u00e3o Barros:*\n';
+ const ASSINATURA_JULIA = '*Julia Bitencourt:*\n';
+@@ -1161,6 +1161,71 @@
+   } catch (e: any) { await logErro('voz_kill_switch_excecao', { erro: String(e?.message ?? e).slice(0, 150) }); return false; }
+ }
+ 
++// ============================================================================
++// CAMADA 3 — GATE COMERCIAL CANONICO (frente joao-contexto-comercial-canonico)
++// O Joao NAO aprende o conceito de "deal". A identidade comercial e resolvida
++// FORA daqui, por fn_contexto_comercial_do_lead, e chega ja decidida no campo
++// 'comportamento'. Esta edge nao reimplementa nenhuma regra do seletor.
++// ============================================================================
++
++type GateComercial = { comportamento: 'usar_deal_vigente' | 'iniciar_negociacao_nova' | 'fail_closed'; etapa: string | null; motivo: string };
++
++// Kill switch lido do banco a cada uso, sem cache: desligar precisa valer na
++// hora, sem redeploy. Falha de leitura => DESLIGADO.
++async function contextoCanonicoLigado(): Promise<boolean> {
++  try {
++    const { data, error } = await sb.from('sistema_config').select('valor_bool').eq('chave', 'joao_contexto_canonico_ativo').maybeSingle();
++    if (error) { await logErro('contexto_canonico_kill_switch_ilegivel', { erro: error.message }); return false; }
++    return data?.valor_bool === true;
++  } catch (e: any) { await logErro('contexto_canonico_kill_switch_excecao', { erro: String(e?.message ?? e).slice(0, 150) }); return false; }
++}
++
++// FAIL-CLOSED POR CONTRATO: se a RPC falhar, der timeout ou vier malformada,
++// o gate vira fail_closed. NUNCA volta silenciosamente ao deal legado — foi
++// justamente o caminho legado que entregava negociacao ja ganha como vigente
++// (34 casos apenas_legado e 1 divergente medidos em 16/08/2026).
++async function lerGateComercialCanonico(leadId: string | null): Promise<GateComercial | null> {
++  if (!leadId) return null;
++  if (!(await contextoCanonicoLigado())) return null;
++  try {
++    const { data, error } = await sb.rpc('fn_contexto_comercial_do_lead', { p_lead_id: leadId });
++    if (error) { await logErro('contexto_canonico_rpc_erro', { lead_id: leadId, erro: error.message }); return { comportamento: 'fail_closed', etapa: null, motivo: 'rpc_erro' }; }
++    const comp = data?.comportamento;
++    if (comp !== 'usar_deal_vigente' && comp !== 'iniciar_negociacao_nova' && comp !== 'fail_closed') {
++      await logErro('contexto_canonico_payload_invalido', { lead_id: leadId, comportamento: String(comp).slice(0, 40) });
++      return { comportamento: 'fail_closed', etapa: null, motivo: 'payload_invalido' };
++    }
++    return { comportamento: comp, etapa: data?.negociacao?.etapa ?? null, motivo: String(data?.identidade?.status ?? 'desconhecido') };
++  } catch (e: any) {
++    await logErro('contexto_canonico_excecao', { lead_id: leadId, erro: String(e?.message ?? e).slice(0, 150) });
++    return { comportamento: 'fail_closed', etapa: null, motivo: 'excecao' };
++  }
++}
++
++// O bloco e deterministico: o texto sai do 'comportamento', nunca de inferencia
++// do modelo sobre o historico.
++function blocoGateComercial(g: GateComercial | null): string {
++  if (!g) return '';
++  if (g.comportamento === 'usar_deal_vigente') {
++    return `\n\n[ESTADO COMERCIAL CANONICO: este cliente TEM uma negociacao em andamento${g.etapa ? ` (etapa "${g.etapa}")` : ''}. Trate ELA como a negociacao vigente. NAO trate conversa, orcamento ou cobranca anterior como se fosse outra negociacao em paralelo.]`;
++  }
++  if (g.comportamento === 'iniciar_negociacao_nova') {
++    return '\n\n[ESTADO COMERCIAL CANONICO: este cliente NAO tem negociacao comercial aberta. Construa uma negociacao NOVA. NAO herde pedido, orcamento ou valor de negociacao antiga como se ainda valesse.]';
++  }
++  return '\n\n[ESTADO COMERCIAL CANONICO INDISPONIVEL: nao foi possivel identificar com seguranca qual negociacao esta vigente. PROIBIDO afirmar qual e o pedido atual, retomar orcamento anterior, ou tratar cobranca/Pix/operacao financeira existente como prova de qual negociacao vale. PERMITIDO conversar, tirar duvidas e coletar informacao — mas o historico da conversa NAO tem autoridade para furar este gate. Se precisar dessa identidade, PERGUNTE ao cliente.]';
++}
++
++// TRAVA DURA SOB fail_closed (decisao do Alessandro, 16/08/2026).
++// O bloco [JA EXECUTADO] entrega ao modelo valor de cobranca, operation_id, CEP,
++// frete e o literal "Retome do ponto em que parou" — ou seja, IDENTIDADE e
++// CONTINUIDADE de negociacao por Pix/orcamento/operacao financeira. Sob
++// fail_closed ele e suprimido.
++// MAS o mesmo bloco carrega a guarda antiduplicidade ("PAGAMENTO JA CONFIRMADO,
++// NAO gere cobranca nova"). Apagar tudo trocaria "citar negociacao errada" por
++// "cobrar duas vezes". Entao a supressao mantem um RESIDUO SEM VALORES: preserva
++// a proibicao de cobrar, remove tudo que reconstroi identidade.
++const BLOCO_EXECUCOES_SUPRIMIDO = '\n\n[MOVIMENTACAO FINANCEIRA RECENTE EXISTE neste cliente, mas os detalhes NAO estao disponiveis porque a negociacao vigente nao pode ser identificada. NAO gere cobranca nova, NAO prometa Pix, NAO cite valores anteriores e NAO afirme o que ja foi feito. Se o cliente mencionar pagamento, peca que ele confirme o que foi combinado.]';
++
+ // Conteudo que o cliente PRECISA copiar nunca vira audio. Decisao 100%
+ // deterministica: o modelo nao opina sobre isso.
+ const RX_VOZ_URL = /https?:\/\/|www\./i;
+@@ -1353,6 +1418,7 @@
+ 
+   const execucoes = await lerExecucoes(leadId, pediuMudanca);
+   const blocoArquivos = await blocoArquivosDoLead(leadId);
++  const gateComercial = await lerGateComercialCanonico(leadId);
+ 
+   let blocoAnuncio = ''; let anuncioTexto = ''; let anuncioRecente = false;
+   try {
+@@ -1580,6 +1646,12 @@
+     hist = mescladas.slice(-34);
+   } catch {}
+ 
++  // Trava dura: sob fail_closed o [JA EXECUTADO] vira residuo sem valores.
++  const gateFechado = gateComercial?.comportamento === 'fail_closed';
++  const blocoExecucoesEfetivo = gateFechado
++    ? (execucoes.bloco ? BLOCO_EXECUCOES_SUPRIMIDO : '')
++    : execucoes.bloco;
++  if (gateFechado && execucoes.bloco) L('contexto_canonico_execucoes_suprimido', { phone: phone.slice(-4), motivo: gateComercial?.motivo });
+   const blocoEstado = estado ? `\n\n[FICHA: etapa=${estado.etapa}; slots=${JSON.stringify(estado.slots)}. N\u00c3O pergunte o preenchido.]` : '';
+   const blocoOrigem = (categoriaAnuncio && !mudouProduto) ? `\n\n[ORIGEM: an\u00fancio "${categoriaAnuncio}". Comece por este produto, mas atenda outro se o cliente pedir.]` : '';
+   const pediuPrecoAgora = REGEX_PEDIU_PRECO.test(mensagem);
+@@ -1589,7 +1661,7 @@
+ 
+   const systemFinal = SYSTEM + REGRAS_EXTRA
+     + (blocoAprendizados.trim() ? '\n\n' + blocoAprendizados : '')
+-    + blocoRelogio() + blocoEstado + execucoes.bloco + blocoMudanca
++    + blocoRelogio() + blocoGateComercial(gateComercial) + blocoEstado + blocoExecucoesEfetivo + blocoMudanca
+     + blocoLocalizacao(phone) + blocoOrigem + blocoAnuncio + blocoMudouProduto + blocoPreco + blocoObjecao + blocoRespostaCurta + blocoArquivos
+     + (conversaAtivaHoje ? '\n\n[Cliente EM CONVERSA hoje. Continue do ponto, sem cumprimentar de novo.]' : '\n\n[PRIMEIRO CONTATO: acolha, diga o que temos e fa\u00e7a UMA pergunta.]')
+     + (promessaJaDada ? '\n\n[Promessa de retorno J\u00c1 DITA. N\u00e3o repita.]' : '')
